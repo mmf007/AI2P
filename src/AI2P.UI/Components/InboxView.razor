@@ -1,0 +1,282 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Inbox человека (ТЗ гл. 5, экран 7): ВСЁ, что ждёт человека, в одном месте (T-165) —
+   задания, выданные людям, и висящие вопросы ИИ-агентов из чатов задач.
+   Ответ на задание завершает job (HumanConnector) — задача уходит в review;
+   ответ на вопрос уходит в чат задачи, и агент продолжает работу с того же места. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["inbox.title"]</MudText>
+    @if (_items.Count > 0)
+    {
+        <MudChip T="string" Size="Size.Small" Color="Color.Warning" data-inbox-count="@_items.Count">
+            @_items.Count
+        </MudChip>
+    }
+    <MudSpacer />
+    <MudIconButton Icon="@Icons.Material.Filled.Refresh" data-inbox-refresh="1" OnClick="ReloadAsync" />
+</MudStack>
+
+@if (_items.Count == 0)
+{
+    <MudAlert Severity="Severity.Success" data-inbox-empty="1">@L["inbox.empty"]</MudAlert>
+}
+else
+{
+    <MudStack Spacing="3">
+        @foreach (var item in _items)
+        {
+            var isQuestion = item.Kind == "question";
+            <MudPaper Class="pa-4" Elevation="2" data-inbox-item="@item.Kind"
+                      Style="@(isQuestion ? "border-left: 4px solid var(--mud-palette-warning);" : null)">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    @if (isQuestion)
+                    {
+                        <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small" Color="Color.Warning" />
+                    }
+                    <MudText Typo="Typo.subtitle1">
+                        <MudLink OnClick="@(() => State.OpenTask(item.Job.TaskId, item.TaskDisplayId, item.TaskTitle, FrameIndex))">
+                            <b>@item.TaskDisplayId</b> @item.TaskTitle
+                        </MudLink>
+                    </MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">
+                        @(isQuestion ? L["inbox.question"] : L["jobstate." + item.Job.State.ToDb()])
+                    </MudChip>
+                    @if (item.ExecutorNick.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption">@item.ExecutorNick</MudText>
+                    }
+                    <MudSpacer />
+                    <MudText Typo="Typo.caption">@item.CreatedAt.ToLocalTime().ToString("g")</MudText>
+                </MudStack>
+
+                @if (isQuestion)
+                {
+                    @* сам вопрос агента — Markdown, как в чате задачи *@
+                    <MudPaper Elevation="0" Class="pa-2 mb-2 ai2p-md-preview" data-inbox-question="1">
+                        @((MarkupString)Md.ToHtml(item.QuestionText))
+                    </MudPaper>
+                    @if (!item.CanAnswer)
+                    {
+                        @* агента уже нет: задание остановлено или упало — продолжать некого.
+                           Такой вопрос висел в Inbox вечно (ответ он не принимает), поэтому
+                           рядом с объяснением стоит кнопка «снять вопрос» (T-1-S1) *@
+                        <MudAlert Severity="Severity.Warning" Dense="true" data-inbox-stale="1">
+                            @L["inbox.questionStale"]
+                        </MudAlert>
+                        <MudStack Row="true" Spacing="2" Class="mt-2">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" Disabled="@_busy"
+                                       StartIcon="@Icons.Material.Filled.NotificationsOff"
+                                       data-inbox-dismiss="1"
+                                       OnClick="@(() => DismissQuestionAsync(item.QuestionId!))">
+                                @L["inbox.dismiss"]
+                            </MudButton>
+                        </MudStack>
+                    }
+                    else
+                    {
+                        @* варианты ответа кнопками — ровно как в чате задачи (ТЗ v1.17) *@
+                        @if (item.Options.Count > 0)
+                        {
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mb-2">
+                                @foreach (var option in item.Options)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                               Disabled="@_busy" data-inbox-option="@option"
+                                               OnClick="@(() => AnswerQuestionAsync(item.QuestionId!, option))">
+                                        @option
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        }
+                        <MarkdownEditor Value="@AnswerOf(item.QuestionId!)"
+                                        ValueChanged="@(text => _answers[item.QuestionId!] = text)"
+                                        Label="@L["inbox.answerQuestion"]" ProjectId="@item.ProjectId"
+                                        Rows="3" MinHeightPx="80" />
+                        <MudStack Row="true" Spacing="2" Class="mt-2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Warning"
+                                       data-inbox-send="question"
+                                       Disabled="@(_busy || AnswerOf(item.QuestionId!).Trim().Length == 0)"
+                                       OnClick="@(() => AnswerQuestionAsync(item.QuestionId!, AnswerOf(item.QuestionId!)))">
+                                @L["inbox.submit"]
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy"
+                                       OnClick="@(() => CancelAsync(item.Job.Id))">@L["inbox.cancelJob"]</MudButton>
+                        </MudStack>
+                    }
+                }
+                else
+                {
+                    @if (item.RequestText.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption">@L["inbox.request"]:</MudText>
+                        <MudPaper Elevation="0" Class="pa-2 mb-2 ai2p-md-preview">@((MarkupString)Md.ToHtml(item.RequestText))</MudPaper>
+                    }
+
+                    @* ответ — Markdown, единый MD-редактор (ТЗ гл. 11) *@
+                    <MarkdownEditor Value="@AnswerOf(item.Job.Id)"
+                                    ValueChanged="@(text => _answers[item.Job.Id] = text)"
+                                    Label="@L["inbox.answer"]" ProjectId="@item.ProjectId"
+                                    Rows="3" MinHeightPx="80" />
+                    <MudStack Row="true" Spacing="2" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" data-inbox-send="job"
+                                   Disabled="@(_busy || AnswerOf(item.Job.Id).Trim().Length == 0)"
+                                   OnClick="@(() => AnswerAsync(item.Job.Id))">@L["inbox.submit"]</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy"
+                                   OnClick="@(() => CancelAsync(item.Job.Id))">@L["inbox.cancelJob"]</MudButton>
+                    </MudStack>
+                }
+            </MudPaper>
+        }
+    </MudStack>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    private List<InboxItemDto> _items = [];
+    private readonly Dictionary<string, string> _answers = [];
+    private bool _busy;
+    private CancellationTokenSource? _poll;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        StartPolling();
+    }
+
+    public void Dispose()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+    }
+
+    /// <summary>
+    /// Вопрос агента появляется, пока Inbox уже открыт (агент работает в фоне), — список
+    /// перечитывается сам, иначе «все вопросы в одном месте» работает только после F5.
+    /// </summary>
+    private void StartPolling()
+    {
+        _poll = new CancellationTokenSource();
+        var ct = _poll.Token;
+        _ = InvokeAsync(async () =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(10000, ct).ContinueWith(_ => { }, TaskScheduler.Default);
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+                await ReloadAsync();
+                StateHasChanged();
+            }
+        });
+    }
+
+    private string AnswerOf(string id) => _answers.TryGetValue(id, out var text) ? text : "";
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _items = await Api.GetInboxAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task AnswerAsync(string jobId)
+    {
+        try
+        {
+            _busy = true;
+            await Api.AnswerJobAsync(jobId, AnswerOf(jobId));
+            _answers.Remove(jobId);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Ответ на вопрос агента прямо из Inbox (T-165): уходит в чат задачи,
+    /// агент продолжает работу с сохранённого места.</summary>
+    private async Task AnswerQuestionAsync(string questionId, string text)
+    {
+        if (text.Trim().Length == 0)
+        {
+            return;
+        }
+        try
+        {
+            _busy = true;
+            await Api.AnswerQuestionAsync(questionId, text.Trim());
+            _answers.Remove(questionId);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Снять вопрос, чьё задание уже не ждёт ответа (T-1-S1): вопрос закрывается
+    /// без ответа и уходит из Inbox и из счётчиков задачи.</summary>
+    private async Task DismissQuestionAsync(string questionId)
+    {
+        try
+        {
+            _busy = true;
+            await Api.DismissQuestionAsync(questionId);
+            _answers.Remove(questionId);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelAsync(string jobId)
+    {
+        try
+        {
+            _busy = true;
+            await Api.CancelJobAsync(jobId);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

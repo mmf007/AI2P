@@ -1,0 +1,75 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* ВЫБОР МОДЕЛИ, ПОД КОТОРУЮ ОБУЧАТЬ АДАПТЕР (T-12-S1).
+
+   Список — АКТИВНЫЕ записи справочника, у которых в профайле объявлена работа с LoRA
+   (T-13-S1). Оба условия обязательны и означают разное: «не поддерживает LoRA» — свойство
+   модели, «выключена» — решение человека на этом сервере; предлагать ни ту, ни другую нельзя,
+   но сказать, почему список пуст, надо по-разному.
+
+   Показываем НОМЕР и КОД записи (M-7 / Kandinsky-5-T2V), как сказано в задании: имя модели
+   узнаваемо, а номер — то, чем она названа в справочнике и в отчётах. Уже заведённые строки
+   в список не попадают: обучать один адаптер дважды под одни веса незачем. *@
+<MudDialog>
+    <DialogContent>
+        <MudPaper Outlined="true" Elevation="0" Style="min-width: 360px; max-height: 420px; overflow-y: auto;"
+                  data-lorapick-list="1">
+            @if (_models is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_models.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Class="pa-3" data-lorapick-empty="1">@L["lora.pick.empty"]</MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true">
+                    @foreach (var model in _models)
+                    {
+                        <MudListItem T="string" data-lorapick-model="@model.Id"
+                                     OnClick="@(() => Dialog.Close(DialogResult.Ok(model.Id)))">
+                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                <MudText Typo="Typo.body2" Style="min-width: 56px;">
+                                    <b>@model.DisplayId</b>
+                                </MudText>
+                                <MudText Typo="Typo.body2">@model.Name</MudText>
+                            </MudStack>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudPaper>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Модели, под которые адаптер уже заведён: второй раз их не предлагаем.</summary>
+    [Parameter] public List<string> Taken { get; set; } = [];
+
+    private List<AiModel>? _models;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var all = await Api.GetModelsAsync();
+            _models = all
+                .Where(m => m.IsActive && m.Lora.Supported && !Taken.Contains(m.Id))
+                .OrderBy(m => DisplayIds.Order(m.DisplayId))
+                .ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _models = [];
+        }
+    }
+}

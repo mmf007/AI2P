@@ -1,0 +1,7 @@
+@* Страницы UI живут в AI2P.UI (RCL) — подключаются через AdditionalAssemblies. *@
+<Router AppAssembly="typeof(Program).Assembly"
+        AdditionalAssemblies="new[] { typeof(AI2P.UI.Pages.Home).Assembly }">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(AI2P.UI.MainLayout)" />
+    </Found>
+</Router>

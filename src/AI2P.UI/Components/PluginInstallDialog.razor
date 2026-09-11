@@ -1,0 +1,424 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject UiState State
+@implements IDisposable
+
+@* ОКНО УСТАНОВКИ И НАСТРОЙКИ ПЛАГИНА (T-136-S0). Раньше кнопка «Инициализировать» в списке
+   плагинов молча звала действие и не показывала ничего — а плагину сначала нужна ПРОГРАММА,
+   и человеку про неё надо решить два вопроса:
+
+   1. «она у меня уже стоит» — тогда указать, ГДЕ (поле пути с обзором по дискам этого
+      компьютера). Путь живёт в config.json ЭТОГО сервера и не реплицируется никогда
+      (9fee2887): C:\Program Files\Blender соседу-линуксоиду не годится;
+   2. «её нет» — тогда поставить пакет справочника, и ровно так же, как у модели: в фоне,
+      с размером, прогрессом и отменой (ModelInstallDialog).
+
+   И только потом — «Инициализировать»: завести действия в справочнике и записи опыта. *@
+<MudDialog>
+    <DialogContent>
+        @if (_data is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudStack Spacing="3" Style="min-width: 620px;" data-plugini-form="@Code">
+                @* --- ЧТО СЕЙЧАС С ПРОГРАММОЙ --- *@
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.subtitle1">@L["plugins.block.software"]</MudText>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             data-plugini-state="@_data.Plugin.ShownState">
+                        @L["plugin.state." + _data.Plugin.ShownState]
+                    </MudChip>
+                </MudStack>
+                @if (_data.SoftwareItems.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" data-plugini-soft="notNeeded">@L["plugins.notNeeded"]</MudText>
+                }
+                else
+                {
+                    @* --- ПРОГРАММЫ ПЛАГИНА ПОСТРОЧНО (T-146-S0) ---
+                       Плагин вправе вести к нескольким программам, и тогда ПУТЬ у каждой свой.
+                       Поэтому и настройка пути, и проверка, и установка пакета живут В САМОЙ
+                       СТРОКЕ, а не одной панелью на весь плагин. Кнопки значками: надписи в
+                       узкой строке заезжали за края кнопок. *@
+                    <div data-plugini-block="software">
+                        <MudSimpleTable Dense="true">
+                            <thead>
+                                <tr>
+                                    <th style="width:1%;"></th>
+                                    <th>@L["plugins.soft"]</th>
+                                    <th>@L["install.package"]</th>
+                                    <th style="text-align:right;">@L["install.size"]</th>
+                                    <th style="text-align:right;">@L["install.downloaded"]</th>
+                                    <th>@L["install.state"]</th>
+                                    <th style="width:1%;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var item in _data.SoftwareItems)
+                                {
+                                    <tr data-plugini-soft-row="@item.Id">
+                                        <td>
+                                            @* ЗЕЛЁНАЯ ГАЛКА = найдено И версия годная: с этой
+                                               программой всё в порядке *@
+                                            @if (item.Ok)
+                                            {
+                                                <MudTooltip Text="@L["plugins.softOk"]">
+                                                    <MudIcon Icon="@Icons.Material.Filled.CheckCircle"
+                                                             Color="Color.Success" data-plugini-ok="@item.Id" />
+                                                </MudTooltip>
+                                            }
+                                            else
+                                            {
+                                                <MudIcon Icon="@Icons.Material.Outlined.RadioButtonUnchecked"
+                                                         Color="Color.Default" data-plugini-notok="@item.Id" />
+                                            }
+                                        </td>
+                                        <td>
+                                            @item.Name
+                                            @if (item.Running)
+                                            {
+                                                <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                                     Class="ml-2" Style="vertical-align: middle;" />
+                                            }
+                                            <MudText Typo="Typo.caption" Class="d-block"
+                                                     Style="opacity:.7; word-break: break-all;"
+                                                     data-plugini-soft-path="@item.Id">
+                                                @(item.Ok
+                                                    ? item.Path + (item.Version.Length > 0
+                                                        ? $" ({L["plugins.version"]} {item.Version})" : "")
+                                                    : L["plugins.notFound"]
+                                                      + (item.Required ? ". " + L["plugins.required"] : ""))
+                                            </MudText>
+                                            @if (item.ManualPath.Length > 0 && !item.Ok)
+                                            {
+                                                <MudText Typo="Typo.caption" Class="d-block"
+                                                         Style="opacity:.6; word-break: break-all;">
+                                                    @L["plugins.path"]: @item.ManualPath
+                                                </MudText>
+                                            }
+                                        </td>
+                                        <td style="word-break: break-all;">
+                                            @(item.Package.Length > 0 ? item.Package : "—")
+                                        </td>
+                                        <td style="text-align:right; white-space:nowrap;">
+                                            @(item.PackageStatus is { Size: > 0 } size
+                                                ? Units.Bytes(size.Size) : "—")
+                                        </td>
+                                        <td style="text-align:right; white-space:nowrap;"
+                                            data-plugini-downloaded="@(item.PackageStatus?.Downloaded ?? 0)">
+                                            @(item.PackageStatus is { Downloaded: > 0 } got
+                                                ? Units.Bytes(got.Downloaded) : "—")
+                                        </td>
+                                        <td style="white-space:nowrap;"
+                                            data-plugini-package-state="@(item.PackageStatus?.State ?? "")">
+                                            @(item.PackageStatus is { } state
+                                                ? state.Unknown ? L["install.package.unknown"]
+                                                    : state.System ? L["install.package.system"]
+                                                    : L["install.package." + state.State]
+                                                : "—")
+                                        </td>
+                                        <td style="text-align:right; white-space:nowrap;">
+                                            @* НАСТРОЙКА ПУТИ — ОКНОМ ОТ ЭТОЙ СТРОКИ: у каждой
+                                               программы свой путь в config.json этого сервера *@
+                                            <MudTooltip Text="@L["plugins.setupSoft"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Settings"
+                                                               Size="Size.Small" Disabled="@(!CanEdit || _busy)"
+                                                               data-plugini-setup="@item.Id"
+                                                               OnClick="@(() => OpenPathAsync(item))" />
+                                            </MudTooltip>
+                                            <MudTooltip Text="@L["plugins.check"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Search"
+                                                               Size="Size.Small" Disabled="@_busy"
+                                                               data-plugini-probe="@item.Id"
+                                                               OnClick="ProbeAsync" />
+                                            </MudTooltip>
+                                            @if (item.Running)
+                                            {
+                                                <MudTooltip Text="@L["install.cancel"]">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Close"
+                                                                   Size="Size.Small" Color="Color.Error"
+                                                                   data-plugini-cancel="@item.Id"
+                                                                   OnClick="@(() => CancelAsync(item))" />
+                                                </MudTooltip>
+                                            }
+                                            else if (item.Package.Length > 0)
+                                            {
+                                                <MudTooltip Text="@L["plugins.install"]">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Download"
+                                                                   Size="Size.Small" Color="Color.Primary"
+                                                                   Disabled="@(!CanEdit || _busy || item.Ok)"
+                                                                   data-plugini-install="@item.Id"
+                                                                   OnClick="@(() => InstallAsync(item))" />
+                                                </MudTooltip>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                        @foreach (var item in _data.SoftwareItems.Where(i => i.PackageStatus is { Size: > 0 }))
+                        {
+                            <MudProgressLinear Class="mt-2" Size="Size.Large" Rounded="true"
+                                               Color="@(item.PackageStatus!.Installed ? Color.Success : Color.Primary)"
+                                               Value="@Percent(item.PackageStatus!)">
+                                <MudText Typo="Typo.caption">@((int)Percent(item.PackageStatus!))%</MudText>
+                            </MudProgressLinear>
+                        }
+                        @if (_data.Running && _data.CurrentFile.Length > 0)
+                        {
+                            <MudText Typo="Typo.caption" data-plugini-current="1">
+                                @L["install.current"]: @_data.CurrentFile
+                            </MudText>
+                        }
+                        @* КУДА ИМЕННО ВСТАЁТ ПРОГРАММА (T-161-S0). Пакет — это ПОРТАТИВНЫЙ
+                           архив: он скачивается и распаковывается в каталог пакетов ЭТОГО
+                           компьютера, установщик системы не запускается и в «Установку и
+                           удаление программ» такая программа не попадает. Не сказав этого,
+                           окно выглядит так, будто установка не состоялась вовсе *@
+                        @* у программы, найденной в системе (System), в этом поле лежит её файл,
+                           а не наш каталог — «каталог установки» про неё не говорим *@
+                        @foreach (var item in _data.SoftwareItems
+                            .Where(i => i.PackageStatus is { Dir.Length: > 0, System: false }))
+                        {
+                            <MudText Typo="Typo.caption" Class="d-block"
+                                     Style="opacity:.75; word-break: break-all;"
+                                     data-plugini-dir="@item.Id">
+                                @item.Name — @L["plugins.installDir"]: @item.PackageStatus!.Dir
+                            </MudText>
+                        }
+                        @if (_data.SoftwareItems.Any(i => i.Package.Length > 0))
+                        {
+                            <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity:.75;"
+                                     data-plugini-portable="1">
+                                @L["plugins.portable"]
+                            </MudText>
+                        }
+                        @foreach (var item in _data.SoftwareItems.Where(i => i.Hint.Length > 0 && !i.Ok))
+                        {
+                            <MudText Typo="Typo.caption" Class="d-block" Style="opacity:.75;">
+                                @item.Name: @item.Hint
+                            </MudText>
+                        }
+                    </div>
+                }
+                @if (_data.Error.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true" data-plugini-error="1">@_data.Error</MudAlert>
+                }
+                <MudText Typo="Typo.caption" Style="opacity:.75;">@L["plugins.setupHint"]</MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_data is not null && CanEdit && _data.Plugin.HasManifest)
+        {
+            @if (_data.Plugin.State == PluginStates.Disabled)
+            {
+                <MudButton Color="Color.Success" Disabled="@_busy" data-plugini-enable="1"
+                           OnClick="@(() => RunAsync("enable"))">@L["plugins.enable"]</MudButton>
+            }
+            else
+            {
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@_busy"
+                           data-plugini-init="1" OnClick="@(() => RunAsync("initialize"))">
+                    @L["plugins.init"]
+                </MudButton>
+            }
+        }
+        <MudSpacer />
+        <MudButton data-plugini-close="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_changed)))">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Код плагина (<c>editor.blender</c>).</summary>
+    [Parameter, EditorRequired] public string Code { get; set; } = "";
+
+    private PluginInstallDto? _data;
+    private bool _busy;
+    private bool _changed;
+    private bool _disposed;
+
+    /// <summary>Раздел настроек организации: правка — админу этого компьютера (b26391b3).</summary>
+    private bool CanEdit => State.CanAdmin;
+
+    public void Dispose() => _disposed = true; // останавливает опрос прогресса
+
+    /// <summary>Перерисовать окно, если оно ещё открыто: фоновые цепочки (опрос установки,
+    /// проверка софта после неё) заканчиваются уже после закрытия окна (T-161-S0).</summary>
+    private Task RedrawAsync() => _disposed ? Task.CompletedTask : InvokeAsync(StateHasChanged);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = ResolveSizeAsync();  // размер дистрибутива — несколько секунд сети, потому фоном
+        _ = PollAsync();         // установка могла уже идти (окно открыто повторно)
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _data = await Api.GetPluginInstallAsync(Code, L.Lang);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Размер дистрибутива: ошибка сети установке не мешает — покажем «—».
+    /// Пакет у каждой программы свой, поэтому и спрашивается он на каждую строку
+    /// отдельно (T-146-S0) — по очереди, чтобы не бить в сервер раздачи разом.</summary>
+    private async Task ResolveSizeAsync()
+    {
+        var unknown = (_data?.SoftwareItems ?? [])
+            .Where(i => i.Package.Length > 0 && i.PackageStatus is { Size: 0 })
+            .Select(i => i.Id).ToList();
+        foreach (var id in unknown)
+        {
+            try
+            {
+                var resolved = await Api.ResolvePluginInstallSizeAsync(Code, L.Lang, id);
+                if (_disposed || _data is null)
+                {
+                    return;
+                }
+                var fresh = resolved.SoftwareItems.FirstOrDefault(i => i.Id == id);
+                var mine = _data.SoftwareItems.FirstOrDefault(i => i.Id == id);
+                if (fresh?.PackageStatus is not null && mine is not null)
+                {
+                    mine.PackageStatus = fresh.PackageStatus;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (ApiException)
+            {
+            }
+        }
+    }
+
+    /// <summary>Пока идёт установка — обновление прогресса раз в секунду. Кончилась —
+    /// проверка софта заново: программа появилась на диске минуту назад, а ответ поиска
+    /// живёт минуту (PluginSoftwareProbe), и без явной проверки окно показывало бы «не найден».</summary>
+    private async Task PollAsync()
+    {
+        var wasRunning = false;
+        while (!_disposed && _data is { Running: true })
+        {
+            wasRunning = true;
+            await Task.Delay(1000);
+            if (_disposed)
+            {
+                return;
+            }
+            await LoadAsync();
+            await RedrawAsync();
+        }
+        if (wasRunning && !_disposed)
+        {
+            _changed = true;
+            await ProbeAsync();
+        }
+    }
+
+    private async Task InstallAsync(PluginSoftwareItemDto item)
+    {
+        _busy = true;
+        try
+        {
+            _data = await Api.StartPluginInstallAsync(Code, L.Lang, item.Id);
+            _changed = true;
+            _ = PollAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+        await RedrawAsync();
+    }
+
+    private async Task CancelAsync(PluginSoftwareItemDto item)
+    {
+        try
+        {
+            _data = await Api.CancelPluginInstallAsync(Code, L.Lang, item.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await RedrawAsync();
+    }
+
+    /// <summary>НАСТРОЙКА ОДНОЙ ПРОГРАММЫ: путь спрашивается отдельным окном от ЭТОЙ строки —
+    /// у плагина с несколькими программами путь у каждой свой (T-146-S0).</summary>
+    private async Task OpenPathAsync(PluginSoftwareItemDto item)
+    {
+        var parameters = new DialogParameters<PluginPathDialog>
+        {
+            { d => d.Code, Code },
+            { d => d.Soft, item.Id },
+            { d => d.Name, item.Name },
+            { d => d.Hint, item.Hint },
+            { d => d.Path, item.ManualPath },
+            { d => d.CanEdit, CanEdit },
+        };
+        var dialog = await Dialogs.ShowAsync<PluginPathDialog>(L["plugins.setupSoft"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: true })
+        {
+            // путь сменился — накопленный ответ поиска уже не про него, спрашиваем заново
+            _changed = true;
+            await ProbeAsync();
+        }
+    }
+
+    private Task ProbeAsync() => RunAsync("probe");
+
+    /// <summary>
+    /// Действие жизненного цикла: probe / initialize / enable.
+    ///
+    /// <para>ПЕРЕРИСОВКА ПОСЛЕ СНЯТИЯ ЗАНЯТОСТИ ОБЯЗАТЕЛЬНА (T-161-S0). Метод зовётся не
+    /// только из обработчика кнопки, но и ФОНОМ — из <see cref="PollAsync"/>, когда установка
+    /// закончилась. У фоновой цепочки Blazor сам перерисовку не делает, поэтому последним
+    /// нарисованным состоянием оставалось «занято»: кнопка «Инициализировать» и все кнопки
+    /// строк оставались серыми до закрытия и повторного открытия окна.</para>
+    /// </summary>
+    private async Task RunAsync(string action)
+    {
+        _busy = true;
+        await RedrawAsync();
+        try
+        {
+            await Api.PluginActionAsync(Code, action, L.Lang);
+            _changed = true;
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+        await RedrawAsync();
+    }
+
+    private static double Percent(ModelPackageStatusDto package) => package.Size > 0
+        ? Math.Clamp(100.0 * package.Downloaded / package.Size, 0, 100)
+        : 0;
+}

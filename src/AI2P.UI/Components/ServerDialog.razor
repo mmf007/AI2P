@@ -1,0 +1,530 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+@inject UiState State
+@inject NavigationManager Nav
+@inject IDialogService Dialogs
+
+@* Форма УДАЛЁННОГО сервера кластера (ТЗ гл. 6, todo41 п. 5): протокол, имя хоста, порт,
+   активность — больше про чужой сервер мы ничего не решаем, его настройки правит его хозяин.
+   Внешний код сервера в организации (S0, S1, …) только для чтения: его выдаёт дирижёр.
+   Список организаций сервера правится здесь же — связь «многие ко многим» (п. 11).
+   Форма ЛОКАЛЬНОГО сервера другая (LocalServerDialog): его адрес лежит в config.json. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 420px;">
+            <MudTextField @bind-Value="_dto.Name" Label="@L["servers.name"]" Immediate="true" />
+            <MudStack Row="true" Spacing="2">
+                <MudSelect T="string" @bind-Value="_dto.Protocol" Label="@L["servers.protocol"]"
+                           Style="max-width: 120px;">
+                    <MudSelectItem T="string" Value="@("http")">http</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("https")">https</MudSelectItem>
+                </MudSelect>
+                <MudTextField @bind-Value="_dto.Hostname" Label="@L["servers.hostname"]"
+                              HelperText="@L["servers.hostnameHint"]" Immediate="true" />
+                <MudNumericField T="int" @bind-Value="_dto.Port" Label="@L["settings.port"]"
+                                 Min="1" Max="65535" Style="max-width: 120px;" />
+            </MudStack>
+            @* ВТОРОЙ (ВНЕШНИЙ) АДРЕС СЕРВЕРА (T-50-S0). Обычно приезжает от самого сервера
+               репликацией — он задаёт его у себя, в форме своего сервера. Здесь его можно
+               и вписать руками: пока обмена не было, приехать ему неоткуда. Пусто — второго
+               адреса нет; порт без имени ничего не значит и поле погашено *@
+            <MudStack Row="true" Spacing="2">
+                <MudTextField @bind-Value="_dto.Hostname2" Label="@L["servers.hostname2"]"
+                              HelperText="@L["servers.peerHostname2Hint"]" Immediate="true"
+                              data-server-host2="1" />
+                <MudNumericField T="int?" @bind-Value="_dto.Port2" Label="@L["servers.port2"]"
+                                 Min="1" Max="65535" Clearable="true" Disabled="@(!HasHostname2)"
+                                 HelperText="@L["servers.port2Hint"]" Style="max-width: 120px;" />
+            </MudStack>
+            <MudTextField @bind-Value="_dto.BasePath" Label="@L["servers.basePath"]" />
+            <MudSwitch T="bool" @bind-Value="_dto.IsActive" Label="@L["common.active"]" Color="Color.Primary" />
+
+            @* --- ВРЕМЕНА РЕПЛИКАЦИИ ПАРЫ «ЭТОТ СЕРВЕР ↔ ВЫБРАННЫЙ» (T-50-S0) ---
+               Это настройка не сервера самого по себе, а ПАРЫ: как часто ЭТОТ компьютер
+               обменивается с выбранным. Поэтому поля стоят в форме ЧУЖОГО сервера (а в форме
+               своего их нет вовсе: пары с самим собой не бывает).
+
+               Значение лежит в записи РЯДОВОГО сервера пары — так его видят оба конца
+               (ReplicationService.Intervals). Значит, на рядовом сервере, открывшем форму
+               дирижёра, правится СВОЯ запись, а на дирижёре, открывшем форму рядового, —
+               запись рядового. Считает это IntervalOwner. *@
+            @if (ReplicationPair)
+            {
+                <MudDivider Class="my-2" />
+                <MudText Typo="Typo.subtitle2">@L["repl.title"]</MudText>
+                <MudText Typo="Typo.caption">@L["repl.pairHint"]</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="int?" @bind-Value="_interval" Label="@L["repl.interval"]"
+                                     HelperText="@L["repl.intervalHint"]" Min="30" Clearable="true"
+                                     Disabled="@(!CanEditReplication)" data-repl-interval="1" />
+                    <MudNumericField T="int?" @bind-Value="_retry" Label="@L["repl.retry"]"
+                                     HelperText="@L["repl.retryHint"]" Min="15" Clearable="true"
+                                     Disabled="@(!CanEditReplication)" />
+                </MudStack>
+                @if (!CanEditReplication)
+                {
+                    <MudText Typo="Typo.caption">@L["repl.conductorOnly"]</MudText>
+                }
+            }
+
+            @if (Source is not null)
+            {
+                @* внутренний ключ и коды — только для чтения (todo41 пп. 5–6) *@
+                <MudDivider Class="my-2" />
+                <MudTextField T="string" Value="@Source.Id" Label="@L["servers.unid"]"
+                              ReadOnly="true" Disabled="true" HelperText="@L["servers.unidHint"]" />
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.NetworkCheck"
+                               OnClick="CheckAsync" Disabled="@_busy">@L["servers.check"]</MudButton>
+                    @if (_check is { } check)
+                    {
+                        <MudText Typo="Typo.caption"
+                                 Color="@(check.Ok && check.SameServer ? Color.Success : Color.Error)">
+                            @CheckText(check)
+                        </MudText>
+                    }
+                </MudStack>
+
+                @* организации сервера — та же связь, что в форме организации (п. 11) *@
+                <MudDivider Class="my-2" />
+                <MudText Typo="Typo.subtitle2">@L["servers.orgs"]</MudText>
+                @if (Orgs.Count == 0)
+                {
+                    <MudText Typo="Typo.caption">@L["servers.orgs.empty"]</MudText>
+                }
+                @foreach (var org in Orgs)
+                {
+                    var orgId = org.Id;
+                    <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                 Value="@_orgIds.Contains(orgId)"
+                                 ValueChanged="@(value => ToggleOrg(orgId, value))"
+                                 Label="@($"{org.Name} ({org.Code}){LinkNote(orgId)}")" />
+                }
+
+                @* СМЕНА ДИРИЖЁРА (T-21-S1): раздел есть только на форме сервера, который
+                   дирижёром НЕ является. Подать заявку вправе две стороны — сам назначаемый
+                   сервер и сегодняшний дирижёр, — поэтому здесь кнопка живая только у
+                   дирижёра; правило считает сервер (ConductorFlow), а не форма *@
+                @if (_conductor is { Applicable: true })
+                {
+                    <MudDivider Class="my-2" />
+                    <MudText Typo="Typo.subtitle2">@L["conductor.title"]</MudText>
+                    <MudText Typo="Typo.caption">@L["conductor.assignHint"]</MudText>
+                    @if (_conductor.Problem.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning"
+                                 data-conductor-problem="1">@_conductor.Problem</MudText>
+                    }
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Star" data-conductor-assign="1"
+                                   Disabled="@(_busy || !(_conductor.CanRequest && _conductor.IsServerAdmin))"
+                                   OnClick="AssignConductorAsync">@L["conductor.assign"]</MudButton>
+                        @if (_conductor.Request is not null)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@_busy"
+                                       StartIcon="@Icons.Material.Filled.OpenInNew"
+                                       data-conductor-open="1"
+                                       OnClick="AssignConductorAsync">@L["conductor.row.open"]</MudButton>
+                        }
+                    </MudStack>
+                    @if (!_conductor.IsServerAdmin)
+                    {
+                        <MudText Typo="Typo.caption">@L["account.serverAdmin.needed"]</MudText>
+                    }
+                }
+
+                @* подключение к чужому дирижёру: заявку подтверждает человек на той стороне *@
+                <MudDivider Class="my-2" />
+                <MudText Typo="Typo.subtitle2">@L["servers.join.title"]</MudText>
+                <MudText Typo="Typo.caption">@L["servers.join.hint"]</MudText>
+                @if (Source.JoinStatus.Length > 0)
+                {
+                    <MudAlert Severity="@JoinSeverity(Source.JoinStatus)" Dense="true">
+                        @L["servers.join.state." + Source.JoinStatus] @Source.JoinOrgCode
+                    </MudAlert>
+                }
+                @* ЗАЯВКА АНОНИМНАЯ (T-139, доработка): почту и пароль аккаунта НА ТОМ сервере
+                   здесь больше не спрашивают — они нужны были только ради списка его
+                   организаций, то есть человека просили отдать свои реквизиты чужому серверу.
+                   Код организации необязателен: если на том сервере она одна, возьмётся она *@
+                @* ПЕРЕЧЕНЬ ОРГАНИЗАЦИЙ ДИРИЖЁРА (T-141): приходит в ответ на заявку без кода,
+                   если организаций там несколько. Выбор МНОЖЕСТВЕННЫЙ — сервер вправе
+                   работать сразу в нескольких, заявка уйдёт в каждую отмеченную *@
+                @if (_choices.Count > 0)
+                {
+                    <MudText Typo="Typo.caption">@L["join.orgs.hint"]</MudText>
+                    @foreach (var choice in _choices)
+                    {
+                        var code = choice.Code;
+                        <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                     Value="@_joinCodes.Contains(code)"
+                                     ValueChanged="@(value => ToggleJoinOrg(code, value))"
+                                     Label="@($"{choice.Name} ({choice.Code})")" />
+                    }
+                }
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudTextField @bind-Value="_joinOrgCode" Label="@L["servers.join.orgCode"]"
+                                  HelperText="@L["servers.join.orgCodeHint"]" Immediate="true" />
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@_busy"
+                               StartIcon="@Icons.Material.Filled.Send" OnClick="JoinAsync">
+                        @L["servers.join.send"]
+                    </MudButton>
+                    @if (Source.JoinStatus.Length > 0)
+                    {
+                        <MudButton Variant="Variant.Text" Size="Size.Small" Disabled="@_busy"
+                                   StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshJoinAsync">
+                            @L["servers.join.refresh"]
+                        </MudButton>
+                    }
+                </MudStack>
+                @if (Source.LastError.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@Source.LastError</MudAlert>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — добавление нового сервера кластера.</summary>
+    [Parameter] public ServerNode? Source { get; set; }
+
+    /// <summary>Организации установки — из них выбирается список организаций сервера (п. 11).</summary>
+    [Parameter] public List<Organization> Orgs { get; set; } = [];
+
+    /// <summary>Мы — дирижёр текущей организации: только он задаёт интервалы репликации
+    /// чужим серверам (todo43).</summary>
+    [Parameter] public bool IsLocalConductor { get; set; }
+
+    /// <summary>Запись ЭТОГО сервера в списке (T-50-S0): времена репликации пары лежат
+    /// в записи рядового её конца, и на рядовом сервере это как раз мы сами.</summary>
+    [Parameter] public ServerNode? Local { get; set; }
+
+    private readonly ServerSaveDto _dto = new();
+    private readonly HashSet<string> _orgIds = [];
+    private string _joinOrgCode = "";
+    /// <summary>Организации дирижёра, присланные в ответ на заявку без кода (T-141),
+    /// и отмеченные из них: выбор множественный.</summary>
+    private List<ClusterOrgBriefDto> _choices = [];
+    private readonly HashSet<string> _joinCodes = [];
+    /// <summary>Ключ сервера, по которому идут обращения: после обмена заявкой
+    /// он заменяется НАСТОЯЩИМ ключом дирижёра (AdoptId), и старый уже не найдётся.</summary>
+    private string _serverId = "";
+    private int? _interval;
+    private int? _retry;
+    private bool _busy;
+    private ServerCheckDto? _check;
+
+    /// <summary>Смена дирижёра (T-21-S1): можно ли назначить этот сервер дирижёром и нет ли
+    /// уже идущей заявки. Правило считает СЕРВЕР — иначе кнопка и API разойдутся.</summary>
+    private ConductorInfoDto? _conductor;
+
+    private bool SaveDisabled => _dto.Hostname.Trim().Length == 0 || _dto.Port is < 1 or > 65535;
+
+    /// <summary>Второе имя задано (T-50-S0) — только тогда есть смысл и во втором порте.</summary>
+    private bool HasHostname2 => _dto.Hostname2.Trim().Length > 0;
+
+    /// <summary>Сервер — РЯДОВОЙ участник хотя бы одной организации, то есть с кем-то
+    /// реплицируется. У дирижёра своих интервалов нет: реплицируются с ним, а не он. Признак
+    /// дирижёра принадлежит организации — в одной сервер дирижёр, в другой рядовой (todo43).</summary>
+    private bool IsLeafSomewhere =>
+        Source?.Orgs.Any(l => !l.IsConductor && l.Status == OrgServerStatus.Active) == true;
+
+    /// <summary>Выбранный сервер — дирижёр хоть одной организации, а значит наш партнёр
+    /// по репликации: рядовые серверы реплицируются только с дирижёром (T-50-S0).</summary>
+    private bool IsConductorSomewhere =>
+        Source?.Orgs.Any(l => l.IsConductor && l.Status == OrgServerStatus.Active) == true;
+
+    /// <summary>
+    /// ЭТОТ СЕРВЕР И ВЫБРАННЫЙ — ПАРА ПО РЕПЛИКАЦИИ (T-50-S0): либо выбранный дирижёр (тогда
+    /// мы, рядовой, реплицируемся с ним), либо дирижёр мы, а он рядовой. Своя запись парой
+    /// с самой собой не бывает — у неё времён нет вовсе.
+    /// </summary>
+    private bool ReplicationPair =>
+        Source is { IsLocal: false } && (IsConductorSomewhere || (IsLocalConductor && IsLeafSomewhere));
+
+    /// <summary>
+    /// Чья запись хранит времена этой пары (T-50-S0): у рядового её конца. Открыли форму
+    /// дирижёра — значит рядовой мы, и правится НАША запись; открыл дирижёр форму рядового —
+    /// правится запись рядового. Ровно так их читает <c>ReplicationService.Intervals</c>.
+    /// </summary>
+    private ServerNode? IntervalOwner => IsConductorSomewhere ? Local : Source;
+
+    /// <summary>Времена пары задаёт либо дирижёр (чужому серверу), либо сам сервер — себе
+    /// (todo43): своя запись правится и без дирижёрства.</summary>
+    private bool CanEditReplication => IsLocalConductor || IntervalOwner?.IsLocal == true;
+
+    protected override void OnInitialized()
+    {
+        if (Source is null)
+        {
+            return;
+        }
+        _dto.Name = Source.Name;
+        _dto.Protocol = Source.Protocol;
+        _dto.Hostname = Source.Hostname;
+        _dto.Port = Source.Port;
+        _dto.Hostname2 = Source.Hostname2;
+        _dto.Port2 = Source.Port2;
+        _dto.BasePath = Source.BasePath;
+        _dto.IsActive = Source.IsActive;
+        _joinOrgCode = Source.JoinOrgCode;
+        _serverId = Source.Id;
+        // времена ПАРЫ лежат в записи её рядового конца (T-50-S0) — им может быть и наша
+        _interval = IntervalOwner?.ReplIntervalSec;
+        _retry = IntervalOwner?.ReplRetrySec;
+        foreach (var link in Source.Orgs.Where(l => l.Status == OrgServerStatus.Active))
+        {
+            _orgIds.Add(link.OrgId);
+        }
+    }
+
+    /// <summary>Смена дирижёра (T-21-S1): спрашиваем у сервера, применим ли раздел к этой
+    /// записи и что мешает подать заявку. Отдельным запросом — правило требует связей
+    /// организации и сегодняшнего дирижёра, а форме их не передают.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        if (Source is null || State.NoOrg)
+        {
+            return;
+        }
+        try
+        {
+            _conductor = await Api.GetConductorInfoAsync(Source.Id);
+        }
+        catch (ApiException)
+        {
+            // раздела просто не будет: смена дирижёра — не то, ради чего форма открыта
+        }
+    }
+
+    /// <summary>Открыть форму смены дирижёра: подать заявку либо посмотреть уже идущую.</summary>
+    private async Task AssignConductorAsync()
+    {
+        if (Source is null || _conductor is null)
+        {
+            return;
+        }
+        var link = Source.Orgs.FirstOrDefault(l => l.Status == OrgServerStatus.Active
+                                                   && l.OrgId == State.Org.Id);
+        var parameters = new DialogParameters<ConductorRequestDialog>
+        {
+            { d => d.TargetId, Source.Id },
+            { d => d.TargetName, Source.Name.Length > 0 ? Source.Name : Source.Hostname },
+            { d => d.TargetCode, link?.Code ?? "" },
+            { d => d.FromDescription, _conductor.Request?.FromServerName ?? "" },
+            { d => d.OrgName, link is { OrgName.Length: > 0 } ? link.OrgName : State.Org.Name },
+            { d => d.Request, _conductor.Request },
+            { d => d.Problem, _conductor.Problem },
+        };
+        var result = await Dialogs.ShowAsync<ConductorRequestDialog>(L["conductor.title"],
+            parameters, FormDialogs.Options(MaxWidth.Small));
+        if (await result.Result is { Canceled: false })
+        {
+            _conductor = await Api.GetConductorInfoAsync(Source.Id);
+        }
+    }
+
+    /// <summary>Код сервера в этой организации (S0, S1, …) — только для чтения (todo41 п. 5).</summary>
+    private string LinkNote(string orgId)
+    {
+        var link = Source?.Orgs.FirstOrDefault(l => l.OrgId == orgId);
+        if (link is null)
+        {
+            return "";
+        }
+        var conductor = link.IsConductor ? " ★" : "";
+        return OrgServerStatus.IsRequest(link.Status)
+            ? $" — {L["servers.status." + link.Status]}"
+            : $" — {link.Code}{conductor}";
+    }
+
+    private void ToggleOrg(string orgId, bool selected)
+    {
+        if (selected)
+        {
+            _orgIds.Add(orgId);
+        }
+        else
+        {
+            _orgIds.Remove(orgId);
+        }
+    }
+
+    private async Task Save()
+    {
+        // времена репликации лежат не в форме сервера, а в записи рядового конца пары —
+        // поэтому отдельным вызовом и по ЕГО ключу (ТЗ гл. 6, этап 43; T-50-S0)
+        if (ReplicationPair && CanEditReplication && IntervalOwner is { } owner
+            && (_interval != owner.ReplIntervalSec || _retry != owner.ReplRetrySec))
+        {
+            try
+            {
+                await Api.SaveReplicationAsync(owner.Id,
+                    new ReplSettingsDto { IntervalSec = _interval, RetrySec = _retry });
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+                return;
+            }
+        }
+        _dto.OrgIds = Source is null ? null : _orgIds.ToList();
+        Dialog.Close(DialogResult.Ok(_dto));
+    }
+
+    /// <summary>«На связи ли сервер»: сравниваем внутренний ключ ответившего с нашим (п. 6).</summary>
+    private async Task CheckAsync()
+    {
+        if (Source is null)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _check = await Api.CheckServerAsync(_serverId);
+        }
+        catch (ApiException ex)
+        {
+            _check = new ServerCheckDto { Error = ex.Message };
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private string CheckText(ServerCheckDto check) => check switch
+    {
+        { Ok: false } => check.Error,
+        { SameServer: false } => L["servers.check.other"],
+        _ => $"{L["servers.check.ok"]} · {check.Name} · {check.Version}",
+    };
+
+    /// <summary>Отметить организацию дирижёра в перечне (T-141): выбор множественный.</summary>
+    private void ToggleJoinOrg(string code, bool selected)
+    {
+        if (selected)
+        {
+            _joinCodes.Add(code);
+        }
+        else
+        {
+            _joinCodes.Remove(code);
+        }
+        _joinOrgCode = string.Join(",", _joinCodes);
+    }
+
+    /// <summary>Подать заявку на подключение к организациям этого сервера (todo41 п. 7).
+    /// Кодов может быть несколько через запятую — заявка уйдёт в каждую (T-141).</summary>
+    private async Task JoinAsync()
+    {
+        if (Source is null)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var status = await Api.JoinServerAsync(_serverId,
+                new ServerJoinDto { OrgCode = _joinOrgCode.Trim() });
+            // дирижёр представился своим внутренним ключом, и запись о нём переехала на него
+            // (AdoptId): дальше спрашивать решение надо уже по новому ключу — иначе 404
+            if (status.ServerId.Length > 0)
+            {
+                _serverId = status.ServerId;
+            }
+            // организаций у дирижёра несколько — заявки нет, есть перечень: человек отмечает
+            // нужные и подаёт заявку повторно (T-141)
+            if (status.Status == ClusterJoinStatusDto.ChooseOrg)
+            {
+                _choices = status.Orgs;
+                Source.LastError = L["join.orgs.choose"];
+                Snackbar.Add(L["join.orgs.choose"], Severity.Info);
+                return;
+            }
+            // ЧЕЛОВЕК С ЭТОЙ ПОЧТОЙ У ДИРИЖЁРА УЖЕ ЕСТЬ (T-148). Взять себе его внутренний
+            // ключ отсюда нельзя: смена ключа меняет и личность вошедшего, а её выдаёт
+            // страница входа. Поэтому объясняем и отправляем на экран подключения — там это
+            // делается само. Сервер, уже работающий в организациях, ключ не меняет вовсе
+            if (status.Status == ClusterJoinStatusDto.SameEmail)
+            {
+                var hint = State.NoOrg ? L["join.sameEmail.setup"] : L["join.sameEmail.stuck"];
+                Source.LastError = hint;
+                Snackbar.Add(hint, Severity.Warning);
+                return;
+            }
+            Source.JoinStatus = status.Status;
+            Source.JoinOrgCode = _joinOrgCode.Trim();
+            Source.LastError = "";
+            Snackbar.Add(L["servers.join.sent"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Source.LastError = ex.Message;
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Узнать решение по своей заявке: его принимает человек на дирижёре.</summary>
+    private async Task RefreshJoinAsync()
+    {
+        if (Source is null)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var status = await Api.GetJoinStatusAsync(_serverId);
+            Source.JoinStatus = status.Status;
+            Source.LastError = "";
+            if (status.Status == OrgServerStatus.Active)
+            {
+                Snackbar.Add($"{L["servers.join.accepted"]} {status.Code}", Severity.Success);
+                // ЗАЯВКУ ПОДТВЕРДИЛИ, А ОРГАНИЗАЦИИ У НАС НЕ БЫЛО (T-148): интерфейс был урезан
+                // и ничего не знает о появившейся организации — перезагружаем его целиком,
+                // прямо в неё. Иначе человек остался бы сидеть в пустом экране ожидания
+                if (State.NoOrg && status.OrgCode.Length > 0)
+                {
+                    // адрес относительный (T-199-S0): остаёмся на том имени сервера,
+                    // по которому человек сюда пришёл, а не уезжаем на внешнее
+                    Nav.NavigateTo(State.OrgUrlOf(status.OrgCode), forceLoad: true);
+                    return;
+                }
+            }
+        }
+        catch (ApiException ex)
+        {
+            Source.LastError = ex.Message;
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private static Severity JoinSeverity(string status) => status switch
+    {
+        OrgServerStatus.Active => Severity.Success,
+        OrgServerStatus.Rejected => Severity.Error,
+        _ => Severity.Info,
+    };
+}

@@ -1,0 +1,124 @@
+@inherits LayoutComponentBase
+@inject UiState State
+@implements IDisposable
+
+@* Светлая и тёмная темы (ТЗ гл. 11); переключатель — в шапке (Home). *@
+<MudThemeProvider IsDarkMode="State.DarkMode" />
+@* ЕДИНОЕ место стилей отрендеренного Markdown (.ai2p-md-preview) — ТЗ v1.28/todo30,
+   сведено воедино в T-131: раньше те же правила были продублированы в Home.razor и
+   MarkdownEditor.razor и расходились между собой. Действуют во всех местах рендера
+   Markdown (описание и критерии задачи, чат, результат задания, карточка доски, Inbox,
+   предпросмотр редактора), MainLayout — общий лейаут всех маршрутов.
+   Автоширина картинок и видео; явная ширина из атрибутов ({width=50%}) уважается
+   через max-width. Цвета — из палитры MudBlazor, поэтому оформление одинаково
+   работает в светлой и тёмной теме; единственное исключение — синий цвет ссылки
+   (T-282), у палитры нет синего, читаемого в обеих темах (см. пояснение у правила). *@
+<style>
+    /* .ai2p-md — окно документа модели и источника импорта: картинке там тоже нужна
+       автоширина, иначе широкая картинка растянет окно (T-97-S0) */
+    .ai2p-md-preview img, .ai2p-md-preview video, .ai2p-md img { max-width: 100%; height: auto; }
+    .ai2p-md-preview video { display: block; }
+    .ai2p-md-preview blockquote { border-left: 3px solid var(--mud-palette-lines-default); margin-left: 0; padding-left: 12px; opacity: .85; }
+    /* нумерованные и маркированные перечисления (T-136): MudBlazor обнуляет padding у ul/ol,
+       и маркеры (list-style: outside) вылезали ЛЕВЕЕ границы поля — в карточке задачи, чате
+       и предпросмотре редактора. Свой отступ держит маркеры ВНУТРИ поля, с небольшим
+       запасом; вложенные списки добавляют его же ещё раз */
+    .ai2p-md-preview ul, .ai2p-md-preview ol { padding-left: 1.8em; margin: 6px 0; }
+    .ai2p-md-preview li { margin: 2px 0; }
+    .ai2p-md-preview li > ul, .ai2p-md-preview li > ol { margin: 2px 0; }
+    .ai2p-md-preview table { border-collapse: collapse; }
+    .ai2p-md-preview th, .ai2p-md-preview td { border: 1px solid var(--mud-palette-lines-default); padding: 4px 8px; }
+    /* inline-код в апострофах (T-131): раньше стиля не было вовсе — код рисовался
+       обычным текстом. Фон — подмешивание цвета текста в цвет поверхности (color-mix):
+       контраст держится и на белой карточке, и на тёмной, цвета при этом только из
+       палитры. Первая строка background — запасной вариант для браузера без color-mix. */
+    .ai2p-md-preview code {
+        font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+        font-size: 0.875em;
+        background: var(--mud-palette-background-gray);
+        background: color-mix(in srgb, var(--mud-palette-text-primary) 14%, var(--mud-palette-surface));
+        border: 1px solid var(--mud-palette-lines-default);
+        border-radius: 4px;
+        padding: 0.1em 0.35em;
+        white-space: break-spaces;
+    }
+    /* блок кода (T-131): выраженный фон и левая цветная полоса — блок виден с первого
+       взгляда; длинные строки прокручиваются по горизонтали, а не рвут вёрстку */
+    .ai2p-md-preview pre {
+        overflow-x: auto;
+        background: var(--mud-palette-background-gray);
+        background: color-mix(in srgb, var(--mud-palette-text-primary) 12%, var(--mud-palette-surface));
+        border: 1px solid var(--mud-palette-lines-default);
+        border-left: 4px solid var(--mud-palette-primary);
+        border-radius: 4px;
+        padding: 10px 12px;
+        margin: 8px 0;
+    }
+    /* ПРЕВЬЮ ОБЪЕКТА (T-276): квадратик слева от строки — в таблице списка объектов и в
+       выборе объекта из редактора .md. Размер квадрата задаёт компонент (ObjectPic), здесь
+       общее: место держится ВСЕГДА, даже пока картинка не загрузилась и когда её нет вовсе,
+       иначе строки таблицы прыгали бы по мере подгрузки. object-fit: cover — кадр обрезается
+       по центру, а не сплющивается; MainLayout, потому что показывается и внутри окон. */
+    .ai2p-pic { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; background: var(--mud-palette-background-gray); vertical-align: middle; }
+    .ai2p-pic img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ai2p-pic .ai2p-pic-none { opacity: .35; }
+    /* ССЫЛКА В ПОКАЗАННОМ MARKDOWN (T-282). MudBlazor красит ЛЮБУЮ ссылку цветом обычного
+       текста (a { color: var(--mud-palette-text-primary) }), а своего правила для ссылок
+       здесь не было вовсе — ссылка ничем не отличалась от соседних слов, и её попросту не
+       было видно (жалоба заказчика). Синий — ЕДИНСТВЕННЫЙ цвет этих стилей, взятый не из
+       палитры MudBlazor, и вот почему: синий там один — Info, одинаковый в обеих темах, и
+       на белом поле светлой темы он даёт контраст 3.1 при норме 4.5 для текста. Поэтому
+       свой оттенок на каждую тему; сами значения — в коде компонента (ниже), чтобы в
+       стилях по-прежнему не было ни одного цветового литерала (сторожит MdCodeStyleTests).
+       Подчёркивание — только при наведении: ссылка узнаётся указателем, а сплошной текст
+       описания не рябит линиями. Правило перекрывает MudBlazor по старшинству селектора
+       (.ai2p-md-preview a против a), !important не нужен. Второй класс — .ai2p-md: под ним
+       показан документ модели (ModelDocDialog) и лежит предпросмотр редактора. */
+    .ai2p-md-preview a, .ai2p-md a { color: @LinkColor; }
+    .ai2p-md-preview a:hover, .ai2p-md a:hover { color: @LinkHoverColor; text-decoration: underline; }
+    /* СЕКЦИИ ФОРМЫ (T-300): подпись секции — жирным, рамка в полтора раза толще (1.5px
+       против 1px у .mud-paper-outlined). Правило перекрывает MudBlazor по порядку: этот
+       блок стилей лежит в теле страницы, то есть ниже ссылки на таблицу стилей движка,
+       а старшинство селекторов одинаковое — !important не нужен. Проверено браузером на
+       выпуске 1.111: в списке правил, подошедших узлу, .ai2p-section стоит ПОСЛЕ
+       .mud-paper-outlined и выигрывает. Оговорка на будущее: getComputedStyle отдаёт 1px,
+       и это не промах правила, а округление ИСПОЛЬЗОВАННОГО значения до целого числа
+       физических точек — при обычной плотности экрана (DPR 1) половина точки не рисуется,
+       разница видна на экране с DPR 2. Жирность стоит на ЗАГОЛОВКЕ раскрывающейся
+       секции целиком: подпись внутри своей жирности не задаёт и наследует эту. */
+    .ai2p-section { border-width: 1.5px; }
+    .ai2p-section .mud-expand-panel-header { font-weight: 700; }
+    /* код внутри блока — без рамки и фона «инлайна»: оформление даёт сам pre */
+    .ai2p-md-preview pre code {
+        display: block;
+        background: none;
+        border: 0;
+        border-radius: 0;
+        padding: 0;
+        font-size: 0.85em;
+        line-height: 1.45;
+        white-space: pre;
+    }
+</style>
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@Body
+
+@code {
+    /// <summary>Цвет ссылки в показанном Markdown (T-282), свой на каждую тему.
+    /// Светлая — #0b57d0 (контраст с белым полем 6.4), тёмная — #8ab4f8 (контраст с
+    /// поверхностью тёмной темы 5.6); норма WCAG AA для текста — 4.5. Переключение темы
+    /// перерисовывает лейаут (подписка на State.Changed ниже), поэтому цвет меняется
+    /// сразу, без перезагрузки страницы.</summary>
+    private string LinkColor => State.DarkMode ? "#8ab4f8" : "#0b57d0";
+
+    /// <summary>Тот же синий под указателем — чуть темнее на светлой теме и чуть светлее
+    /// на тёмной: наведение видно и без цветовой пробы.</summary>
+    private string LinkHoverColor => State.DarkMode ? "#adcbfa" : "#0842a0";
+
+    protected override void OnInitialized() => State.Changed += StateHasChanged;
+
+    public void Dispose() => State.Changed -= StateHasChanged;
+}

@@ -1,0 +1,371 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Форма ввода модели справочника ИИ-моделей (ТЗ п. 2.9). Профайл и декларация —
+   json-файлы, значения (пути) пользователю не показываются, только кнопки редакторов.
+   Признак «кастом» можно менять только в debug-режиме; в релизе добавляемые — всегда кастом.
+   Здесь же (ТЗ v1.42, todo36_5) — установка локальной модели (кнопка перенесена из списка)
+   и ключ API облачной модели: без ключа модель не может быть активной. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @* Название — ОБЩАЯ часть записи: её правит сервер-владелец (ТЗ гл. 6). Всё
+               остальное у локальной модели пер-серверное и правится здесь (T-8-S1) *@
+            <MudTextField @bind-Value="_model.Name" Label="@L["models.name"]"
+                          HelperText="@(SharedReadOnly ? L["models.server.sharedOwner", _model.ServerCode] : L["models.nameHint"])"
+                          Immediate="true" Disabled="@SharedReadOnly"
+                          Error="@NameTaken" ErrorText="@L["models.nameTaken"]" />
+            @* размещение модели (ТЗ v1.42): выводится из профайла, руками не меняется *@
+            @if (Source is not null)
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudIcon Icon="@(_model.IsLocal ? Icons.Material.Filled.Computer : Icons.Material.Filled.Cloud)"
+                             Color="@(_model.IsLocal ? Color.Default : Color.Info)" Size="Size.Small" />
+                    <MudText Typo="Typo.body2">@(_model.IsLocal ? L["models.local"] : L["models.cloud"])</MudText>
+                    @if (State.IsCluster && _model.ServerCode.Length > 0)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@_model.ServerCode</MudChip>
+                    }
+                </MudStack>
+                @* ЛОКАЛЬНАЯ модель настраивается на КАЖДОМ сервере отдельно (T-8-S1): свои
+                   файлы, свои пути, своя установка и своя активность. Поэтому форма и
+                   открывается на любом сервере — правится в ней настройка ЭТОГО сервера *@
+                @if (_model.IsLocal && State.IsCluster)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" data-model-local-hint>
+                        @L["models.server.localHint"]
+                    </MudAlert>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-servers>
+                        @L["models.activeOn"]: @ActiveServersText()
+                    </MudText>
+                }
+                @* правка файлов и команды запуска конкретного компьютера — дело его
+                   администратора (ТЗ гл. 6, гл. 12; этап 42) *@
+                @if (_model.IsLocal && !State.IsServerAdmin)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">@L["models.server.adminHint"]</MudAlert>
+                }
+            }
+            @* неустановленную модель активировать нельзя (ТЗ v1.41, todo36_4):
+               после установки активируется автоматически, сбросить флаг можно всегда;
+               то же для облачной модели без ключа API (ТЗ v1.42).
+               У ЛОКАЛЬНОЙ модели переключатель означает «активна ЗДЕСЬ» (T-8-S1) *@
+            <MudSwitch T="bool" @bind-Value="_model.IsActive"
+                       Label="@(_model.IsLocal && State.IsCluster ? $"{L["models.activeHere"]} ({State.ServerCode})" : L["common.active"])"
+                       Color="Color.Primary" Disabled="@(NotInstalled || NoKey)" />
+            @if (NotInstalled)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["models.activeNeedsInstall"]</MudText>
+            }
+            @if (NoKey)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["models.activeNeedsKey"]</MudText>
+            }
+            <MudSwitch T="bool" @bind-Value="_model.IsCustom" Label="@L["models.custom"]"
+                       Color="Color.Primary" Disabled="@(!State.Debug)" />
+            @* РАБОТА С LoRA и РЕФЕРЕНСНОЙ КАРТИНКОЙ (T-13-S1): настройка лежит в профайле
+               подключения, поэтому здесь она только показывается — правится кнопкой
+               «Профайл» ниже. Без этого блока единственный способ узнать, умеет ли модель
+               адаптер, — открыть json; а вопрос «на чём обучать персонажа» задают, глядя
+               именно на форму модели *@
+            @if (Source is not null)
+            {
+                <MudPaper Outlined="true" Elevation="0" Class="pa-3" data-model-lora-panel="1">
+                    <MudStack Spacing="1">
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                            <MudIcon Icon="@(_model.Lora.Supported ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Remove)"
+                                     Color="@(_model.Lora.Supported ? Color.Success : Color.Default)" Size="Size.Small" />
+                            <MudText Typo="Typo.subtitle2">@L["models.lora"]</MudText>
+                            <MudText Typo="Typo.body2" data-model-lora-state="@(_model.Lora.Supported ? "1" : "0")">
+                                @(_model.Lora.Supported
+                                    ? L["models.lora.yes"]
+                                    : L["models.lora.reason." + (_model.Lora.Reason.Length > 0 ? _model.Lora.Reason : LoraReasons.Unknown)])
+                            </MudText>
+                        </MudStack>
+                        @if (_model.Lora.Supported)
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-lora-apply="@_model.Lora.Apply.Kind">
+                                @L["models.lora.applyLine"]: @L["models.lora.apply." + _model.Lora.Apply.Kind]
+                            </MudText>
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-lora-train="@_model.Lora.Train.Kind">
+                                @L["models.lora.trainLine"]: @L["models.lora.train." + _model.Lora.Train.Kind]
+                            </MudText>
+                            @if (_model.Lora.Train.Result.Target.Length > 0)
+                            {
+                                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    @L["models.lora.targetLine"]: @_model.Lora.Train.Result.Target
+                                </MudText>
+                            }
+                            @if (_model.Lora.Train.DocUrl.Length > 0)
+                            {
+                                <MudLink Href="@_model.Lora.Train.DocUrl" Target="_blank" Typo="Typo.caption">
+                                    @L["models.lora.docLink"]
+                                </MudLink>
+                            }
+                        }
+                        @* референсная картинка — своя строка: она нужна и там, где адаптера нет *@
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-refimage="@_model.RefImage.Kind">
+                            @L["models.refImage"]: @L["models.refImage.kind." + _model.RefImage.Kind]
+                        </MudText>
+                    </MudStack>
+                </MudPaper>
+            }
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                @* документ модели (ТЗ гл. 14, todo47): как получить ключ у облачной модели
+                   и какие требования к железу у локальной. Кнопка есть у сохранённой
+                   записи — документ ищется по названию модели *@
+                @if (Source is not null)
+                {
+                    <MudTooltip Text="@L["models.doc"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Info" Variant="Variant.Outlined"
+                                       Color="Color.Info" OnClick="ShowDocAsync" />
+                    </MudTooltip>
+                }
+                <MudButton StartIcon="@Icons.Material.Filled.Tune" Variant="Variant.Outlined"
+                           OnClick="EditProfileAsync">@L["models.profile"]</MudButton>
+                <MudButton StartIcon="@Icons.Material.Filled.FactCheck" Variant="Variant.Outlined"
+                           OnClick="EditScopeAsync">@L["models.scope"]</MudButton>
+                @* установка локальной модели (ТЗ v1.42): у неустановленной — «Установить»
+                   с размером оставшейся загрузки, у установленной — «Обновить» *@
+                @if (_install is { HasManifest: true })
+                {
+                    <MudButton StartIcon="@Icons.Material.Filled.Download" Variant="Variant.Filled"
+                               Color="@(_install.Installed ? Color.Default : Color.Primary)"
+                               OnClick="InstallAsync">
+                        @(_install.Installed ? L["models.update"] : InstallLabel())
+                    </MudButton>
+                }
+                @* ключ API облачной модели (ТЗ v1.42): старое значение не показывается *@
+                @if (_key is { Required: true })
+                {
+                    <MudButton StartIcon="@Icons.Material.Filled.Key" Variant="Variant.Filled"
+                               Color="@(_key.HasKey ? Color.Default : Color.Primary)"
+                               OnClick="EditKeyAsync">
+                        @(_key.HasKey ? L["models.keyUpdate"] : L["models.keySet"])
+                    </MudButton>
+                }
+            </MudStack>
+            @if (_key is { Required: true, HasKey: true })
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    @L["models.keyPresent"]: @_key.Source
+                </MudText>
+            }
+            @* где ключ лежит ФАЙЛОМ на этом компьютере (T-234): показывается и когда ключа
+               нет — это ответ на вопрос «куда положить ключ руками» *@
+            @if (_key is { Required: true } && _key.KeyFile.Length > 0)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-key-file>
+                    @L["models.keyFile"]: @_key.KeyFile
+                </MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_model.Name.Trim().Length == 0 || NameTaken)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_model)))">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — добавление новой модели.</summary>
+    [Parameter] public AiModel? Source { get; set; }
+
+    /// <summary>Состояние установки (ТЗ v1.41): у неустановленной модели с манифестом
+    /// переключатель «активна» заблокирован; null — модель не ставится локально.</summary>
+    [Parameter] public ModelInstallStatusDto? Install { get; set; }
+
+    private AiModel _model = new();
+    private ModelInstallStatusDto? _install;
+    private ModelKeyStatusDto? _key;
+
+    private bool NotInstalled => _install is { HasManifest: true, Installed: false };
+
+    private bool NoKey => _key is { Required: true, HasKey: false };
+
+    private bool NameTaken => State.Models.Any(m =>
+        m.Id != _model.Id &&
+        m.Name.Trim().Equals(_model.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>ОБЩАЯ часть записи (название) принадлежит другому серверу (T-8-S1):
+    /// пер-серверную настройку локальной модели это не закрывает.</summary>
+    private bool SharedReadOnly => Source is { IsReadOnly: true };
+
+    /// <summary>Серверы, где локальная модель включена (T-8-S1); пусто — ни одного.</summary>
+    private string ActiveServersText()
+    {
+        var codes = string.Join(", ", _model.Servers.Where(s => s.IsActive)
+            .Select(s => s.ServerCode.Length > 0 ? s.ServerCode : s.ServerName)
+            .Where(code => code.Length > 0));
+        return codes.Length > 0 ? codes : L["models.activeNowhere"];
+    }
+
+    protected override void OnInitialized()
+    {
+        _install = Install;
+        if (Source is not null)
+        {
+            // редактируем копию, чтобы отмена не портила кэш состояния
+            _model = new AiModel
+            {
+                Id = Source.Id,
+                DisplayId = Source.DisplayId,
+                Name = Source.Name,
+                IsActive = Source.IsActive,
+                IsCustom = Source.IsCustom,
+                IsLocal = Source.IsLocal,
+                ProfilePath = Source.ProfilePath,
+                CapabilitiesPath = Source.CapabilitiesPath,
+                // пер-серверные строки локальной модели (T-8-S1): где она включена ещё.
+                // Владелец записи нужен для подсказки «название правится на сервере S0»
+                ServerId = Source.ServerId,
+                ServerCode = Source.ServerCode,
+                Servers = Source.Servers,
+                // настройка LoRA и референсной картинки (T-13-S1): форма её показывает,
+                // но не правит — правится она в редакторе профайла, там же, где живёт
+                Lora = Source.Lora,
+                RefImage = Source.RefImage,
+            };
+        }
+        // пути по схеме из ТЗ п. 2.9 — чтобы редакторы работали и до первого сохранения
+        if (_model.ProfilePath.Length == 0)
+        {
+            _model.ProfilePath = $"models/profile_{_model.Id}.json";
+        }
+        if (_model.CapabilitiesPath.Length == 0)
+        {
+            _model.CapabilitiesPath = $"models/scope_{_model.Id}.json";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Source is not null)
+        {
+            await RefreshKeyAsync();
+        }
+    }
+
+    private async Task RefreshKeyAsync()
+    {
+        try
+        {
+            _key = await Api.GetModelKeyAsync(_model.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Окно установки модели (ТЗ v1.42): пакеты + файлы весов; после закрытия —
+    /// перечитать состояние (модель могла установиться и активироваться).</summary>
+    private async Task InstallAsync()
+    {
+        var parameters = new DialogParameters<ModelInstallDialog> { { d => d.ModelId, _model.Id } };
+        var dialog = await Dialogs.ShowAsync<ModelInstallDialog>(
+            $"{L["install.title"]}: {_model.Name}", parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        try
+        {
+            _install = await Api.GetModelInstallAsync(_model.Id);
+            if (_install.Installed)
+            {
+                _model.IsActive = true; // после установки модель активируется (ТЗ v1.41)
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Документ модели (ТЗ гл. 14, todo47): инструкция по ключу либо по железу.</summary>
+    private async Task ShowDocAsync()
+    {
+        if (Source is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ModelDocDialog>
+        {
+            { d => d.ModelId, Source.Id },
+            { d => d.Current, L.Lang },
+        };
+        var dialog = await Dialogs.ShowAsync<ModelDocDialog>($"{L["models.doc"]}: {_model.Name}",
+            parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+    }
+
+    /// <summary>Установка/обновление ключа API (ТЗ v1.42): старое значение не показывается.</summary>
+    private async Task EditKeyAsync()
+    {
+        var parameters = new DialogParameters<ModelKeyDialog>
+        {
+            { d => d.ModelId, _model.Id },
+            { d => d.SecretRef, _key?.SecretRef ?? "" },
+            // путь файла ключа на этом компьютере (T-234): куда положить ключ руками
+            { d => d.KeyFile, _key?.KeyFile ?? "" },
+            { d => d.HasKey, _key?.HasKey ?? false },
+            // ключ организации на этом сервере (ТЗ гл. 10, этап 45): без него сохранять нечем
+            { d => d.HasOrgKey, _key?.HasOrgKey ?? true },
+        };
+        var dialog = await Dialogs.ShowAsync<ModelKeyDialog>(L["models.keyTitle"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await RefreshKeyAsync();
+            if (_key is { HasKey: true })
+            {
+                _model.IsActive = true; // ключ установлен — модель активна (ТЗ v1.42)
+            }
+        }
+    }
+
+    private Task EditProfileAsync()
+    {
+        var parameters = new DialogParameters<AiProfileDialog> { { d => d.Path, _model.ProfilePath } };
+        return Dialogs.ShowAsync<AiProfileDialog>(L["profile.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    private Task EditScopeAsync()
+    {
+        var parameters = new DialogParameters<ScopeEditorDialog>
+        {
+            { d => d.Path, _model.CapabilitiesPath },
+            { d => d.DefaultName, _model.Name },
+        };
+        return Dialogs.ShowAsync<ScopeEditorDialog>(L["scope.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    /// <summary>
+    /// Надпись кнопки установки: «Установить (14,7 ГБ)» — сколько осталось скачать
+    /// (веса + дистрибутивы неустановленных пакетов, ТЗ v1.43); размер неизвестен либо
+    /// качать нечего (остались только распаковка и настройка) — просто «Установить».
+    /// </summary>
+    private string InstallLabel()
+    {
+        var remaining = _install!.TotalSize - _install.DownloadedSize;
+        foreach (var package in _install.Packages.Where(p => !p.Installed))
+        {
+            remaining += Math.Max(0, package.Size - package.Downloaded);
+        }
+        return remaining > 0 ? $"{L["models.install"]} ({FmtSize(remaining)})" : L["models.install"];
+    }
+
+    /// <summary>Размер по-человечески для кнопки «Установить (14,7 ГБ)».</summary>
+    private string FmtSize(long bytes) => bytes >= 1L << 30
+        ? $"{bytes / (double)(1L << 30):0.#} {L["unit.gb"]}"
+        : $"{Math.Ceiling(bytes / (double)(1L << 20)):0} {L["unit.mb"]}";
+}

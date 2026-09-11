@@ -1,0 +1,181 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Списки шаблонов (ТЗ гл. 5): представления таблица/иерархия, полнотекстный поиск
+   по заголовку и описанию; задачи (не-шаблоны) исключаются.
+   Сортировки (todo31_2): таблица — клик по заголовку колонки (внутри TaskTableView),
+   иерархия — кнопка-меню вариантов (та же, что у списка задач).
+   FixedProjectId — встраивание во вкладку «Шаблоны» проекта (todo31_2): список
+   ограничен проектом, новый шаблон создаётся с этим проектом. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+    @if (FixedProjectId is null)
+    {
+        <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["templates.title"]</MudText>
+    }
+    @if (_view == "tree")
+    {
+        @* сортировка иерархии (todo31_2): те же варианты, что у списка задач *@
+        <MudMenu Icon="@Icons.Material.Filled.SwapVert" Dense="true"
+                 Color="@(_saved.Sort is null ? Color.Default : Color.Primary)"
+                 AriaLabel="@L["tasks.sort"]">
+            @foreach (var key in SortKeys)
+            {
+                <MudMenuItem Icon="@(_saved.Sort == key ? Icons.Material.Filled.Check : null)"
+                             OnClick="@(() => OnSortChanged(key))">
+                    @L["tasks.sort." + key]
+                </MudMenuItem>
+            }
+            <MudDivider />
+            <MudMenuItem Icon="@(_saved.Sort is null ? Icons.Material.Filled.Check : null)"
+                         OnClick="@(() => OnSortChanged(null))">
+                @L["tasks.sort.none"]
+            </MudMenuItem>
+        </MudMenu>
+    }
+    <MudSpacer />
+    @* кнопки-иконки с подсказками (гл. 11, эргономика) *@
+    @* В АРХИВЕ ФУНКЦИЙ ПРАВКИ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат *@
+    @if (!State.InArchive)
+    {
+        <MudTooltip Text="@L["templates.new"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                           Disabled="@(!State.CanEdit)" OnClick="NewTemplateAsync" />
+        </MudTooltip>
+    }
+    <MudTooltip Text="@L["common.refresh"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" />
+    </MudTooltip>
+</MudStack>
+
+<MudPaper Outlined="true" Elevation="0" Class="pa-2 mb-3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="8" md="6">
+            <MudTextField T="string" @bind-Value="_search" Label="@L["common.search"]"
+                          Placeholder="@L["tasks.search.placeholder"]"
+                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search"
+                          OnAdornmentClick="ReloadAsync" Immediate="true"
+                          OnKeyDown="OnSearchKeyDown" Margin="Margin.Dense" Clearable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="4" md="3">
+            <MudSelect T="string" Value="@_view" ValueChanged="OnViewChanged" Label="@L["common.view"]"
+                       Dense="true" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@("table")">@L["tasks.view.table"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("tree")">@L["tasks.view.tree"]</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (!_loaded)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_view == "tree")
+{
+    <TaskTreeView Tasks="_templates" RootSort="@SortComparison()" OnReload="ReloadAsync" />
+}
+else
+{
+    <TaskTableView Tasks="_templates" StateKey="@("templatesTable:" + (FixedProjectId ?? "root"))" />
+}
+
+@code {
+    /// <summary>Вкладка «Шаблоны» проекта (todo31_2): список ограничен этим проектом,
+    /// новый шаблон создаётся с ним; null — общий список шаблонов.</summary>
+    [Parameter] public string? FixedProjectId { get; set; }
+
+    /// <summary>Варианты сортировки иерархии — те же, что у списка задач (ТЗ v1.17):
+    /// общий список и общие компараторы живут в <see cref="TaskSort"/> (T-223).</summary>
+    private static string[] SortKeys => TaskSort.Keys;
+
+    /// <summary>Состояние между открытиями закладки (todo23): вид и сортировка иерархии.</summary>
+    private sealed class TemplatesViewState
+    {
+        public string View { get; set; } = "table";
+        public string? Sort { get; set; }
+    }
+
+    private List<TaskItem> _templates = [];
+    private bool _loaded;
+    private string _search = "";
+    private TemplatesViewState _saved = new();
+
+    private string _view => _saved.View;
+
+    protected override Task OnInitializedAsync()
+    {
+        _saved = State.ComponentState<TemplatesViewState>("templatesView:" + (FixedProjectId ?? "root"));
+        return ReloadAsync();
+    }
+
+    // вид и сортировка переживают перезапуск (гл. 11): сохранение при каждом изменении
+    private void OnViewChanged(string view)
+    {
+        _saved.View = view;
+        State.PersistComponentStates();
+    }
+
+    private void OnSortChanged(string? key)
+    {
+        _saved.Sort = key;
+        State.PersistComponentStates();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _loaded = false;
+            _templates = await Api.GetTasksAsync(projectId: FixedProjectId, templatesOnly: true,
+                search: _search.Trim().Length == 0 ? null : _search.Trim());
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private Task OnSearchKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? ReloadAsync() : Task.CompletedTask;
+
+    /// <summary>Компаратор сортировки иерархии (как у списка задач); null — серверный порядок.</summary>
+    private Comparison<TaskItem>? SortComparison() => TaskSort.Comparison(_saved.Sort, Nick);
+
+    /// <summary>Ник первого исполнителя узла — для сортировки «по исполнителю».</summary>
+    private string Nick(TaskItem t) => t.ExecutorIds.Count == 0
+        ? ""
+        : State.Executors.FirstOrDefault(e => e.Id == t.ExecutorIds[0])?.Nick ?? "";
+
+    private async Task NewTemplateAsync()
+    {
+        var parameters = new DialogParameters<TaskDialog> { { d => d.AsTemplate, true } };
+        if (FixedProjectId is not null)
+        {
+            // вкладка «Шаблоны» проекта (todo31_2): новый шаблон — сразу с этим проектом
+            parameters.Add(d => d.PresetProjectId, FixedProjectId);
+        }
+        var dialog = await Dialogs.ShowAsync<TaskDialog>(L["templates.new"], parameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: TaskSaveDto dto })
+        {
+            try
+            {
+                dto.Task.IsTemplate = true;
+                await Api.CreateTaskAsync(dto);
+                await ReloadAsync();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+}

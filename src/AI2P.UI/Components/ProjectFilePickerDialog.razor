@@ -1,0 +1,135 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* ВЫБОР ФАЙЛА В ПАПКЕ ПРОЕКТА (T-264).
+
+   Отличие от FolderPickerDialog: тот ходит по дискам компьютера и возвращает АБСОЛЮТНЫЙ
+   путь папки проекта, а здесь путь всегда ОТНОСИТЕЛЬНЫЙ — ровно в таком виде он хранится
+   у объекта, и на соседнем сервере кластера тот же путь показывает его копию файла.
+   Поэтому выше папки проекта диалог не поднимается вовсе.
+
+   Выбор — щелчком по строке файла: отдельная кнопка «выбрать» тут лишняя, каталог
+   открывается тем же щелчком по строке каталога. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                               data-projectfile-up="1" title="@L["objects.files.up"]"
+                               Disabled="@(_list?.Parent is null)"
+                               OnClick="@(() => LoadAsync(_list?.Parent))" />
+                <MudText Typo="Typo.body2" Class="flex-grow-1" data-projectfile-path="1"
+                         Style="overflow-wrap: anywhere;">
+                    @(_list is null ? "" : _list.Path.Length == 0 ? _list.Root : _list.Root + "/" + _list.Path)
+                </MudText>
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small"
+                               data-projectfile-refresh="1"
+                               OnClick="@(() => LoadAsync(_list?.Path))" />
+            </MudStack>
+
+            @* картинки показываются уменьшенными: эталонный кадр опознают глазами,
+               а не по имени файла. Браузер грузит их сам и асинхронно *@
+            <MudPaper Outlined="true" Elevation="0" Style="height: 360px; overflow-y: auto;"
+                      data-projectfile-list="1">
+                @if (_list is null && _error.Length > 0)
+                {
+                    @* у проекта может не быть папки на этом сервере — так и говорим прямо
+                       в окне: вечная полоса прогресса выглядела бы поломкой *@
+                    <MudText Typo="Typo.body2" Class="pa-2" data-projectfile-error="1">@_error</MudText>
+                }
+                else if (_list is null)
+                {
+                    <MudProgressLinear Indeterminate="true" />
+                }
+                else
+                {
+                    <MudList T="string" Dense="true">
+                        @foreach (var dir in _list.Dirs)
+                        {
+                            <MudListItem T="string" data-projectfile-dir="@dir.Path"
+                                         OnClick="@(() => LoadAsync(dir.Path))">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-2" />
+                                @dir.Name
+                            </MudListItem>
+                        }
+                        @foreach (var file in _list.Files)
+                        {
+                            <MudListItem T="string" data-projectfile-file="@file.Path"
+                                         OnClick="@(() => Dialog.Close(DialogResult.Ok(file.Path)))">
+                                @if (file.IsImage)
+                                {
+                                    <img src="@ThumbUrl(file)" alt="@file.Name" loading="lazy"
+                                         style="max-width: 40px; max-height: 28px; object-fit: cover;
+                                                vertical-align: middle;" class="mr-2" />
+                                }
+                                else
+                                {
+                                    <MudIcon Icon="@Icons.Material.Filled.InsertDriveFile" Size="Size.Small"
+                                             Class="mr-2" />
+                                }
+                                @file.Name
+                                <span style="opacity:.6;"> @SizeText(file.Size)</span>
+                            </MudListItem>
+                        }
+                    </MudList>
+                    @if (_list.Dirs.Count == 0 && _list.Files.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Class="pa-2" Style="opacity:.7"
+                                 data-projectfile-empty="1">@L["objects.files.empty"]</MudText>
+                    }
+                }
+            </MudPaper>
+
+            @if (_list?.Truncated == true)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">@L["objects.files.truncated"]</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    /// <summary>С какого каталога начинать: каталог уже вписанного пути. Пусто — корень.</summary>
+    [Parameter] public string? StartPath { get; set; }
+
+    private ProjectDirListDto? _list;
+    private string _error = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync(StartPath);
+
+    private async Task LoadAsync(string? path)
+    {
+        try
+        {
+            _list = await Api.GetProjectDirAsync(ProjectId, path);
+            _error = "";
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _error = ex.Message;
+            // каталога из вписанного пути может уже не быть — показываем хотя бы корень
+            if (_list is null && !string.IsNullOrEmpty(path))
+            {
+                await LoadAsync(null);
+            }
+        }
+    }
+
+    /// <summary>Адрес картинки — наш эндпойнт файла папки проекта; браузер грузит его сам.</summary>
+    private string ThumbUrl(ProjectEntryDto file) =>
+        FileLinks.Relative(new FileLink(FileLinks.Project, ProjectId, file.Path));
+
+    private static string SizeText(long bytes) =>
+        bytes >= 1024 * 1024 ? $"{bytes / 1024d / 1024d:0.#} MB"
+        : bytes >= 1024 ? $"{bytes / 1024d:0.#} KB"
+        : $"{bytes} B";
+}

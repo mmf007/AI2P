@@ -1,0 +1,153 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* История работ (ТЗ гл. 5, экран 6): журнал событий с фильтрами (п. 6.3).
+   FixedProjectId — встраивание во вкладку «История» проекта (todo37): тот же список,
+   но жёстко ограниченный этим проектом. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Spacing="2">
+    @if (FixedProjectId is null)
+    {
+        <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["history.title"]</MudText>
+    }
+    <MudSpacer />
+    <MudSelect T="string" @bind-Value="_actorId" Label="@L["history.actor"]" Clearable="true"
+               Dense="true" Margin="Margin.Dense" Style="min-width: 180px;">
+        @foreach (var executor in State.Executors)
+        {
+            <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+        }
+    </MudSelect>
+    <MudSelect T="string" @bind-Value="_eventType" Label="@L["history.type"]" Clearable="true"
+               Dense="true" Margin="Margin.Dense" Style="min-width: 200px;">
+        @foreach (var type in KnownTypes)
+        {
+            <MudSelectItem T="string" Value="@type">@type</MudSelectItem>
+        }
+    </MudSelect>
+    @* кнопка-иконка с подсказкой (гл. 11, эргономика) *@
+    <MudTooltip Text="@L["common.refresh"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" />
+    </MudTooltip>
+</MudStack>
+
+<MudSimpleTable Dense="true" Hover="true">
+    <thead>
+        <tr>
+            <th>@L["history.time"]</th>
+            <th>@L["history.actor"]</th>
+            <th>@L["history.type"]</th>
+            <th>@L["history.task"]</th>
+            <th>@L["history.details"]</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var evt in _events)
+        {
+            <tr>
+                <td style="white-space: nowrap;">@evt.Ts.ToLocalTime().ToString("g")</td>
+                <td>@Nick(evt.ActorId)</td>
+                <td>@evt.EventType</td>
+                <td>
+                    @if (evt.TaskId is { } taskId)
+                    {
+                        <MudLink OnClick="@(() => OpenTaskAsync(taskId))">@TaskLabel(evt)</MudLink>
+                    }
+                </td>
+                @* «Детали» урезаны по ширине — клик открывает их целиком с копированием (todo37) *@
+                <td style="max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                           cursor: pointer;"
+                    title="@L["history.details.show"]"
+                    @onclick="@(() => ShowDetailsAsync(evt))">
+                    @JsonText.Readable(evt.PayloadJson)
+                </td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    /// <summary>Вкладка «История» проекта (todo37): журнал ограничен этим проектом.</summary>
+    [Parameter] public string? FixedProjectId { get; set; }
+
+    private static readonly string[] KnownTypes =
+    [
+        EventTypes.ProjectCreated, EventTypes.TaskCreated, EventTypes.TaskUpdated,
+        EventTypes.TaskStatusChanged, EventTypes.TaskAssigned, EventTypes.TaskDeleted,
+        EventTypes.JobSubmitted, EventTypes.JobStateChanged, EventTypes.JobCompleted,
+        EventTypes.ChatMessage, EventTypes.ExecutorCreated, EventTypes.TeamCreated, EventTypes.TeamUpdated,
+        // запуск работы команды и подключение участников (ТЗ v1.14, todo37): ошибку
+        // запуска ищут именно здесь
+        EventTypes.TeamWorkStarted, EventTypes.TeamWorkStopped, EventTypes.TeamMemberState,
+    ];
+
+    private List<EventRecord> _events = [];
+    private string? _actorId;
+    private string? _eventType;
+
+    protected override Task OnInitializedAsync() => ReloadAsync();
+
+    private string Nick(string? executorId) =>
+        executorId is null ? "—" : State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? executorId;
+
+    private string TaskLabel(EventRecord evt)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(evt.PayloadJson);
+            if (doc.RootElement.TryGetProperty("displayId", out var displayId))
+            {
+                return displayId.GetString() ?? evt.TaskId ?? "";
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+        }
+        return evt.TaskId ?? "";
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _events = await Api.GetEventsAsync(projectId: FixedProjectId ?? State.CurrentProjectId,
+                actorId: _actorId, eventType: _eventType);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Детали события целиком — в окне с копированием (todo37): ошибка запуска
+    /// участника команды в строку таблицы не помещается.</summary>
+    private Task ShowDetailsAsync(EventRecord evt)
+    {
+        var parameters = new DialogParameters<TextCopyDialog>
+        {
+            { d => d.Text, JsonText.Readable(evt.PayloadJson) },
+            { d => d.Caption, $"{evt.Ts.ToLocalTime():g} · {evt.EventType} · {Nick(evt.ActorId)}" },
+        };
+        return Dialogs.ShowAsync<TextCopyDialog>(L["history.details"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private async Task OpenTaskAsync(string taskId)
+    {
+        try
+        {
+            var details = await Api.GetTaskAsync(taskId);
+            State.OpenTask(taskId, details.Task.DisplayId, details.Task.Title, FrameIndex);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

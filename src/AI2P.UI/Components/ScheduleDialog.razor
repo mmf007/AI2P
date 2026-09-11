@@ -1,0 +1,366 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Форма расписания (ТЗ п. 2.12, todo34): шаблон верхнего уровня, смещение базовой даты
+   (часы и минуты), правило поиска исполнителей, однократно/периодически (недельный —
+   как будильник, дни недели + время; месячный — день месяца; квартальный — месяц
+   квартала + день), плановая длительность в минутах. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @* ЧТО ЗАПУСКАЕТ РАСПИСАНИЕ (T-46-S0): копию шаблона задач либо ДЕЙСТВИЕ самой
+               системы. У действия нет ни шаблона, ни проекта, ни исполнителей — задача не
+               заводится, поэтому все относящиеся к шаблону поля прячутся целиком *@
+            <MudSelect T="string" Value="@_run" ValueChanged="OnRunChanged"
+                       Label="@L["schedule.run"]" data-schedule-run="1">
+                <MudSelectItem T="string" Value="@("template")">@L["schedule.run.template"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("action")">@L["schedule.run.action"]</MudSelectItem>
+            </MudSelect>
+            @if (_run == "action")
+            {
+                <MudSelect T="string" @bind-Value="_action" Label="@L["schedule.action"]"
+                           HelperText="@L["schedule.action.hint"]" data-schedule-action="1">
+                    @foreach (var known in ScheduleActions.All)
+                    {
+                        <MudSelectItem T="string" Value="@known">@L[ScheduleActions.TitleKeyOf(known)]</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+            @* проект (todo34_2): по умолчанию текущий; фильтрует список шаблонов
+               (показываются шаблоны проекта и шаблоны без проекта) *@
+            <MudSelect T="string" Value="@_projectId" ValueChanged="OnProjectChanged"
+                       Label="@L["task.project"]" Clearable="true">
+                @foreach (var project in State.Projects.Where(p => p.IsActive || p.Id == _projectId))
+                {
+                    <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @* поиск шаблона по названию (todo34_2) — фильтрует варианты поля ниже *@
+            <MudTextField T="string" @bind-Value="_search" Label="@L["task.new.searchTemplates"]"
+                          Immediate="true" Clearable="true" Margin="Margin.Dense"
+                          Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" />
+            <MudSelect T="string" @bind-Value="_schedule.TemplateTaskId" Label="@L["schedule.template"]">
+                @foreach (var template in FilteredTemplates)
+                {
+                    <MudSelectItem T="string" Value="@template.Id">@template.DisplayId @template.Title</MudSelectItem>
+                }
+            </MudSelect>
+            <MudStack Row="true" Spacing="2">
+                <MudNumericField T="int" @bind-Value="_offsetHours" Label="@L["schedule.offset.hours"]"
+                                 Min="0" Margin="Margin.Dense" />
+                <MudNumericField T="int" @bind-Value="_offsetMinutes" Label="@L["schedule.offset.minutes"]"
+                                 Min="0" Max="59" Margin="Margin.Dense" />
+                <MudNumericField T="int?" @bind-Value="_schedule.PlannedMinutes" Label="@L["schedule.duration"]"
+                                 Min="0" Clearable="true" Margin="Margin.Dense" />
+            </MudStack>
+            <MudSelect T="string" @bind-Value="_pick" Label="@L["schedule.pick"]" Clearable="true">
+                <MudSelectItem T="string" Value="@("ai_first")">@L["task.instantiate.pick.aiFirst"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("human_first")">@L["task.instantiate.pick.humanFirst"]</MudSelectItem>
+            </MudSelect>
+            }
+            <MudSelect T="string" @bind-Value="_schedule.Kind" Label="@L["schedule.kind"]">
+                <MudSelectItem T="string" Value="@("once")">@L["schedule.kind.once"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("periodic")">@L["schedule.kind.periodic"]</MudSelectItem>
+            </MudSelect>
+            @if (_schedule.Kind == "once")
+            {
+                <MudStack Row="true" Spacing="2">
+                    <MudDatePicker Date="@_onceDate" DateChanged="@(d => _onceDate = d)"
+                                   Label="@L["schedule.startDate"]" Margin="Margin.Dense" />
+                    <MudTimePicker Time="@_time" TimeChanged="@(t => _time = t)"
+                                   Label="@L["schedule.time"]" Margin="Margin.Dense" />
+                </MudStack>
+            }
+            else
+            {
+                <MudSelect T="string" @bind-Value="_periodType" Label="@L["schedule.period"]">
+                    <MudSelectItem T="string" Value="@("weekly")">@L["schedule.period.weekly"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("monthly")">@L["schedule.period.monthly"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("quarterly")">@L["schedule.period.quarterly"]</MudSelectItem>
+                </MudSelect>
+                @if (_periodType == "weekly")
+                {
+                    @* дни недели — как настройка будильника (ТЗ п. 2.12) *@
+                    <MudStack Row="true" Spacing="1" Wrap="MudBlazor.Wrap.Wrap">
+                        @for (var day = 1; day <= 7; day++)
+                        {
+                            var d = day;
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(_days.Contains(d) ? Color.Primary : Color.Default)"
+                                     Variant="@(_days.Contains(d) ? Variant.Filled : Variant.Outlined)"
+                                     OnClick="@(() => ToggleDay(d))">
+                                @L["schedule.day." + d]
+                            </MudChip>
+                        }
+                    </MudStack>
+                }
+                else if (_periodType == "monthly")
+                {
+                    <MudNumericField T="int" @bind-Value="_day" Label="@L["schedule.monthDay"]"
+                                     Min="1" Max="31" Margin="Margin.Dense" />
+                }
+                else
+                {
+                    <MudStack Row="true" Spacing="2">
+                        <MudSelect T="int" @bind-Value="_month" Label="@L["schedule.quarterMonth"]" Margin="Margin.Dense">
+                            <MudSelectItem T="int" Value="1">1</MudSelectItem>
+                            <MudSelectItem T="int" Value="2">2</MudSelectItem>
+                            <MudSelectItem T="int" Value="3">3</MudSelectItem>
+                        </MudSelect>
+                        <MudNumericField T="int" @bind-Value="_day" Label="@L["schedule.monthDay"]"
+                                         Min="1" Max="31" Margin="Margin.Dense" />
+                    </MudStack>
+                }
+                <MudTimePicker Time="@_time" TimeChanged="@(t => _time = t)"
+                               Label="@L["schedule.time"]" Margin="Margin.Dense" />
+            }
+            @* сервер расписания (ТЗ гл. 6, этап 42): на нём расписание правится и на нём же
+               срабатывает. Без сервера расписание ведёт дирижёр — вариант предлагается
+               только на нём. Показывается, когда серверов в организации больше одного *@
+            @if (State.IsCluster)
+            {
+                <MudSelect T="string" @bind-Value="_serverId" Label="@L["schedule.server"]"
+                           HelperText="@L["schedule.server.hint"]"
+                           ToStringFunc="@(id => ServerTitle(id))">
+                    @if (State.IsConductor)
+                    {
+                        <MudSelectItem T="string" Value="@("")">@L["task.server.none"]</MudSelectItem>
+                    }
+                    @foreach (var server in State.OrgServers.Where(x => x.IsActive))
+                    {
+                        <MudSelectItem T="string" Value="@server.ServerId">@ServerTitle(server.ServerId)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudSwitch T="bool" @bind-Value="_schedule.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(!CanSave)" OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — новое расписание; иначе — правка.</summary>
+    [Parameter] public Schedule? Source { get; set; }
+
+    private Schedule _schedule = new();
+
+    /// <summary>Сервер расписания (ТЗ гл. 6, этап 42); пусто — «без сервера» (ведёт дирижёр).</summary>
+    private string _serverId = "";
+
+    /// <summary>«S1 (ноутбук)» — код и имя сервера; пусто — «без сервера».</summary>
+    private string ServerTitle(string? serverId)
+    {
+        if (serverId is not { Length: > 0 })
+        {
+            return L["task.server.none"];
+        }
+        var server = State.OrgServers.FirstOrDefault(x => x.ServerId == serverId);
+        if (server is null)
+        {
+            return serverId;
+        }
+        return server.Name.Length > 0 ? $"{server.Code} ({server.Name})" : server.Code;
+    }
+    private List<TaskItem> _templates = [];
+    private string? _projectId;
+    private string _search = "";
+    private int _offsetHours;
+
+    /// <summary>Шаблоны для выбора (todo34_2): выбранного проекта и без проекта,
+    /// с фильтром по подстроке названия; выбранный шаблон остаётся в списке всегда.</summary>
+    private IEnumerable<TaskItem> FilteredTemplates =>
+        _templates.Where(t =>
+            t.Id == _schedule.TemplateTaskId
+            || ((_projectId is null || t.ProjectId is null || t.ProjectId == _projectId)
+                && (_search.Trim().Length == 0
+                    || t.Title.Contains(_search.Trim(), StringComparison.CurrentCultureIgnoreCase))));
+
+    private void OnProjectChanged(string? projectId)
+    {
+        _projectId = projectId;
+        // выбранный шаблон чужого проекта сбрасывается — выбор из нового списка
+        if (_templates.FirstOrDefault(t => t.Id == _schedule.TemplateTaskId) is { } selected
+            && projectId is not null && selected.ProjectId is not null && selected.ProjectId != projectId)
+        {
+            _schedule.TemplateTaskId = "";
+        }
+    }
+    private int _offsetMinutes;
+    private string? _pick;
+    private string _periodType = "weekly";
+    private readonly HashSet<int> _days = [];
+    private int _day = 1;
+    private int _month = 1;
+    private DateTime? _onceDate;
+    private TimeSpan? _time;
+
+    /// <summary>Что запускает расписание (T-46-S0): "template" — копию шаблона задач,
+    /// "action" — действие самой системы (сегодня одно: автоматическая архивация).</summary>
+    private string _run = "template";
+
+    /// <summary>Код действия расписания (<see cref="ScheduleActions"/>) при _run == "action".</summary>
+    private string _action = ScheduleActions.AutoArchive;
+
+    /// <summary>Смена вида: чужие поля обнуляются сразу, чтобы в базу не уехало и то и другое.</summary>
+    private void OnRunChanged(string run)
+    {
+        _run = run;
+        if (_run == "action")
+        {
+            _schedule.TemplateTaskId = "";
+        }
+    }
+
+    private bool CanSave =>
+        (_run == "action" ? _action.Length > 0 : _schedule.TemplateTaskId.Length > 0)
+        && (_schedule.Kind == "once"
+            ? _onceDate is not null && _time is not null
+            : _time is not null && (_periodType != "weekly" || _days.Count > 0));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // шаблоны верхнего уровня (ТЗ п. 2.12)
+            _templates = (await Api.GetTasksAsync(templatesOnly: true))
+                .Where(t => t.ParentId is null).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        if (Source is null)
+        {
+            // проект по умолчанию — текущий (todo34_2)
+            _projectId = State.CurrentProject is { IsActive: true } ? State.CurrentProjectId : null;
+            _schedule.ProjectId = _projectId;
+            // новое расписание принадлежит серверу, где его заводят; на дирижёре — «без сервера»
+            _serverId = State.IsConductor ? "" : State.ServerId;
+            return;
+        }
+        _schedule = new Schedule
+        {
+            Id = Source.Id,
+            ProjectId = Source.ProjectId,
+            TemplateTaskId = Source.TemplateTaskId,
+            OffsetMinutes = Source.OffsetMinutes,
+            Pick = Source.Pick,
+            Kind = Source.Kind,
+            StartAt = Source.StartAt,
+            PeriodJson = Source.PeriodJson,
+            PlannedMinutes = Source.PlannedMinutes,
+            IsActive = Source.IsActive,
+            ServerId = Source.ServerId,
+            Action = Source.Action,
+        };
+        // расписание-действие (T-46-S0): шаблона у него нет, форма открывается вторым видом
+        _run = Source.Action is { Length: > 0 } ? "action" : "template";
+        _action = Source.Action is { Length: > 0 } ? Source.Action : ScheduleActions.AutoArchive;
+        _projectId = Source.ProjectId;
+        _serverId = Source.ServerId ?? "";
+        _offsetHours = Source.OffsetMinutes / 60;
+        _offsetMinutes = Source.OffsetMinutes % 60;
+        _pick = Source.Pick;
+        if (Source.Kind == "once")
+        {
+            var local = Source.StartAt?.ToLocalTime();
+            _onceDate = local?.Date;
+            _time = local?.TimeOfDay;
+        }
+        else
+        {
+            ReadPeriod(Source.PeriodJson);
+        }
+    }
+
+    private void ToggleDay(int day)
+    {
+        if (!_days.Remove(day))
+        {
+            _days.Add(day);
+        }
+    }
+
+    private void ReadPeriod(string periodJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(periodJson);
+            var root = doc.RootElement;
+            _periodType = root.TryGetProperty("type", out var t) ? t.GetString() ?? "weekly" : "weekly";
+            if (root.TryGetProperty("days", out var d))
+            {
+                foreach (var item in d.EnumerateArray())
+                {
+                    _days.Add(item.GetInt32());
+                }
+            }
+            _day = root.TryGetProperty("day", out var dd) ? dd.GetInt32() : 1;
+            _month = root.TryGetProperty("month", out var m) ? m.GetInt32() : 1;
+            if (root.TryGetProperty("time", out var tm) && TimeSpan.TryParse(tm.GetString(), out var parsed))
+            {
+                _time = parsed;
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // повреждённый период — форма со значениями по умолчанию
+        }
+    }
+
+    private void Save()
+    {
+        // расписание-действие (T-46-S0): ни шаблона, ни проекта, ни подбора исполнителей —
+        // задача не заводится вовсе, и оставлять от прежней правки эти поля нельзя
+        if (_run == "action")
+        {
+            _schedule.Action = _action;
+            _schedule.TemplateTaskId = "";
+            _projectId = null;
+            _pick = null;
+            _schedule.PlannedMinutes = null;
+            _offsetHours = 0;
+            _offsetMinutes = 0;
+        }
+        else
+        {
+            _schedule.Action = null;
+        }
+        _schedule.ProjectId = _projectId;
+        _schedule.ServerId = _serverId.Length == 0 ? null : _serverId;
+        _schedule.OffsetMinutes = _offsetHours * 60 + _offsetMinutes;
+        _schedule.Pick = _pick;
+        if (_schedule.Kind == "once")
+        {
+            var local = DateTime.SpecifyKind(_onceDate!.Value.Date + _time!.Value, DateTimeKind.Local);
+            _schedule.StartAt = local.ToUniversalTime();
+            _schedule.PeriodJson = "{}";
+        }
+        else
+        {
+            _schedule.StartAt = null;
+            var time = $"{_time!.Value.Hours:00}:{_time.Value.Minutes:00}";
+            _schedule.PeriodJson = _periodType switch
+            {
+                "weekly" => System.Text.Json.JsonSerializer.Serialize(
+                    new { type = "weekly", days = _days.OrderBy(d => d).ToArray(), time }),
+                "monthly" => System.Text.Json.JsonSerializer.Serialize(
+                    new { type = "monthly", day = _day, time }),
+                _ => System.Text.Json.JsonSerializer.Serialize(
+                    new { type = "quarterly", month = _month, day = _day, time }),
+            };
+        }
+        Dialog.Close(DialogResult.Ok(_schedule));
+    }
+}

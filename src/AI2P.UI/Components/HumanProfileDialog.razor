@@ -1,0 +1,72 @@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Редактор профайла человека (ТЗ п. 2.2): почта, телефон, пол, дата рождения.
+   Редактор отличается от профайла ИИ — данные другие. Путь файла не показывается.
+   Неизвестные поля json сохраняются как есть. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_email" Label="@L["profile.email"]" InputType="InputType.Email" />
+            <MudTextField @bind-Value="_phone" Label="@L["profile.phone"]" InputType="InputType.Telephone" />
+            <MudTextField @bind-Value="_gender" Label="@L["profile.gender"]" />
+            <MudDatePicker @bind-Date="_birthDate" Label="@L["profile.birthDate"]" Clearable="true" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="SaveAsync">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Относительный путь json-файла профайла в dataDir.</summary>
+    [Parameter] public string Path { get; set; } = "";
+
+    private JsonObject _root = new();
+    private string _email = "";
+    private string _phone = "";
+    private string _gender = "";
+    private DateTime? _birthDate;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var text = await Api.GetFileTextAsync(Path);
+        try
+        {
+            _root = JsonNode.Parse(text) as JsonObject ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            _root = new JsonObject();
+        }
+        _email = (string?)_root["email"] ?? "";
+        _phone = (string?)_root["phone"] ?? "";
+        _gender = (string?)_root["gender"] ?? "";
+        _birthDate = DateTime.TryParse((string?)_root["birthDate"], out var date) ? date : null;
+    }
+
+    private async Task SaveAsync()
+    {
+        _root["email"] = _email.Trim();
+        _root["phone"] = _phone.Trim();
+        _root["gender"] = _gender.Trim();
+        _root["birthDate"] = _birthDate?.ToString("yyyy-MM-dd") ?? "";
+        try
+        {
+            await Api.SaveFileTextAsync(Path,
+                _root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

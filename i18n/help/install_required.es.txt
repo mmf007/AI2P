@@ -1,0 +1,29 @@
+AI2P — install_required: COMPROBACIÓN E INSTALACIÓN DEL ENTORNO DE COMPILACIÓN (ET, cap. 13.1)
+
+Este es un script de DESARROLLADOR: se ejecuta en la máquina de compilación, desde el
+repositorio. Su propia salida está hecha sólo en inglés (nivel B del análisis de T-64-S0).
+
+QUÉ COMPRUEBA E INSTALA (Windows, winget)
+  1. .NET SDK 8+                Microsoft.DotNet.SDK.8
+     + ASP.NET Core runtime 8.x Microsoft.DotNet.AspNetCore.8
+       la aplicación está compilada para net8.0 y debe ir sobre el runtime 8.x:
+       sobre el runtime 9/10 la interactividad de Blazor se cae en silencio
+  2. CMake                      Kitware.CMake
+  3. Compilador de C/C++ MSVC   VS 2022 Build Tools + la carga de trabajo VC
+  4. Submódulos de git          git submodule update --init
+  5. Inno Setup 6               JRSoftware.InnoSetup
+       lo necesita MakePackage para compilar el instalador .exe a partir de la
+       publicación terminada; para la compilación en sí no hace falta
+
+QUÉ COMPRUEBA E INSTALA (Linux / macOS)
+  .NET SDK, CMake, el compilador de C/C++, los submódulos de git y makeself; este
+  último lo necesita MakePackage.sh para compilar el paquete .run.
+
+USO
+  install_required.bat        Windows
+  ./install_required.sh       Linux / macOS
+  install_required.bat --help esta ayuda
+
+NOTA. Los instaladores pueden pedir confirmación de administrador (UAC en Windows, sudo
+en los demás sistemas). Tras la instalación, abra una consola NUEVA para que se recojan
+los cambios del PATH y ejecute el script otra vez para comprobarlo.

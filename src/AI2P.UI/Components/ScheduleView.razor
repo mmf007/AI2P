@@ -1,0 +1,607 @@
+@using System.Globalization
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Расписание запуска задач (ТЗ п. 2.12): закладка с календарём в экшен-баре.
+   Сверху — просроченные срабатывания (пока приложение не работало): запустить либо
+   удалить из списка. Два представления (todo34_2): таблица с сортировкой по клику
+   на колонку (с колонкой «проект») и календарь срабатываний (месячная сетка,
+   листание по месяцам); выбор представления и сортировка запоминаются. *@
+<MudMessageBox @ref="_deleteBox" Title="@L["common.delete"]" Message="@L["schedule.deleteConfirm"]"
+               YesText="@L["common.delete"]" CancelText="@L["common.cancel"]" />
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["schedule.title"]</MudText>
+    <MudSpacer />
+    @* фильтр по серверам (ТЗ гл. 6, этап 42): ПО УМОЛЧАНИЮ показывается только текущий
+       сервер — расписания чужих серверов лежат в той же реплике и срабатывают у них,
+       здесь они только мешали бы. Можно выбрать дополнительные серверы *@
+    @if (State.IsCluster)
+    {
+        <MudSelect T="string" SelectedValues="@_saved.Servers" SelectedValuesChanged="OnServersChanged"
+                   Label="@L["tasks.filter.server"]" MultiSelection="true"
+                   Dense="true" Margin="Margin.Dense" Style="max-width: 220px;"
+                   ToStringFunc="@(id => ServerTitle(id))">
+            <MudSelectItem T="string" Value="@NoServer">@L["task.server.none"]</MudSelectItem>
+            @foreach (var server in State.OrgServers)
+            {
+                <MudSelectItem T="string" Value="@server.ServerId">@ServerTitle(server.ServerId)</MudSelectItem>
+            }
+        </MudSelect>
+    }
+    <MudSelect T="string" Value="@_saved.View" ValueChanged="OnViewChanged" Label="@L["common.view"]"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 160px;">
+        <MudSelectItem T="string" Value="@("table")">@L["billing.view.table"]</MudSelectItem>
+        <MudSelectItem T="string" Value="@("calendar")">@L["billing.view.calendar"]</MudSelectItem>
+    </MudSelect>
+    @* кнопки-иконки с подсказками (гл. 11, эргономика) *@
+    <MudTooltip Text="@L["schedule.add"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Add" Disabled="@(!State.CanManageProjects)"
+                       OnClick="@(() => EditAsync(null))" />
+    </MudTooltip>
+    <MudTooltip Text="@L["common.refresh"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" />
+    </MudTooltip>
+</MudStack>
+
+@if (_overdue.Count > 0)
+{
+    @* просроченные срабатывания: решает человек (ТЗ п. 2.12) *@
+    <MudAlert Severity="Severity.Warning" Class="mb-3">@L["schedule.overdue.title"]</MudAlert>
+    <MudSimpleTable Dense="true" Class="mb-4">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>@L["schedule.template"]</th>
+                <th>@L["schedule.overdue.missed"]</th>
+                <th>@L["schedule.overdue.last"]</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in _overdue)
+            {
+                <tr>
+                    <td>@item.ScheduleDisplayId</td>
+                    <td>@item.TemplateDisplayId @item.TemplateTitle</td>
+                    <td>@item.MissedCount</td>
+                    <td>@item.LastMissedAt.ToLocalTime().ToString("g")</td>
+                    <td style="white-space: nowrap;">
+                        <MudTooltip Text="@L["schedule.overdue.run"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                                           Color="Color.Success" Disabled="@(!State.CanEdit)"
+                                           OnClick="@(() => RunOverdueAsync(item))" />
+                        </MudTooltip>
+                        <MudTooltip Text="@L["schedule.overdue.dismiss"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                           Color="Color.Error" Disabled="@(!State.CanEdit)"
+                                           OnClick="@(() => DismissOverdueAsync(item))" />
+                        </MudTooltip>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@if (!_loaded)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_saved.View == "calendar")
+{
+    @* календарь срабатываний (todo34_2): когда какое расписание запустится *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="@(() => ShiftMonthAsync(-1))" />
+        <MudText Typo="Typo.h6">@_month.ToString("MMMM yyyy", Culture)</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="@(() => ShiftMonthAsync(1))" />
+    </MudStack>
+    <table class="ai2p-schedule-cal">
+        <thead>
+            <tr>
+                @foreach (var day in DayNames())
+                {
+                    <th>@day</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var week in MonthWeeks())
+            {
+                <tr>
+                    @foreach (var day in week)
+                    {
+                        <td class="@(day.Month == _month.Month ? "" : "other")">
+                            <div class="day">@day.Day</div>
+                            @if (_byDay.TryGetValue(day.Date, out var items))
+                            {
+                                @* слот (todo34_3): сначала время, затем код либо начало
+                                   заголовка шаблона (настройка «ячейка календаря расписаний»);
+                                   хинт — «Проект — Название шаблона» *@
+                                @foreach (var (schedule, at) in items)
+                                {
+                                    <MudTooltip Text="@SlotHint(schedule)">
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                                                 Variant="Variant.Outlined"
+                                                 OnClick="@(() => EditAsync(schedule))">
+                                            @at.ToLocalTime().ToString("HH:mm") @SlotLabel(schedule)
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else if (_schedules.Count == 0)
+{
+    <MudText Typo="Typo.body2">@L["common.empty"]</MudText>
+}
+else
+{
+    @* таблица с сортировкой по клику на колонку (todo34_2), как в таблице задач *@
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                @foreach (var column in VisibleColumns)
+                {
+                    <th style="cursor: pointer; position: relative; padding-right: 16px; white-space: nowrap;"
+                        @onclick="@(() => SortBy(column.Key))">
+                        @(column.Key == "id" ? "ID" : L[column.Title])
+                        @if (_saved.SortKey == column.Key)
+                        {
+                            <span style="position: absolute; right: 4px; bottom: 2px; font-size: 0.55rem; line-height: 1;">
+                                @(_saved.SortDesc ? "▼" : "▲")
+                            </span>
+                        }
+                    </th>
+                }
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var schedule in Sorted)
+            {
+                <tr>
+                    <td>@schedule.DisplayId</td>
+                    <td>@ProjectName(schedule.ProjectId)</td>
+                    <td>@RunLabel(schedule)</td>
+                    <td>@WhenLabel(schedule)</td>
+                    <td>@OffsetLabel(schedule.OffsetMinutes)</td>
+                    <td>@(schedule.PlannedMinutes is { } m ? $"{m} {L["schedule.min"]}" : "")</td>
+                    <td>@PickLabel(schedule.Pick)</td>
+                    <td>
+                        <MudIcon Icon="@(schedule.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                 Color="@(schedule.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                    </td>
+                    @if (State.IsCluster)
+                    {
+                        <td style="white-space: nowrap;">
+                            @if (schedule.IsReadOnly)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small"
+                                         Style="opacity:.6; vertical-align: middle;" />
+                            }
+                            @ServerTitle(schedule.ServerId)
+                        </td>
+                    }
+                    <td style="white-space: nowrap;">
+                        @* чужое расписание правится на своём сервере (ТЗ гл. 6, этап 42) *@
+                        <MudTooltip Text="@(schedule.IsReadOnly ? L["schedule.server.readOnly"] : L["common.edit"])">
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                           Disabled="@(!State.CanManageProjects || schedule.IsReadOnly)"
+                                           OnClick="@(() => EditAsync(schedule))" />
+                        </MudTooltip>
+                        <MudTooltip Text="@L["common.delete"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                           Color="Color.Error"
+                                           Disabled="@(!State.CanManageProjects || schedule.IsReadOnly)"
+                                           OnClick="@(() => DeleteAsync(schedule))" />
+                        </MudTooltip>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+<style>
+    .ai2p-schedule-cal { border-collapse: collapse; width: 100%; }
+    .ai2p-schedule-cal th, .ai2p-schedule-cal td { border: 1px solid var(--mud-palette-lines-default); vertical-align: top; width: 14.28%; }
+    .ai2p-schedule-cal th { padding: 4px; text-align: center; font-weight: 600; }
+    .ai2p-schedule-cal td { height: 84px; padding: 3px; }
+    .ai2p-schedule-cal td.other { opacity: .4; }
+    .ai2p-schedule-cal .day { font-size: 0.8rem; opacity: .7; }
+</style>
+
+@code {
+    private static readonly CultureInfo Culture = CultureInfo.CurrentCulture;
+
+    /// <summary>Колонки таблицы (todo34_2): все сортируются кликом.</summary>
+    private static readonly (string Key, string Title)[] Columns =
+    [
+        ("id", "ID"),
+        ("project", "task.project"),
+        ("template", "schedule.template"),
+        ("when", "schedule.when"),
+        ("offset", "schedule.offset"),
+        ("duration", "schedule.duration"),
+        ("pick", "schedule.pick"),
+        ("active", "common.active"),
+        // сервер расписания (ТЗ гл. 6, этап 42): колонка есть только в кластере
+        ("server", "schedule.server"),
+    ];
+
+    /// <summary>Колонки к показу: сервер — только когда серверов в организации больше одного.</summary>
+    private IEnumerable<(string Key, string Title)> VisibleColumns =>
+        State.IsCluster ? Columns : Columns.Where(c => c.Key != "server");
+
+    /// <summary>Значение фильтра «расписания без сервера» — их ведёт дирижёр (ТЗ гл. 6).</summary>
+    private const string NoServer = "none";
+
+    /// <summary>«S1 (ноутбук)» — код и имя сервера; «none»/пусто — «без сервера».</summary>
+    private string ServerTitle(string? serverId)
+    {
+        if (serverId is not { Length: > 0 } || serverId == NoServer)
+        {
+            return L["task.server.none"];
+        }
+        var server = State.OrgServers.FirstOrDefault(x => x.ServerId == serverId);
+        if (server is null)
+        {
+            return serverId;
+        }
+        return server.Name.Length > 0 ? $"{server.Code} ({server.Name})" : server.Code;
+    }
+
+    /// <summary>Представление и сортировка — запоминаются, в т.ч. между запусками (гл. 11).</summary>
+    private sealed class ScheduleViewState
+    {
+        public string View { get; set; } = "table";
+        public string? SortKey { get; set; }
+        public bool SortDesc { get; set; }
+        /// <summary>Фильтр по серверам (ТЗ гл. 6, этап 42); null — ещё не выбирали:
+        /// по умолчанию показывается только текущий сервер.</summary>
+        public List<string>? Servers { get; set; }
+    }
+
+    private MudMessageBox _deleteBox = default!;
+    private List<Schedule> _schedules = [];
+    private List<ScheduleOverdueDto> _overdue = [];
+    private List<TaskItem> _templates = [];
+    private bool _loaded;
+    private ScheduleViewState _saved = new();
+    private DateTime _month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private readonly Dictionary<DateTime, List<(Schedule Schedule, DateTime At)>> _byDay = [];
+
+    protected override Task OnInitializedAsync()
+    {
+        _saved = State.ComponentState<ScheduleViewState>("scheduleView");
+        return ReloadAsync();
+    }
+
+    /// <summary>Смена фильтра по серверам (ТЗ гл. 6, этап 42): выбор запоминается.</summary>
+    private Task OnServersChanged(IEnumerable<string> values)
+    {
+        _saved.Servers = values.ToList();
+        State.PersistComponentStates();
+        return ReloadAsync();
+    }
+
+    private Task OnViewChanged(string view)
+    {
+        _saved.View = view;
+        State.PersistComponentStates();
+        return _saved.View == "calendar" ? LoadCalendarAsync() : Task.CompletedTask;
+    }
+
+    private void SortBy(string key)
+    {
+        if (_saved.SortKey == key)
+        {
+            _saved.SortDesc = !_saved.SortDesc;
+        }
+        else
+        {
+            _saved.SortKey = key;
+            _saved.SortDesc = false;
+        }
+        State.PersistComponentStates();
+    }
+
+    private IEnumerable<Schedule> Sorted
+    {
+        get
+        {
+            if (_saved.SortKey is null)
+            {
+                return _schedules;
+            }
+            var ordered = _saved.SortKey switch
+            {
+                "id" => _schedules.OrderBy(s => DisplayIds.Order(s.DisplayId)),
+                "project" => _schedules.OrderBy(s => ProjectName(s.ProjectId), StringComparer.CurrentCultureIgnoreCase),
+                "template" => _schedules.OrderBy(s => RunLabel(s), StringComparer.CurrentCultureIgnoreCase),
+                "when" => _schedules.OrderBy(s => WhenLabel(s), StringComparer.CurrentCultureIgnoreCase),
+                "offset" => _schedules.OrderBy(s => s.OffsetMinutes),
+                "duration" => _schedules.OrderBy(s => s.PlannedMinutes ?? int.MaxValue),
+                "pick" => _schedules.OrderBy(s => PickLabel(s.Pick), StringComparer.CurrentCultureIgnoreCase),
+                "active" => _schedules.OrderBy(s => s.IsActive ? 0 : 1),
+                "server" => _schedules.OrderBy(s => ServerTitle(s.ServerId), StringComparer.CurrentCultureIgnoreCase),
+                _ => _schedules.OrderBy(s => 0),
+            };
+            return _saved.SortDesc ? ordered.Reverse() : ordered;
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _loaded = false;
+            _schedules = await Api.GetSchedulesAsync();
+            // фильтр по серверам (ТЗ гл. 6, этап 42): по умолчанию — только текущий сервер
+            // (и «без сервера» на дирижёре: такие расписания ведёт он)
+            _saved.Servers ??= State.IsCluster
+                ? (State.IsConductor ? [State.ServerId, NoServer] : [State.ServerId])
+                : [];
+            if (_saved.Servers.Count > 0)
+            {
+                var wanted = _saved.Servers.ToHashSet(StringComparer.Ordinal);
+                _schedules = _schedules
+                    .Where(x => wanted.Contains(x.ServerId is { Length: > 0 } id ? id : NoServer))
+                    .ToList();
+            }
+            _overdue = await Api.GetScheduleOverdueAsync();
+            _templates = await Api.GetTasksAsync(templatesOnly: true);
+            if (_saved.View == "calendar")
+            {
+                await LoadCalendarAsync();
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    // --- календарь (todo34_2) ---
+
+    private async Task ShiftMonthAsync(int delta)
+    {
+        _month = _month.AddMonths(delta);
+        await LoadCalendarAsync();
+    }
+
+    /// <summary>Срабатывания видимой сетки месяца (включая добивку соседними месяцами).</summary>
+    private async Task LoadCalendarAsync()
+    {
+        try
+        {
+            var weeks = MonthWeeks().ToList();
+            var fromLocal = DateTime.SpecifyKind(weeks[0][0], DateTimeKind.Local);
+            var toLocal = DateTime.SpecifyKind(weeks[^1][6].AddDays(1), DateTimeKind.Local);
+            var occurrences = await Api.GetScheduleOccurrencesAsync(
+                fromLocal.ToUniversalTime(), toLocal.ToUniversalTime());
+            _byDay.Clear();
+            foreach (var occurrence in occurrences)
+            {
+                if (_schedules.FirstOrDefault(s => s.Id == occurrence.ScheduleId) is not { } schedule)
+                {
+                    continue;
+                }
+                var day = occurrence.At.ToLocalTime().Date;
+                (_byDay.TryGetValue(day, out var list) ? list : _byDay[day] = []).Add((schedule, occurrence.At));
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Названия дней недели, начиная с понедельника.</summary>
+    private static IEnumerable<string> DayNames()
+    {
+        for (var i = 0; i < 7; i++)
+        {
+            yield return Culture.DateTimeFormat.AbbreviatedDayNames[((int)DayOfWeek.Monday + i) % 7];
+        }
+    }
+
+    /// <summary>Недели месяца строками по 7 дат (добивка соседними месяцами от понедельника).</summary>
+    private IEnumerable<DateTime[]> MonthWeeks()
+    {
+        var first = new DateTime(_month.Year, _month.Month, 1);
+        var offset = ((int)first.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        var start = first.AddDays(-offset);
+        for (var w = 0; w < 6; w++)
+        {
+            var week = new DateTime[7];
+            for (var d = 0; d < 7; d++)
+            {
+                week[d] = start.AddDays(w * 7 + d);
+            }
+            if (w > 0 && week[0].Month != _month.Month && week[0] > first)
+            {
+                yield break; // месяц кончился на прошлой неделе
+            }
+            yield return week;
+        }
+    }
+
+    // --- подписи ---
+
+    private string ProjectName(string? projectId) =>
+        projectId is null ? "" : State.Projects.FirstOrDefault(p => p.Id == projectId)?.Name ?? "";
+
+    /// <summary>Что запускает расписание: шаблон задач либо ДЕЙСТВИЕ системы (T-46-S0).
+    /// Колонка в таблице одна — вместо шаблона у расписания-действия его название.</summary>
+    private string RunLabel(Schedule schedule) =>
+        schedule.Action is { Length: > 0 } action
+            ? L[ScheduleActions.TitleKeyOf(action)]
+            : TemplateLabel(schedule.TemplateTaskId);
+
+    private string TemplateLabel(string templateId) =>
+        _templates.FirstOrDefault(t => t.Id == templateId) is { } template
+            ? $"{template.DisplayId} {template.Title}"
+            : templateId;
+
+    /// <summary>Подпись слота календаря после времени (todo34_3): по настройке
+    /// «ячейка календаря расписаний» — код шаблона либо начало его заголовка.</summary>
+    private string SlotLabel(Schedule schedule)
+    {
+        var template = _templates.FirstOrDefault(t => t.Id == schedule.TemplateTaskId);
+        if (template is null)
+        {
+            return schedule.DisplayId;
+        }
+        if (State.ScheduleCellMode == "name")
+        {
+            var title = template.Title;
+            return title.Length <= 18 ? title : title[..18] + "…";
+        }
+        return template.DisplayId;
+    }
+
+    /// <summary>Хинт слота календаря (todo34_3): «Проект — Название шаблона».</summary>
+    private string SlotHint(Schedule schedule)
+    {
+        var template = _templates.FirstOrDefault(t => t.Id == schedule.TemplateTaskId);
+        var title = template?.Title ?? schedule.TemplateTaskId;
+        var project = ProjectName(schedule.ProjectId ?? template?.ProjectId);
+        return project.Length > 0 ? $"{project} — {title}" : title;
+    }
+
+    private string PickLabel(string? pick) => pick switch
+    {
+        "ai_first" => L["task.instantiate.pick.aiFirst"],
+        "human_first" => L["task.instantiate.pick.humanFirst"],
+        _ => "",
+    };
+
+    private static string OffsetLabel(int minutes) =>
+        minutes == 0 ? "" : $"{minutes / 60}:{minutes % 60:00}";
+
+    /// <summary>Сводка «когда»: однократно — дата-время; период — дни/день + время.</summary>
+    private string WhenLabel(Schedule schedule)
+    {
+        if (schedule.Kind == "once")
+        {
+            return $"{L["schedule.kind.once"]}: {schedule.StartAt?.ToLocalTime():g}";
+        }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(schedule.PeriodJson);
+            var root = doc.RootElement;
+            var type = root.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+            var time = root.TryGetProperty("time", out var tm) ? tm.GetString() ?? "" : "";
+            switch (type)
+            {
+                case "weekly":
+                    var days = root.TryGetProperty("days", out var d)
+                        ? string.Join(",", d.EnumerateArray().Select(x => L["schedule.day." + x.GetInt32()]))
+                        : "";
+                    return $"{L["schedule.period.weekly"]}: {days} {time}";
+                case "monthly":
+                    return $"{L["schedule.period.monthly"]}: {root.GetProperty("day").GetInt32()}, {time}";
+                case "quarterly":
+                    return $"{L["schedule.period.quarterly"]}: {L["schedule.month"]} " +
+                           $"{root.GetProperty("month").GetInt32()}, {root.GetProperty("day").GetInt32()}, {time}";
+                default:
+                    return "";
+            }
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return "";
+        }
+    }
+
+    // --- действия ---
+
+    private async Task EditAsync(Schedule? schedule)
+    {
+        var parameters = new DialogParameters<ScheduleDialog> { { d => d.Source, schedule } };
+        var dialog = await Dialogs.ShowAsync<ScheduleDialog>(
+            schedule is null ? L["schedule.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: Schedule edited })
+        {
+            return;
+        }
+        try
+        {
+            if (schedule is null)
+            {
+                await Api.CreateScheduleAsync(edited);
+            }
+            else
+            {
+                await Api.UpdateScheduleAsync(edited);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(Schedule schedule)
+    {
+        if (await _deleteBox.ShowAsync() != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteScheduleAsync(schedule.Id);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task RunOverdueAsync(ScheduleOverdueDto item)
+    {
+        try
+        {
+            var created = await Api.RunScheduleOverdueAsync(item.ScheduleId);
+            Snackbar.Add(L["task.instantiate.created"], Severity.Success);
+            State.NotifyChanged();
+            State.OpenTask(created.Id, created.DisplayId, created.Title);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task DismissOverdueAsync(ScheduleOverdueDto item)
+    {
+        try
+        {
+            await Api.DismissScheduleOverdueAsync(item.ScheduleId);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

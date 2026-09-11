@@ -1,0 +1,218 @@
+@inject I18nService L
+@inject UiState State
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+
+@* ФОРМА СМЕНЫ ОРГАНИЗАЦИИ (T-188).
+
+   Раньше организация переключалась выпадающим списком в тулбаре — одним нечаянным кликом,
+   без единого слова о последствиях. А последствия есть: организация — это отдельная база,
+   отдельные агенты и отдельные процессы моделей на этом компьютере, и уход из неё гасит
+   всё, что в ней работает. Поэтому переключение стало отдельной формой: сначала показываем
+   поимённо, кого остановим, и только по решению человека останавливаем.
+
+   Второй выход из формы — «открыть в новой вкладке»: разные организации можно держать
+   открытыми одновременно (организация задана сегментом адреса, а не состоянием сервера),
+   и тогда останавливать не нужно ничего. Это обычная ссылка с target=_blank, а не
+   window.open из обработчика: всплывающие окна, открытые кодом после сетевого вызова,
+   браузер блокирует. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 420px; max-width: 560px;">
+            <MudText Typo="Typo.body2">
+                @L["orgSwitch.current"]: <b>@State.Org.Name</b>
+            </MudText>
+
+            <MudSelect T="string" Value="@_targetId" ValueChanged="OnTargetChanged"
+                       Label="@L["orgSwitch.target"]" Dense="true" Margin="Margin.Dense"
+                       ToStringFunc="@NameOf" data-org-target="1">
+                @foreach (var org in Others)
+                {
+                    <MudSelectItem T="string" Value="@org.Id">@org.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @if (Others.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">@L["orgSwitch.alone"]</MudAlert>
+            }
+            @if (Target is { CanJoin: true })
+            {
+                @* ОРГАНИЗАЦИЯ ПРИЕХАЛА СЮДА РЕПЛИКАЦИЕЙ (T-186-S0): участника она здесь
+                   не завела, и им человек станет ровно в этот переход — говорим об этом
+                   заранее, а не показываем отказ после нажатия *@
+                <MudAlert Severity="Severity.Info" Dense="true" data-org-join="1">
+                    @L["orgs.join.hint"]
+                </MudAlert>
+            }
+
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (HasWork)
+            {
+                @* ПРЕДУПРЕЖДЕНИЕ О ПРИНУДИТЕЛЬНОЙ ОСТАНОВКЕ: перечислено ровно то,
+                   что будет остановлено, — задания агентов и подключения команд *@
+                <MudAlert Severity="Severity.Warning" Dense="true" data-org-warning="1">
+                    @L["orgSwitch.warn"]
+                </MudAlert>
+                @if (_agents.Agents.Count > 0)
+                {
+                    <MudList T="string" Dense="true" data-org-agents="1"
+                             Style="max-height: 260px; overflow-y: auto;">
+                        @foreach (var item in _agents.Agents)
+                        {
+                            <MudListItem T="string" Icon="@IconOf(item)">
+                                <MudText Typo="Typo.body2">
+                                    <b>@item.ExecutorNick</b> — @item.Task.DisplayId @item.Task.Title
+                                </MudText>
+                                @if (PauseText(item) is { Length: > 0 } pause)
+                                {
+                                    <MudText Typo="Typo.caption">@pause</MudText>
+                                }
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+                @if (_agents.Teams.Count > 0)
+                {
+                    <MudText Typo="Typo.body2" data-org-teams="1">
+                        @L["orgSwitch.teams"] @string.Join(", ", _agents.Teams)
+                    </MudText>
+                }
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" data-org-idle="1">@L["orgSwitch.none"]</MudText>
+            }
+
+            <MudDivider />
+            <MudText Typo="Typo.caption">@L["orgSwitch.tabs"]</MudText>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())" Disabled="@_switching">@L["common.cancel"]</MudButton>
+        @* вторая вкладка: текущая организация остаётся жить, останавливать нечего *@
+        <MudButton Href="@TargetUrl" Target="_blank" Disabled="@(_switching || TargetUrl.Length == 0)"
+                   data-org-newtab="1">@L["orgSwitch.newTab"]</MudButton>
+        <MudButton Color="@(HasWork ? Color.Warning : Color.Primary)" Variant="Variant.Filled"
+                   Disabled="@(_switching || Target is null)" OnClick="SwitchAsync"
+                   data-org-go="1">@L["orgSwitch.switch"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    private OrgAgentsDto _agents = new();
+    private bool _loading = true;
+    private bool _switching;
+    private string? _targetId;
+
+    /// <summary>Организации вошедшего, кроме текущей: в неё «переключаться» нечего.</summary>
+    private List<Organization> Others =>
+        State.Orgs.Where(o => o.Id != State.Org.Id).ToList();
+
+    private Organization? Target => State.Orgs.FirstOrDefault(o => o.Id == _targetId);
+
+    // в новой вкладке организация открывается БЕЗ вступления, а без участия она ответит
+    // отказом (T-186-S0): пока человек не участник, эта кнопка погашена
+    private string TargetUrl => Target is { CanJoin: false } org ? State.OrgUrl(org) : "";
+
+    /// <summary>В организации есть что останавливать (T-188).</summary>
+    private bool HasWork => _agents.Agents.Count > 0 || _agents.Teams.Count > 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // СПИСОК СПРАШИВАЕТСЯ ЗАНОВО (T-148-S0, второй заход). Раньше форма показывала снимок,
+        // полученный при загрузке страницы, и организация, заведённая или удалённая в этой же
+        // сессии, появлялась в ней только после перезагрузки: у заказчика форма писала
+        // «организация одна», когда их было две. Отказ не страшен — тогда работаем со снимком
+        try
+        {
+            State.SetOrgs(await Api.GetOrgsAsync());
+        }
+        catch (ApiException)
+        {
+        }
+        _targetId = Others.FirstOrDefault()?.Id;
+        try
+        {
+            _agents = await Api.GetOrgAgentsAsync();
+        }
+        catch (ApiException)
+        {
+            // прав не хватило или организация недоступна — форма всё равно должна открыться:
+            // без списка агентов, но с переключением
+            _agents = new OrgAgentsDto();
+        }
+        _loading = false;
+    }
+
+    private void OnTargetChanged(string? id) => _targetId = id;
+
+    private string NameOf(string? id) =>
+        State.Orgs.FirstOrDefault(o => o.Id == id)?.Name ?? "";
+
+    private string IconOf(AiWorkItemDto item) =>
+        AiPauseText.Icon(item.Pause) is { Length: > 0 } icon
+            ? icon
+            : Icons.Material.Filled.SmartToy;
+
+    private string PauseText(AiWorkItemDto item) => AiPauseText.Of(L, item.Pause);
+
+    /// <summary>
+    /// ПЕРЕКЛЮЧЕНИЕ: сначала останов агентов покидаемой организации, потом переход по её
+    /// адресу с полной перезагрузкой — у другой организации своя база, свои справочники
+    /// и свой лейаут закладок, дорисовать это на месте нельзя.
+    /// </summary>
+    private async Task SwitchAsync()
+    {
+        if (Target is not { } org)
+        {
+            return;
+        }
+        _switching = true;
+        // ВСТУПЛЕНИЕ ПЕРЕД ПЕРЕХОДОМ (T-186-S0): в организацию, приехавшую сюда репликацией,
+        // человек ещё не включён, и без исполнителя она ответила бы ему отказом
+        if (org.CanJoin)
+        {
+            try
+            {
+                await Api.JoinOrgAsync(org.Id);
+                org.CanJoin = false;
+                org.IsMember = true;
+                Snackbar.Add(string.Format(L["orgs.joined"], org.Name), Severity.Normal);
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+                _switching = false;
+                return;
+            }
+        }
+        try
+        {
+            if (HasWork)
+            {
+                var stopped = await Api.StopOrgAgentsAsync();
+                foreach (var error in stopped.Errors)
+                {
+                    Snackbar.Add(error, Severity.Warning);
+                }
+                Snackbar.Add(string.Format(L["orgSwitch.stopped"], stopped.Jobs, stopped.Teams),
+                    Severity.Normal);
+            }
+        }
+        catch (ApiException ex)
+        {
+            // остановить не удалось — уходить молча нельзя: человек решает сам
+            Snackbar.Add(ex.Message, Severity.Error);
+            _switching = false;
+            return;
+        }
+        Dialog.Close(DialogResult.Ok(org.Id));
+        Nav.NavigateTo(State.OrgUrl(org), forceLoad: true);
+    }
+}

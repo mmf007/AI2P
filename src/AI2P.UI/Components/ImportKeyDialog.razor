@@ -1,0 +1,76 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Установка ключа API ЛИБО токена источника импорта (ТЗ v1.65, T-123) — по образцу формы
+   ключа модели (ModelKeyDialog): одна кнопка — одно поле, старое значение никогда
+   не показывается. Значение принадлежит ОРГАНИЗАЦИИ: оно шифруется её ключом и
+   реплицируется на её серверы, а сам ключ организации живёт только в secrets.json
+   этого компьютера. В UI и логи значение не попадает. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @if (!HasOrgKey)
+            {
+                @* сервер только подключился к чужой организации и ключа ещё не получил *@
+                <MudAlert Severity="Severity.Warning" Dense="true">@L["models.keyNoOrgKey"]</MudAlert>
+            }
+            <MudText Typo="Typo.body2">
+                @(HasValue ? L["imports.secretPresentHint"] : L["imports.secretMissingHint"])
+            </MudText>
+            <MudText Typo="Typo.caption">@L["models.keyOrgHint"]</MudText>
+            <MudTextField @bind-Value="_value" Label="@Label" InputType="InputType.Password"
+                          Immediate="true" HelperText="@($"{L["models.keyRef"]}: {SecretRef}")" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_value.Trim().Length == 0 || _saving || !HasOrgKey)" OnClick="SaveAsync">
+            @L["common.save"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string SourceId { get; set; } = "";
+
+    /// <summary>Какое поле вводится: «key» (ключ API) или «token» (токен).</summary>
+    [Parameter] public string Field { get; set; } = "key";
+
+    /// <summary>Подпись поля ввода — «Новое значение ключа» / «Новое значение токена».</summary>
+    [Parameter] public string Label { get; set; } = "";
+
+    /// <summary>Ссылка на значение в хранилище секретов — показывается подсказкой.</summary>
+    [Parameter] public string SecretRef { get; set; } = "";
+
+    /// <summary>Значение уже установлено — форма его заменяет (старое не показывается).</summary>
+    [Parameter] public bool HasValue { get; set; }
+
+    /// <summary>Сервер получил ключ организации (ТЗ гл. 10); без него сохранять нечем.</summary>
+    [Parameter] public bool HasOrgKey { get; set; } = true;
+
+    private string _value = "";
+    private bool _saving;
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            var status = await Api.SetImportKeyAsync(SourceId, Field, _value);
+            _value = ""; // значение в памяти формы не держим
+            Dialog.Close(DialogResult.Ok(status));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

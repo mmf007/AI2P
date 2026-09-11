@@ -1,0 +1,56 @@
+AI2P — makeAsServise：把安装变成操作系统服务
+
+**手动**运行，且只需运行一次：应用默认是控制台方式，永远不会自己把自己变成服务。
+服务名在所有系统上都是 AI2P；install.* 和安装包都知道这个名字。
+  Linux — systemd unit AI2P.service
+  macOS — 标签为 AI2P 的 launchd 任务（~/Library/LaunchAgents/AI2P.plist）
+
+本脚本位于**安装目录**中、与 AI2P.Server 放在一起，并作用于同一个安装。
+
+用法（Windows，**以管理员身份**打开的控制台）
+  makeAsServise.cmd                    创建服务并启动
+  makeAsServise.ps1 -NoStart           创建但不启动
+  makeAsServise.ps1 -Manual            服务改为手动启动，而非自动
+  makeAsServise.ps1 -Remove            卸载服务（文件和数据不会被触动）
+  makeAsServise.ps1 -Target D:\AI2P    作用于另一个安装，而非脚本所在目录
+  makeAsServise.ps1 -Account .\mike -Password ***  以某个用户身份运行服务
+  makeAsServise.ps1 -UnprotectSecrets  解除组织密钥的 DPAPI 保护
+  makeAsServise.ps1 -Force             无视警告继续执行
+  makeAsServise.ps1 -WhatIf            只显示将要做什么
+  makeAsServise.ps1 -Lang zh-cn        消息语言
+  makeAsServise.cmd --help             本帮助
+
+用法（Linux / macOS）
+  ./makeAsServise.sh                   创建服务并启动
+  ./makeAsServise.sh --no-start        创建但不启动
+  ./makeAsServise.sh --manual          不在系统启动时运行
+  ./makeAsServise.sh --remove          卸载服务
+  ./makeAsServise.sh --target ~/ai/AI2P  作用于另一个安装
+  ./makeAsServise.sh --system          **系统级** systemd unit（需要 root），Linux
+  ./makeAsServise.sh --lang zh-cn      消息语言
+  ./makeAsServise.sh --help            本帮助
+
+应用本身有什么变化：没有。它自己会识别运行方式 — 在服务管理器下按服务运行，从
+控制台启动则照常。服务在启动时不会打开浏览器：它没有桌面。
+
+关于这件事的记忆。服务的真实状态只有操作系统知道，install.* 询问的正是它：更新前
+要停止服务，更新后再启动。此外脚本还会在安装的 config.json 中写入一条记号
+"serviceMode": true — 它能在版本更新后保留，并且在应用设置中对人可见。
+
+**Linux 上默认是用户级服务**，这并非偶然：服务器以普通用户身份运行，并把自己的
+一切都放在自己的目录中。要让这样的服务在没有人登录时也能启动，需要「延迟登录」 —
+脚本会自行调用 loginctl enable-linger。
+
+DPAPI 与服务账户（Windows，重要）
+  在 Windows 上，secrets.json 中的组织密钥受**用户范围**的 DPAPI 保护：只有写入它
+  的那个账户才能解密它。服务默认以 LocalSystem 运行 — 那是**另一个**账户，这样的
+  服务读不到模型的 API 密钥（云端模型将无法工作，而表现出来就像「模型有，但作业跑
+  不起来」）。因此脚本会检查 secrets.json，若在其中发现受 DPAPI 保护的值，就会让您
+  选择：
+    * -Account <账户> -Password <密码> — 服务以**同一个**用户身份运行
+      （该用户需要「作为服务登录」权限；没有它服务无法启动，错误 1069）；
+    * -UnprotectSecrets — 解除 DPAPI，让组织密钥保持为普通 base64
+      （在 Linux/macOS 上它们本来就是这样存放的；保护由文件权限提供）；
+    * -Force — 就这样创建服务，明知服务读不到那些密钥。
+  登录 Claude CLI 也是同理：它属于用户配置文件，以 LocalSystem 运行的服务看不到它。
+  在 Linux 和 macOS 上与 DPAPI 无关。

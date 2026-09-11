@@ -1,0 +1,876 @@
+@page "/"
+@page "/task/{DeepLinkTaskId}"
+@* ссылка на объект проекта (T-99-S0) — устроена как ссылка на задачу *@
+@page "/object/{DeepLinkObjectId}"
+@* ссылка на страницу документации (T-207-S0): путь страницы состоит из нескольких
+   имён («man/https.md»), поэтому параметр маршрута хвостовой *@
+@page "/doc/{*DeepLinkDocPath}"
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Заголовок вкладки браузера (T-222-S0): «AI2P - <организация>». Имя берётся из состояния,
+   а не из адреса, поэтому при переключении организации и при переименовании её в настройках
+   заголовок обновляется сам — Home подписан на State.Changed *@
+<PageTitle>@PageTitleText</PageTitle>
+
+@* Общий вид по ТЗ гл. 11 (за основу — VS Code):
+   1 — горизонтальная полоса меню; 2 — вертикальный экшен-бар; 3 — эксплорер;
+   5 — закладки представлений; 6 — кнопка логина (задел); 7 — переключатель фреймов.
+   Фреймы рабочей области (todo22): по умолчанию один; кнопки сплита — вертикально пополам,
+   горизонтально пополам, на четыре части (приоритет у горизонтального делителя);
+   основной фрейм — левый верхний; делители двигаются мышкой; закладки перетаскиваются
+   между фреймами; лейаут запоминается и восстанавливается при следующем входе.
+   Маршрут /task/{id} — ссылка на конкретную задачу (гл. 11, «URL и ссылки на задачи»). *@
+
+<style>
+    .ai2p-shell { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .ai2p-menubar { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px; min-height: 42px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+    /* «Организация: … / Проект: …» в тулбаре (T-188): ВСЁ В ОДНУ СТРОКУ и прижато влево.
+       Названия бывают длинными, поэтому обрезаются многоточием, а не переносятся: полоса
+       меню обязана остаться высотой в одну строку — от неё считается высота всего экрана */
+    .ai2p-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
+    .ai2p-crumb { font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; padding-left: 6px; }
+    .ai2p-project-menu { max-height: 60vh; overflow-y: auto; }
+    .ai2p-main { display: flex; flex-direction: row; flex: 1 1 auto; min-height: 0; }
+    .ai2p-actionbar { flex: 0 0 48px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding-top: 8px; border-right: 1px solid var(--mud-palette-lines-default); }
+    .ai2p-explorer { flex: 0 0 260px; overflow-y: auto; }
+    /* строка дерева эксплорера (T-212): панель узкая, длинные названия обрезаются
+       многоточием — переносить их на вторую строку значило бы ломать ровные уровни */
+    .ai2p-exp-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai2p-splitter { flex: 0 0 5px; cursor: col-resize; background: var(--mud-palette-lines-default); opacity: .6; }
+    .ai2p-splitter:hover { opacity: 1; background: var(--mud-palette-primary); }
+    /* фреймы рабочей области (todo22): CSS-grid, делители двигаются мышкой */
+    .ai2p-frames { flex: 1 1 auto; display: grid; min-width: 0; min-height: 0; }
+    .ai2p-frame { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .ai2p-frame-splitter { background: var(--mud-palette-lines-default); opacity: .6; }
+    .ai2p-frame-splitter:hover { opacity: 1; background: var(--mud-palette-primary); }
+    .ai2p-frame-splitter.v { cursor: col-resize; }
+    .ai2p-frame-splitter.h { cursor: row-resize; }
+    /* полоса закладок фрейма (T-163): закладки НЕ переносятся на вторую строку — когда
+       места не хватает, полоса листается влево-вправо, как подзакладки MudTabs на карточке
+       задачи. Кнопки листания показываются только при переполнении (класс ai2p-tabbar-scrolls
+       ставит JS), собственная полоса прокрутки у ленты скрыта — листают кнопками, колесом
+       мыши или перетаскиванием закладок */
+    .ai2p-tabbar { flex: 0 0 auto; display: flex; flex-wrap: nowrap; align-items: center; min-height: 34px; border-bottom: 1px solid var(--mud-palette-lines-default); }
+    .ai2p-tabbar-strip { flex: 1 1 auto; display: flex; flex-wrap: nowrap; align-items: center; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-behavior: smooth; }
+    .ai2p-tabbar-strip::-webkit-scrollbar { height: 0; display: none; }
+    .ai2p-tabbar-arrow { flex: 0 0 auto; display: none; }
+    .ai2p-tabbar.ai2p-tabbar-scrolls > .ai2p-tabbar-arrow { display: inline-flex; }
+    /* доехали до края — стрелка гаснет и не нажимается (как у MudTabs) */
+    .ai2p-tabbar-arrow.ai2p-arrow-off { opacity: .3; pointer-events: none; }
+    /* ЛИСТАЕМАЯ ПОЛОСА ТУЛБАРА (T-194, работа на телефоне). На экране телефона полоса меню
+       и тулбар списка задач шире окна: часть кнопок уезжала за край и была недосягаема
+       (у .ai2p-shell overflow: hidden), а тулбар представления утаскивал за собой вбок всё
+       содержимое фрейма — доску вместе с собой. Теперь такая полоса листается САМА: те же
+       кнопки «‹ ›», что и у закладок (T-163), плюс пальцем и колесом мыши.
+       Движок общий, в JS (ai2p.initStrips) */
+    .ai2p-strip { display: flex; flex-wrap: nowrap; align-items: center; min-width: 0; }
+    .ai2p-strip-inner { flex: 1 1 auto; display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; scroll-behavior: smooth; }
+    .ai2p-strip-inner::-webkit-scrollbar { height: 0; display: none; }
+    /* содержимое держит свою ширину: без этого кнопки и надписи сжимались бы до нечитаемых
+       («Организация: …» и «Проект: …» пропадали в многоточии), а переполнения — а значит и
+       листания — не возникало бы вовсе. Распорку (MudSpacer) это не касается: на широком
+       экране она по-прежнему разводит группы кнопок по краям */
+    .ai2p-strip-inner > * { flex: 0 0 auto; }
+    .ai2p-strip-inner > .flex-grow-1 { flex: 1 1 auto; }
+    /* ряд кнопок целиком (тулбар представления): на широком экране занимает всю полосу —
+       иначе распорка внутри него не работает и правая группа кнопок уезжает влево */
+    .ai2p-strip-row { min-width: 100%; }
+    .ai2p-strip-row > * { flex-shrink: 0; }
+    .ai2p-strip-arrow { flex: 0 0 auto; display: none; }
+    .ai2p-strip.ai2p-strip-scrolls > .ai2p-strip-arrow { display: inline-flex; }
+    .ai2p-strip-arrow.ai2p-arrow-off { opacity: .3; pointer-events: none; }
+    .ai2p-tab { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; padding: 6px 6px 6px 14px; cursor: pointer; font-size: 0.85rem; border-right: 1px solid var(--mud-palette-lines-default); opacity: .75; }
+    .ai2p-tab.active { opacity: 1; border-bottom: 2px solid var(--mud-palette-primary); }
+    /* двухстрочный заголовок закладок «Задача»/«Проект» (ТЗ v1.18, todo21) */
+    .ai2p-tab-label { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.15; }
+    .ai2p-tab-sub { font-size: 0.7rem; opacity: .65; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai2p-tabview { flex: 1 1 auto; overflow: auto; padding: 12px; }
+    /* навык «код - оценка» в колонке справочника моделей (T-238): кусок НЕРАЗРЫВНЫЙ.
+       Иначе на телефоне колонка сжимается, и браузер ломает строку внутри навыка — по
+       пробелам И ПО ДЕФИСУ (коды навыков дефисные), оставляя на строке одно слово.
+       Перенос разрешён только на обычном пробеле МЕЖДУ кусками, то есть после запятой */
+    .ai2p-skill-chunk { white-space: nowrap; }
+    /* РАМКА КРОПА кадра датасета LoRA (T-12-S1): картинка показана целиком, поверх неё
+       рамка с двумя углами — левым верхним и правым нижним. Углы делаются заметно больше
+       линии рамки: попасть в них надо и мышью, и пальцем. touch-action: none обязателен —
+       иначе на телефоне жест по углу браузер отдаёт прокрутке страницы, и рамка не тянется */
+    .ai2p-lora-crop { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+    .ai2p-lora-crop img { display: block; max-width: 100%; height: auto; user-select: none; }
+    .ai2p-lora-frame { position: absolute; display: none; border: 2px solid var(--mud-palette-primary); box-shadow: 0 0 0 9999px rgba(0,0,0,.35); box-sizing: border-box; }
+    .ai2p-lora-handle { position: absolute; width: 22px; height: 22px; background: var(--mud-palette-primary); border: 2px solid #fff; border-radius: 4px; touch-action: none; }
+    .ai2p-lora-handle[data-lora-handle="tl"] { left: -11px; top: -11px; cursor: nwse-resize; }
+    .ai2p-lora-handle[data-lora-handle="br"] { right: -11px; bottom: -11px; cursor: nwse-resize; }
+    /* стили отрендеренного Markdown (.ai2p-md-preview) — в MainLayout.razor, одним местом
+       на всё приложение (T-131); здесь их дублировать не нужно */
+    /* заголовок колонки доски: жирный, чётко отделён (ТЗ v1.17); за него колонка
+       перетаскивается мышкой (T-128) */
+    .ai2p-board-header { flex: 0 0 auto; padding: 8px 12px; background: var(--mud-palette-background-gray); border-bottom: 2px solid var(--mud-palette-primary); border-radius: 4px 4px 0 0; cursor: grab; user-select: none; }
+    .ai2p-board-header:active { cursor: grabbing; }
+    /* представление «задачи» (T-128): колонка на всю высоту фрейма, доска — её нижний этаж */
+    .ai2p-tasks-frame { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    /* доска (T-128): фрейм фиксированной высоты — страница по вертикали не растёт,
+       горизонтальная полоса видна всегда, без прокрутки вниз */
+    .ai2p-board-frame { flex: 1 1 auto; height: 100%; min-height: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: auto; scrollbar-color: var(--mud-palette-primary) var(--mud-palette-background-gray); }
+    .ai2p-board-frame::-webkit-scrollbar { height: 12px; width: 12px; }
+    .ai2p-board-frame::-webkit-scrollbar-track { background: var(--mud-palette-background-gray); border-radius: 6px; }
+    .ai2p-board-frame::-webkit-scrollbar-thumb { background: var(--mud-palette-primary); border-radius: 6px; }
+    /* колонка: заголовок закреплён сверху, карточки листаются ВНУТРИ колонки (T-128) —
+       прокручивается та колонка, над которой мышь, а не доска целиком. Своя вертикальная
+       полоса у каждой колонки, заметная: место под неё держится всегда (scrollbar-gutter),
+       чтобы карточки не дёргались по ширине, когда полоса появляется */
+    .ai2p-board-col { min-height: 0; overflow: hidden; }
+    .ai2p-board-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: var(--mud-palette-primary) var(--mud-palette-background-gray); }
+    .ai2p-board-body::-webkit-scrollbar { width: 12px; }
+    .ai2p-board-body::-webkit-scrollbar-track { background: var(--mud-palette-background-gray); border-radius: 6px; }
+    .ai2p-board-body::-webkit-scrollbar-thumb { background: var(--mud-palette-primary); border-radius: 6px; }
+    /* карточка проекта, вкладка «Задачи» (T-128): там та же доска, и высоту ей держать
+       нечем — MudTabs растёт по содержимому. Без этих правил доска в карточке проекта
+       уходила вниз на тысячи пикселей, колонки теряли свой скролл, а горизонтальная полоса
+       оказывалась далеко под низом страницы (поймано живой проверкой в браузере) */
+    .ai2p-card-fill { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    .ai2p-card-fill > .mud-tabs { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+    .ai2p-card-fill > .mud-tabs > .mud-tabs-panels { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: auto; }
+    /* содержимое вкладки, которое должно занять всю высоту карточки (вкладка mud-tab-panel
+       нарисована с display: contents, поэтому высоту держит именно содержимое) */
+    .ai2p-card-tab-fill { flex: 1 1 auto; height: 100%; min-height: 0; }
+    /* маячок «дорисовать следующую пачку карточек» (T-128) */
+    .ai2p-board-more { display: flex; justify-content: center; padding: 8px 0; }
+    /* место вставки колонки при перетаскивании заголовка (T-128) */
+    .ai2p-board-col.ai2p-board-before { box-shadow: inset 4px 0 0 0 var(--mud-palette-primary); }
+    .ai2p-board-col.ai2p-board-after { box-shadow: inset -4px 0 0 0 var(--mud-palette-primary); }
+    /* перенос ПАЛЬЦЕМ (T-193): карточка «на пальце» — копия источника, летящая за ним;
+       сам источник приглушён, цель подсвечена. pointer-events у копии сняты — иначе
+       elementFromPoint под пальцем всегда находил бы её, а не колонку */
+    .ai2p-touch-ghost { position: fixed; z-index: 2000; pointer-events: none; opacity: .9; transform: rotate(1.5deg); box-shadow: 0 6px 16px rgba(0,0,0,.35); }
+    .ai2p-touch-src { opacity: .4; }
+    .ai2p-touch-over { outline: 2px solid var(--mud-palette-primary); outline-offset: -2px; background: var(--mud-palette-action-default-hover); }
+    /* заголовок представления под закладкой (T-193, мобильная версия): на экране телефона
+       крупный заголовок съедал высоту — размер взят у названия проекта в шапке карточки
+       задачи (правило чуть ниже). Класс ставится поверх Typo.h5, поэтому в селекторе есть
+       .mud-typography: у одиночного класса тот же вес, что у .mud-typography-h5 */
+    .mud-typography.ai2p-view-title { font-size: 0.72rem; font-weight: 600; letter-spacing: .02em; line-height: 1.5; }
+    /* надпись состояния (ТЗ v1.37): фон — цвет из справочника состояний */
+    .ai2p-status { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 0.78rem; white-space: nowrap; }
+    /* название проекта слева в шапке карточки задачи (T-136): отделено стилистически —
+       мелкий шрифт, своя подложка и цветная черта слева, поэтому оно читается как
+       «где мы находимся», а не как часть заголовка задачи */
+    .ai2p-task-project {
+        display: inline-block; vertical-align: middle; margin-right: 10px;
+        padding: 1px 8px; border-left: 3px solid var(--mud-palette-primary); border-radius: 0 4px 4px 0;
+        background: var(--mud-palette-background-gray);
+        background: color-mix(in srgb, var(--mud-palette-text-primary) 10%, var(--mud-palette-surface));
+        font-size: 0.72rem; font-weight: 500; letter-spacing: .02em; text-transform: uppercase; opacity: .85;
+    }
+    /* иерархия задач с переносом мышкой (todo37): строка — и источник, и зона сброса.
+       Текст строки НЕ выделяется (T-4-S1): на телефоне удержание пальца, которым берут
+       строку, иначе выделяет слово (Chrome на Android) или открывает своё меню
+       (Safari на iOS) — и дальше палец ведёт маркер выделения, а не строку */
+    .ai2p-tree-node { display: block; padding: 4px 8px; cursor: pointer; border-radius: 4px; border: 1px solid transparent;
+                      user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+    /* полоса «идёт чтение списка» (T-4-S1): своё постоянное место над представлением —
+       представление при обновлении списка больше не разрушается */
+    .ai2p-view-busy { height: 2px; }
+    /* ручка переноса (T-4-S1): за неё строка берётся сразу, без удержания. touch-action: none —
+       браузеру сказано, что жест здесь наш, прокруткой его перехватывать не надо */
+    .ai2p-tree-grip { display: inline-flex; align-items: center; padding: 2px 0; cursor: grab; opacity: .45;
+                      touch-action: none; }
+    .ai2p-tree-grip:hover { opacity: .9; }
+    .ai2p-tree-node:hover { background: var(--mud-palette-action-default-hover); }
+    .ai2p-tree-node.ai2p-tree-over { border-color: var(--mud-palette-primary); background: var(--mud-palette-action-default-hover); }
+    .ai2p-tree-root { display: flex; align-items: center; gap: 6px; margin-top: 6px; padding: 6px 8px; font-size: 0.8rem; opacity: .6; border: 1px dashed var(--mud-palette-lines-default); border-radius: 4px; }
+    /* верхняя полоса «в корень» ЛИПКАЯ (T-176): при длинном дереве единственная зона
+       сброса стояла в самом низу списка и до неё нельзя было дотащить задачу.
+       Приглушена не прозрачностью, а цветом текста: полупрозрачная липкая полоса
+       просвечивала бы уезжающими под неё строками */
+    .ai2p-tree-root-top { position: sticky; top: 0; z-index: 3; margin-top: 0; margin-bottom: 6px; opacity: 1; color: var(--mud-palette-text-secondary); background: var(--mud-palette-background); }
+    .ai2p-tree-hint { opacity: .8; }
+    /* пока задачу тащат, обе полосы «в корень» заметны: иначе зону сброса не видно (T-176) */
+    .ai2p-tree-dragging .ai2p-tree-root { opacity: 1; border-style: solid; border-color: var(--mud-palette-primary); }
+    .ai2p-tree-root.ai2p-tree-over { opacity: 1; border-color: var(--mud-palette-primary); border-style: solid; background: var(--mud-palette-action-default-hover); }
+    /* выбранная строка списка заданий (консоль задания, ТЗ v1.45, todo37_3) */
+    .ai2p-row-selected > td { background: var(--mud-palette-action-default-hover); }
+    /* превью описания на карточке доски (ТЗ v1.17): мелкий шрифт, ограничение высоты */
+    .ai2p-board-preview { font-size: 0.75rem; opacity: .85; max-height: 90px; overflow: hidden; margin-top: 4px; }
+    .ai2p-board-preview h1, .ai2p-board-preview h2, .ai2p-board-preview h3 { font-size: 0.8rem; margin: 2px 0; }
+    .ai2p-board-preview p { margin: 2px 0; }
+    /* блок кода в превью карточки — компактнее общего (T-131): в 90 px высоты
+       карточки должен попасть и текст, а не одни отступы */
+    .ai2p-board-preview pre { padding: 4px 6px; margin: 2px 0; }
+    /* ДИАГРАММА ПОДЗАДАЧ (T-132-S0), по образцу BPMN: слева колонка дорожек-исполнителей,
+       справа — прокручиваемое поле времени, в нём квадраты задач и стрелки связей */
+    .ai2p-diagram { display: flex; align-items: stretch; border: 1px solid var(--mud-palette-lines-default); border-radius: 4px; overflow: hidden; }
+    .ai2p-diagram-lanes { flex: 0 0 auto; width: 170px; border-right: 1px solid var(--mud-palette-lines-default); background: var(--mud-palette-background-gray); }
+    .ai2p-diagram-lane { display: flex; align-items: center; gap: 6px; padding: 0 8px; overflow: hidden; white-space: nowrap; border-bottom: 1px solid var(--mud-palette-lines-default); font-size: .8rem; }
+    .ai2p-diagram-field { flex: 1 1 auto; overflow-x: auto; overflow-y: hidden; position: relative; }
+    .ai2p-diagram-canvas { position: relative; }
+    .ai2p-diagram-row { position: absolute; left: 0; right: 0; border-bottom: 1px solid var(--mud-palette-lines-default); }
+    .ai2p-diagram-tick { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--mud-palette-lines-default); opacity: .5; font-size: .68rem; padding-left: 2px; color: var(--mud-palette-text-secondary); }
+    /* квадрат задачи: синяя рамка, как на образце; КРАСНАЯ — у самой блокирующей задачи вне
+       этой иерархии и у её подзадач (T-135-S0), ЖИРНАЯ — у корня иерархии */
+    .ai2p-diagram-node { position: absolute; box-sizing: border-box; border: 2px solid var(--mud-palette-primary); border-radius: 4px; background: var(--mud-palette-surface); padding: 2px 4px; cursor: pointer; overflow: hidden; user-select: none; -webkit-user-select: none; }
+    .ai2p-diagram-node.ai2p-diagram-outside { border-color: var(--mud-palette-error); }
+    .ai2p-diagram-node.ai2p-diagram-root { border-width: 4px; }
+    /* ПРОЗРАЧНОСТЬ — общая, кнопкой (T-135-S0): под квадратами видно все стрелки разом.
+       Прежняя прозрачность «по наведению мыши» убрана: под мышью квадрат, наоборот,
+       становится непрозрачным — иначе прочитать написанное в нём было бы нечем */
+    .ai2p-diagram-ghosted .ai2p-diagram-node { background: transparent; opacity: .55; }
+    .ai2p-diagram-ghosted .ai2p-diagram-node:hover { background: var(--mud-palette-surface); opacity: 1; }
+    .ai2p-diagram-node:hover { box-shadow: 0 0 0 1px var(--mud-palette-primary); }
+    .ai2p-diagram-node.ai2p-tree-over { outline: 2px solid var(--mud-palette-primary); }
+    /* полоса дорожки — цель переноса исполнителя; видна только пока тащат */
+    .ai2p-diagram-drop { position: absolute; left: 0; right: 0; background: transparent; }
+    .ai2p-diagram-drop.ai2p-tree-over, .ai2p-diagram-lane.ai2p-tree-over { background: var(--mud-palette-action-default-hover); outline: 2px dashed var(--mud-palette-primary); outline-offset: -2px; }
+    /* код не наезжает ни на ручку переноса слева, ни на значок меню справа (T-135-S0) */
+    .ai2p-diagram-code { font-size: .72rem; font-weight: 600; line-height: 1.1; padding-right: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai2p-diagram-code.ai2p-diagram-code-gap { padding-left: 20px; }
+    .ai2p-diagram-title { font-size: .72rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai2p-diagram-state { position: absolute; left: 4px; right: 4px; bottom: 2px; display: flex; gap: 3px; overflow: hidden; white-space: nowrap; }
+    .ai2p-diagram-state .ai2p-status { font-size: .6rem; padding: 0 3px; }
+    .ai2p-diagram-menu { position: absolute; top: -2px; right: -2px; }
+    /* УЗКИЙ КВАДРАТ (T-159-S0): подписей у него нет, а три значка стоят ПО ВЕРТИКАЛИ друг
+       под другом — маркер переноса, контекстное меню, круг состояния. Наименьшая ширина
+       квадрата равна ширине значка меню, поэтому кнопки чуть шире самого квадрата и им
+       нужно вылезать наружу, иначе от них видно только полоску */
+    .ai2p-diagram-tiny { padding: 0; overflow: visible; display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+    .ai2p-diagram-tiny .ai2p-diagram-grip, .ai2p-diagram-tiny .ai2p-diagram-menu { position: static; display: flex; }
+    .ai2p-diagram-tiny .mud-icon-button { padding: 2px 5px; }
+    /* круг состояния — третий значок столбика (T-159-S0): он заменяет подписи состояний,
+       которые в такую ширину не помещаются; словами их называет подсказка квадрата */
+    .ai2p-diagram-statedot { flex: 0 0 auto; border-radius: 50%; margin-bottom: 2px; }
+    .ai2p-diagram-grip { position: absolute; top: 0; left: 0; cursor: grab; opacity: .45; touch-action: none; }
+    .ai2p-diagram-grip:hover { opacity: .9; }
+    .ai2p-diagram-links { position: absolute; top: 0; left: 0; pointer-events: none; }
+</style>
+
+@if (!State.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <div class="ai2p-shell">
+        @* 1. полоса меню + переключатель текущего проекта (ТЗ гл. 5; команда задана проектом) *@
+        <div class="ai2p-menubar ai2p-strip">
+            @* ПОЛОСА МЕНЮ ЛИСТАЕТСЯ (T-194): на экране телефона она шире окна, и правый её
+               конец (тема, аккаунт, разбиение фреймов) уходил за край недосягаемым.
+               Подсказка — обычным title: MudTooltip обернул бы кнопку своим контейнером,
+               и она перестала бы быть элементом полосы (T-163) *@
+            <MudIconButton Class="ai2p-strip-arrow ai2p-arrow-off" data-strip-scroll="prev"
+                           title="@L["strip.scrollPrev"]"
+                           Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small"
+                           OnClick="@(() => ScrollStripAsync("menubar", -1))" />
+            <div class="ai2p-strip-inner" data-strip-inner="menubar">
+            @* ПОКАЗАТЬ/СКРЫТЬ ЛЕВЫЙ ТУЛБАР — экшен-бар (панель 2), T-10-S1. Стоит в самом
+               левом конце полосы меню, перед кнопкой эксплорера: обе кнопки про то, что
+               видно слева, и порядок их повторяет порядок панелей на экране.
+               По умолчанию тулбар ВИДЕН (в отличие от эксплорера), состояние запоминается
+               в лейауте и восстанавливается при следующем входе *@
+            <MudTooltip Text="@L["appbar.actionbar"]">
+                <MudIconButton Icon="@(State.ActionBarVisible ? Icons.Material.Filled.MenuOpen : Icons.Material.Filled.Menu)"
+                               Size="Size.Small" data-actionbar-toggle="1"
+                               Color="@(State.ActionBarVisible ? Color.Primary : Color.Default)"
+                               OnClick="@(() => State.ToggleActionBar())" />
+            </MudTooltip>
+            @* показать/скрыть эксплорер — todo23; по умолчанию скрыт, состояние
+               запоминается в лейауте *@
+            <MudTooltip Text="@L["appbar.explorer"]">
+                <MudIconButton Icon="@Icons.Material.Filled.ViewSidebar" Size="Size.Small"
+                               Color="@(State.ExplorerVisible ? Color.Primary : Color.Default)"
+                               OnClick="@(() => State.ToggleExplorer())" />
+            </MudTooltip>
+            @* пока сервер не подключён к организации, из видов доступны только настройки:
+               остальных данных на нём ещё нет (T-148) *@
+            <MudMenu Label="@L["menu.views"]" Dense="true">
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewTasks))">@L["menu.tasks"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewTemplates))">@L["menu.templates"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewProjects))">@L["menu.projects"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewTeams))">@L["menu.teams"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewExecutors))">@L["menu.executors"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewHistory))">@L["menu.history"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewInbox))">@L["menu.inbox"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewBilling))">@L["menu.billing"]</MudMenuItem>
+                <MudMenuItem Disabled="@State.NoOrg" OnClick="@(() => State.OpenView(UiState.ViewSchedule))">@L["menu.schedule"]</MudMenuItem>
+                @* документация поставляется файлами рядом с приложением и от организации
+                   не зависит — читается и на сервере без неё (T-17-S1) *@
+                <MudMenuItem OnClick="@(() => State.OpenView(UiState.ViewDocs))">@L["menu.docs"]</MudMenuItem>
+                <MudMenuItem OnClick="@(() => State.OpenView(UiState.ViewSettings))">@L["menu.settings"]</MudMenuItem>
+            </MudMenu>
+            @* СЕРВЕР ЖДЁТ РЕШЕНИЯ ПО ЗАЯВКЕ (T-148): почему интерфейс пуст и что делать —
+               прямо в шапке, а не отдельной страницей *@
+            @if (State.NoOrg)
+            {
+                <MudTooltip Text="@L["ui.noOrg.hint"]">
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text"
+                             Icon="@Icons.Material.Filled.CloudOff" data-noorg="1">
+                        @L["ui.noOrg.title"]
+                    </MudChip>
+                </MudTooltip>
+            }
+            @* ГДЕ МЫ НАХОДИМСЯ — ОДНОЙ СТРОКОЙ СЛЕВА (T-188).
+               Раньше здесь стояли два выпадающих списка справа, и организация переключалась
+               одним нечаянным кликом — а это уход в другую базу с принудительным остановом
+               всех её агентов. Теперь это надпись «Организация: …» и кнопка, открывающая
+               форму смены (OrgSwitchDialog), где сказано, кого остановят.
+               Организация показывается ВСЕГДА, даже когда она одна (todo41, замечание 1):
+               человек должен видеть, где работает. Проект рядом такой же надписью — сменить
+               его дёшево, поэтому у него простое меню.
+               Сервер, не подключённый к организации (T-148), — исключение: показывать там
+               «Организация: » с пустотой не за чем, об этом состоянии говорит значок слева *@
+            @if (!State.NoOrg)
+            {
+                <div class="ai2p-crumbs">
+                    <span class="ai2p-crumb" data-crumb="org">
+                        @L["appbar.org"]: <b>@State.Org.Name</b>
+                    </span>
+                    <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
+                                   title="@L["orgSwitch.title"]" data-org-switch="1"
+                                   OnClick="OpenOrgSwitchAsync" />
+                    @* СРЕДА (T-45-S0, выпуск 1.105) — между организацией и проектом.
+                       Рабочая среда и открытые на ЭТОМ сервере архивы: закрытый архив это
+                       .zip, читать из него нечего, и в списке его нет вовсе. Архивов не
+                       заведено ни одного — поля нет целиком, вместе с надписью «среда:»:
+                       у большинства установок архивов не будет никогда, и лишнее слово
+                       в тулбаре им ни к чему.
+                       Выбор архива закрывает все закладки: они показывают данные прежней
+                       среды (UiState.SwitchEnvAsync) *@
+                    @if (State.Archives.Count > 0)
+                    {
+                        <span class="ai2p-crumb" data-crumb="env" data-env="@(State.InArchive ? State.SelectedArchive!.Code : "")">
+                            @L["appbar.env"]: <b>@(State.InArchive ? State.EnvName : L["appbar.env.work"])</b>
+                        </span>
+                        <MudMenu Icon="@Icons.Material.Filled.ArrowDropDown" Size="Size.Small" Dense="true"
+                                 title="@L["appbar.envSwitch"]" data-env-switch="1">
+                            <MudMenuItem OnClick="@(() => OnEnvChanged(null))" data-env-item="">
+                                @L["appbar.env.work"]
+                            </MudMenuItem>
+                            @foreach (var archive in State.Archives)
+                            {
+                                var archiveId = archive.Id;
+                                <MudMenuItem OnClick="@(() => OnEnvChanged(archiveId))" data-env-item="@archive.Code">
+                                    @archive.Name@(archive.IsCurrent ? " (" + L["arc.state.current"] + ")" : "")
+                                </MudMenuItem>
+                            }
+                        </MudMenu>
+                    }
+                    <span class="ai2p-crumb" data-crumb="project">
+                        @L["appbar.project"]: <b>@ProjectName</b>
+                    </span>
+                    <MudMenu Icon="@Icons.Material.Filled.ArrowDropDown" Size="Size.Small" Dense="true"
+                             title="@L["appbar.projectSwitch"]"
+                             data-project-switch="1" ListClass="ai2p-project-menu">
+                        <MudMenuItem OnClick="@(() => OnProjectChanged(null))">@L["appbar.notSelected"]</MudMenuItem>
+                        @foreach (var project in State.Projects)
+                        {
+                            var projectId = project.Id;
+                            <MudMenuItem OnClick="@(() => OnProjectChanged(projectId))">@project.Name</MudMenuItem>
+                        }
+                    </MudMenu>
+                </div>
+            }
+            <MudSpacer />
+            @* 7. переключатель представления фреймов (todo22): один / два / четыре;
+               data-split — какое разбиение включает кнопка: опора живой проверки (T-163) *@
+            <MudTooltip Text="@L["appbar.split.single"]">
+                <MudIconButton Icon="@Icons.Material.Filled.CropSquare" Size="Size.Small"
+                               data-split="single" Color="@SplitColor(FrameSplit.Single)"
+                               OnClick="@(() => State.SetSplit(FrameSplit.Single))" />
+            </MudTooltip>
+            <MudTooltip Text="@L["appbar.split.columns"]">
+                <MudIconButton Icon="@Icons.Material.Filled.VerticalSplit" Size="Size.Small"
+                               data-split="columns" Color="@SplitColor(FrameSplit.Columns)"
+                               OnClick="@(() => State.SetSplit(FrameSplit.Columns))" />
+            </MudTooltip>
+            <MudTooltip Text="@L["appbar.split.rows"]">
+                <MudIconButton Icon="@Icons.Material.Filled.HorizontalSplit" Size="Size.Small"
+                               data-split="rows" Color="@SplitColor(FrameSplit.Rows)"
+                               OnClick="@(() => State.SetSplit(FrameSplit.Rows))" />
+            </MudTooltip>
+            <MudTooltip Text="@L["appbar.split.quad"]">
+                <MudIconButton Icon="@Icons.Material.Filled.GridView" Size="Size.Small"
+                               data-split="quad" Color="@SplitColor(FrameSplit.Quad)"
+                               OnClick="@(() => State.SetSplit(FrameSplit.Quad))" />
+            </MudTooltip>
+            <MudTooltip Text="@L["appbar.theme"]">
+                @* data-theme-toggle (T-282): у кнопки не было никакой приметы, и живая
+                   проверка «как выглядит в обеих темах» искала её перебором кнопок шапки *@
+                <MudIconButton Icon="@(State.DarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                               Size="Size.Small" data-theme-toggle="@(State.DarkMode ? "dark" : "light")"
+                               OnClick="@(() => { State.DarkMode = !State.DarkMode; State.NotifyChanged(); })" />
+            </MudTooltip>
+            @* 6. вошедший пользователь (ТЗ п. 2.14, гл. 12, этап 39): форма своего аккаунта,
+               вход администратора сервера и выход *@
+            <MudTooltip Text="@AccountHint">
+                <MudMenu Icon="@Icons.Material.Filled.AccountCircle" Size="Size.Small" Dense="true"
+                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <MudMenuItem Icon="@Icons.Material.Filled.Badge"
+                                 OnClick="OpenAccountAsync">@L["account.title"]</MudMenuItem>
+                    @* вход администратора сервера — ВСЕГДА ПО ПЕТЛЕВОМУ АДРЕСУ (T-174):
+                       настройки самого сервера правит только тот, кто сидит за этим
+                       компьютером, и по внешнему имени такой вход отклоняется. Раньше
+                       ссылка строилась от внешнего имени сервера, человек уходил наружу
+                       и получал «настройки сервера меняются только с этого компьютера» *@
+                    <MudMenuItem Icon="@Icons.Material.Filled.AdminPanelSettings"
+                                 Href="@(State.LocalBaseUrl + "/server-admin")" ForceLoad="true"
+                                 data-server-admin="1">
+                        @(State.IsServerAdmin ? L["account.serverAdmin.in"] : L["account.serverAdmin"])
+                    </MudMenuItem>
+                    <MudMenuItem Icon="@Icons.Material.Filled.Logout"
+                                 Href="@(State.BaseUrl + "/logout")" ForceLoad="true">@L["account.logout"]</MudMenuItem>
+                </MudMenu>
+            </MudTooltip>
+            </div>
+            <MudIconButton Class="ai2p-strip-arrow" data-strip-scroll="next"
+                           title="@L["strip.scrollNext"]"
+                           Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small"
+                           OnClick="@(() => ScrollStripAsync("menubar", 1))" />
+        </div>
+
+        <div class="ai2p-main">
+            @* 2. вертикальный экшен-бар («левый тулбар»): прячется кнопкой в самом левом
+               конце полосы меню (T-10-S1). Скрытый — не рисуется вовсе, а не прячется
+               стилем: место под него в flex-разметке отдаётся рабочей области.
+               Представления при этом никуда не деваются — они есть в меню «Виды» *@
+            @if (State.ActionBarVisible)
+            {
+            <div class="ai2p-actionbar" id="ai2p-actionbar">
+                <ActionBarButton Kind="@UiState.ViewTasks" Icon="@Icons.Material.Filled.ViewKanban" Title="@L["menu.tasks"]" />
+                <ActionBarButton Kind="@UiState.ViewTemplates" Icon="@Icons.Material.Filled.FileCopy" Title="@L["menu.templates"]" />
+                <ActionBarButton Kind="@UiState.ViewProjects" Icon="@Icons.Material.Filled.FolderOpen" Title="@L["menu.projects"]" />
+                <ActionBarButton Kind="@UiState.ViewTeams" Icon="@Icons.Material.Filled.Groups" Title="@L["menu.teams"]" />
+                <ActionBarButton Kind="@UiState.ViewExecutors" Icon="@Icons.Material.Filled.People" Title="@L["menu.executors"]" />
+                <ActionBarButton Kind="@UiState.ViewInbox" Icon="@Icons.Material.Filled.Inbox" Title="@L["menu.inbox"]" />
+                <ActionBarButton Kind="@UiState.ViewHistory" Icon="@Icons.Material.Filled.History" Title="@L["menu.history"]" />
+                <ActionBarButton Kind="@UiState.ViewBilling" Icon="@Icons.Material.Filled.Payments" Title="@L["menu.billing"]" />
+                <ActionBarButton Kind="@UiState.ViewSchedule" Icon="@Icons.Material.Filled.CalendarMonth" Title="@L["menu.schedule"]" />
+                <MudSpacer />
+                @* ДОКУМЕНТАЦИЯ (T-17-S1) — над настройками: обе кнопки не про данные, а про
+                   саму программу, и стоят внизу тулбара. Открывает обычную закладку чтения *@
+                <ActionBarButton Kind="@UiState.ViewDocs" Icon="@Icons.Material.Filled.MenuBook" Title="@L["menu.docs"]" />
+                <ActionBarButton Kind="@UiState.ViewSettings" Icon="@Icons.Material.Filled.Settings" Title="@L["menu.settings"]" />
+            </div>
+            }
+
+            @* 3. эксплорер: ОДНО дерево на все секции (T-212) — проекты (задачи, шаблоны,
+               команда), исполнители, шаблоны, команды; ширина меняется мышкой (гл. 11) *@
+            @if (State.ExplorerVisible)
+            {
+                <div class="ai2p-explorer" id="ai2p-explorer">
+                    <ExplorerPanel />
+                </div>
+                <div class="ai2p-splitter" id="ai2p-splitter"></div>
+            }
+
+            @* 5. фреймы рабочей области с закладками (todo22) *@
+            <div class="ai2p-frames" id="ai2p-frames" style="@FramesStyle">
+                @for (var f = 0; f < State.VisibleFrameCount; f++)
+                {
+                    var frameIndex = f;
+                    var frame = State.Frames[frameIndex];
+                    @* DnD закладок — целиком в JS (ai2p.initTabDnd): Firefox не начинает
+                       перетаскивание без dataTransfer.setData (багфикс todo23) *@
+                    <div class="ai2p-frame" style="@FrameCellStyle(frameIndex)"
+                         data-frame-drop="@frameIndex">
+                        @* закладки в одну строку с листанием (T-163): кнопки «влево»/«вправо»
+                           появляются, только когда закладки не помещаются *@
+                        <div class="ai2p-tabbar" data-tabbar="@frameIndex">
+                            @* подсказка — обычным title: MudTooltip обернул бы кнопку своим
+                               контейнером, и она перестала бы быть элементом полосы закладок *@
+                            <MudIconButton Class="ai2p-tabbar-arrow ai2p-arrow-off" data-tab-scroll="prev"
+                                           title="@L["tab.scrollPrev"]"
+                                           Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small"
+                                           OnClick="@(() => ScrollTabsAsync(frameIndex, -1))" />
+                            <div class="ai2p-tabbar-strip" data-tab-strip="@frameIndex">
+                                @for (var i = 0; i < frame.Tabs.Count; i++)
+                                {
+                                    var index = i;
+                                    var tab = frame.Tabs[index];
+                                    <div class="ai2p-tab @(index == frame.ActiveTabIndex ? "active" : "")"
+                                         draggable="true" data-frame="@frameIndex" data-tab="@index"
+                                         @onclick="@(() => State.ActivateTab(frameIndex, index))">
+                                        @* закладки «Задача»/«Проект» — две строки: вид + начало названия/код (ТЗ v1.18) *@
+                                        <span class="ai2p-tab-label">
+                                            <span>@TabTitle(tab)</span>
+                                            @if (TabSubtitle(tab) is { Length: > 0 } subtitle)
+                                            {
+                                                <span class="ai2p-tab-sub">@subtitle</span>
+                                            }
+                                        </span>
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                                       OnClick="@(() => State.CloseTab(frameIndex, index))" />
+                                    </div>
+                                }
+                            </div>
+                            <MudIconButton Class="ai2p-tabbar-arrow" data-tab-scroll="next"
+                                           title="@L["tab.scrollNext"]"
+                                           Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small"
+                                           OnClick="@(() => ScrollTabsAsync(frameIndex, 1))" />
+                        </div>
+                        <div class="ai2p-tabview">
+                            @if (frame.ActiveTab is { } active)
+                            {
+                                @* клик по элементу списка открывает закладку в этом же фрейме (todo22) *@
+                                <CascadingValue Value="frameIndex" Name="FrameIndex">
+                                    <div @key="@(active.Kind + "/" + active.EntityId)" style="height: 100%;">
+                                        @switch (active.Kind)
+                                        {
+                                            case UiState.ViewTasks: <TasksView /> break;
+                                            case UiState.ViewTemplates: <TemplatesView /> break;
+                                            case UiState.ViewProjects: <ProjectsView /> break;
+                                            case UiState.ViewTeams: <TeamsView /> break;
+                                            case UiState.ViewExecutors: <ExecutorsView /> break;
+                                            case UiState.ViewHistory: <HistoryView /> break;
+                                            case UiState.ViewInbox: <InboxView /> break;
+                                            case UiState.ViewBilling: <BillingView /> break;
+                                            case UiState.ViewSchedule: <ScheduleView /> break;
+                                            case UiState.ViewSettings: <SettingsView /> break;
+                                            case UiState.ViewDocs: <DocsView /> break;
+                                            case UiState.ViewTask: <TaskCardView TaskId="@(active.EntityId ?? "")" /> break;
+                                            case UiState.ViewProject: <ProjectCardView ProjectId="@(active.EntityId ?? "")" /> break;
+                                            case UiState.ViewObject: <ObjectCardView ObjectId="@(active.EntityId ?? "")" /> break;
+                                        }
+                                    </div>
+                                </CascadingValue>
+                            }
+                        </div>
+                    </div>
+                }
+                @* делители фреймов: двигаются мышкой (todo22); в Quad горизонтальный — сплошной *@
+                @switch (State.Split)
+                {
+                    case FrameSplit.Columns:
+                        <div class="ai2p-frame-splitter v" data-axis="v" style="grid-row: 1; grid-column: 2;"></div>
+                        break;
+                    case FrameSplit.Rows:
+                        <div class="ai2p-frame-splitter h" data-axis="h" style="grid-row: 2; grid-column: 1;"></div>
+                        break;
+                    case FrameSplit.Quad:
+                        <div class="ai2p-frame-splitter v" data-axis="v" style="grid-row: 1; grid-column: 2;"></div>
+                        <div class="ai2p-frame-splitter h" data-axis="h" style="grid-row: 2; grid-column: 1 / -1;"></div>
+                        <div class="ai2p-frame-splitter v" data-axis="v" style="grid-row: 3; grid-column: 2;"></div>
+                        break;
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Ссылка на конкретную задачу через URL: /task/{id} (ТЗ гл. 11).</summary>
+    [Parameter] public string? DeepLinkTaskId { get; set; }
+
+    /// <summary>Ссылка на конкретный объект проекта: /object/{id} (T-99-S0). Разбирается
+    /// ровно так же, как ссылка на задачу, — объект открывается закладкой.</summary>
+    [Parameter] public string? DeepLinkObjectId { get; set; }
+
+    /// <summary>Ссылка на страницу документации: /doc/{путь} (T-207-S0). Путь — внутри
+    /// языкового каталога («man/https.md»); открывается закладка чтения на этой странице.</summary>
+    [Parameter] public string? DeepLinkDocPath { get; set; }
+
+    /// <summary>Заголовок вкладки браузера (T-222-S0): «AI2P - имя организации».
+    /// Сервер, не подключённый к организации (NoOrg), и состояние до загрузки имени
+    /// оставляют голое «AI2P» — тире без названия читалось бы как обрыв строки.</summary>
+    private string PageTitleText =>
+        !State.NoOrg && !string.IsNullOrWhiteSpace(State.Org.Name) ? $"AI2P - {State.Org.Name}" : "AI2P";
+
+    private DotNetObjectReference<Home>? _selfRef;
+
+    /// <summary>Опрос входящих заявок на подключение серверов (ТЗ гл. 6, todo41 п. 10):
+    /// заявка приходит от другого сервера в любой момент, поэтому владельцу (администратору),
+    /// работающему за экраном, она показывается модально — а не только строкой в настройках.</summary>
+    private Timer? _requestsTimer;
+
+    /// <summary>Уже показанные заявки: модальное окно на одну и ту же заявку не повторяется —
+    /// «ОТЛОЖИТЬ» означает «решу потом», а не «спроси снова через минуту».</summary>
+    private readonly HashSet<string> _shownRequests = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += StateHasChanged;
+        L.OnChange += StateHasChanged; // смена языка «на лету» (гл. 9)
+        try
+        {
+            await State.InitializeAsync();
+        }
+        catch (ApiException)
+        {
+            // личность вошедшего потерялась (истекла cookie, аккаунт отключён) либо
+            // организация в адресе недоступна (чужая ссылка) — разбирается страницей
+            // /no-org: она уводит на вход или в свою организацию (ТЗ гл. 12, п. 2.15).
+            // Без этого пользователь видел бы «глухую» ошибку интерфейса
+            Nav.NavigateTo("no-org", forceLoad: true);
+            return;
+        }
+        await OpenDeepLinkAsync();
+        // заявки на подключение серверов видит только тот, кто вправе их решать (гл. 6)
+        if (State.CanManageAccounts)
+        {
+            _requestsTimer = new Timer(_ => _ = InvokeAsync(CheckServerRequestsAsync), null,
+                TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(1));
+        }
+    }
+
+    /// <summary>Новая заявка на подключение сервера — показать её форму модально (todo41 п. 10):
+    /// «ПРИНЯТЬ», «ОТЛОЖИТЬ» (остаётся в списке серверов) или «ОТКЛОНИТЬ» (исчезает из списка,
+    /// событие в журнале остаётся).</summary>
+    private async Task CheckServerRequestsAsync()
+    {
+        try
+        {
+            var requests = await Api.GetServerRequestsAsync();
+            foreach (var request in requests)
+            {
+                // отложенные повторно не всплывают — их решают на вкладке «Серверы»
+                if (request.Status != OrgServerStatus.Pending || !_shownRequests.Add(request.Id))
+                {
+                    continue;
+                }
+                await ServerRequests.DecideAsync(Dialogs, Api, Snackbar, L, request);
+            }
+        }
+        catch (ApiException)
+        {
+            // сеть или права — молча: это фоновый опрос, ошибку показывать некому
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!State.Initialized)
+        {
+            return;
+        }
+        // ресайз фреймов мышкой (гл. 11); повторные вызовы — no-op (data-атрибут в JS)
+        if (State.ExplorerVisible)
+        {
+            await Js.InvokeVoidAsync("ai2p.initSplitter", "ai2p-splitter", "ai2p-explorer", "ai2p.explorerWidth");
+        }
+        _selfRef ??= DotNetObjectReference.Create(this);
+        await Js.InvokeVoidAsync("ai2p.initFrameSplitters", "ai2p-frames", _selfRef);
+        await Js.InvokeVoidAsync("ai2p.initTabDnd", "ai2p-frames", _selfRef);
+        // листание закладок (T-163): после КАЖДОГО рендера — закладки могли добавиться,
+        // закрыться или переехать в другой фрейм, и переполнение полосы надо перемерить
+        await Js.InvokeVoidAsync("ai2p.initTabScroll", "ai2p-frames");
+        // то же для листаемых тулбаров (T-194): состав полосы меню меняется (организация,
+        // проект, значок «сервер без организации»), и переполнение надо перемерить
+        await Js.InvokeVoidAsync("ai2p.initStrips", null);
+    }
+
+    /// <summary>Листание тулбара кнопками «‹ ›» (T-194): на телефоне полоса меню шире
+    /// окна. dir: -1 — влево, 1 — вправо.</summary>
+    private async Task ScrollStripAsync(string key, int dir)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("ai2p.scrollStrip", key, dir);
+        }
+        catch (JSException)
+        {
+            // страница уже перерисована/закрыта — листать нечего
+        }
+    }
+
+    /// <summary>Листание полосы закладок фрейма кнопками «влево»/«вправо» (T-163):
+    /// закладки в одну строку, не поместившиеся прокручиваются, как подзакладки MudTabs
+    /// на карточке задачи. dir: -1 — влево, 1 — вправо.</summary>
+    private async Task ScrollTabsAsync(int frameIndex, int dir)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("ai2p.scrollTabs", frameIndex, dir);
+        }
+        catch (JSException)
+        {
+            // страница уже перерисована/закрыта — листать нечего
+        }
+    }
+
+    /// <summary>Делитель фреймов отпущен: сохранить позицию в лейауте (todo22).</summary>
+    [JSInvokable]
+    public void OnFrameRatioChanged(string axis, int percent) =>
+        State.SetRatio(axis == "h", percent);
+
+    /// <summary>Закладка сброшена на фрейм (drag-n-drop в JS, todo23).</summary>
+    [JSInvokable]
+    public void OnTabDrop(int fromFrame, int fromTab, int toFrame) =>
+        State.MoveTab(fromFrame, fromTab, toFrame);
+
+    private Color SplitColor(FrameSplit split) =>
+        State.Split == split ? Color.Primary : Color.Default;
+
+    /// <summary>Подсказка кнопки пользователя: кто вошёл и с какой ролью (ТЗ п. 2.14).</summary>
+    private string AccountHint =>
+        $"{(State.Account.Name.Length > 0 ? State.Account.Name : State.Account.Email)} · {State.Role.ToDb()}";
+
+    /// <summary>Форма своего аккаунта (ТЗ п. 2.14): имя, телефон, смена пароля.</summary>
+    private Task OpenAccountAsync() =>
+        Dialogs.ShowAsync<AccountDialog>(L["account.title"],
+            new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+
+    /// <summary>CSS-grid рабочей области по разбиению и позициям делителей (todo22).</summary>
+    private string FramesStyle => State.Split switch
+    {
+        FrameSplit.Columns => $"grid-template-columns: {State.VerticalRatio}% 6px 1fr; grid-template-rows: 1fr;",
+        FrameSplit.Rows => $"grid-template-columns: 1fr; grid-template-rows: {State.HorizontalRatio}% 6px 1fr;",
+        FrameSplit.Quad => $"grid-template-columns: {State.VerticalRatio}% 6px 1fr; " +
+                           $"grid-template-rows: {State.HorizontalRatio}% 6px 1fr;",
+        _ => "grid-template-columns: 1fr; grid-template-rows: 1fr;",
+    };
+
+    /// <summary>Ячейка фрейма в grid: 0 — левый верхний (основной), далее по строкам.</summary>
+    private string FrameCellStyle(int frameIndex) => State.Split switch
+    {
+        FrameSplit.Columns => frameIndex == 0 ? "grid-row: 1; grid-column: 1;" : "grid-row: 1; grid-column: 3;",
+        FrameSplit.Rows => frameIndex == 0 ? "grid-row: 1; grid-column: 1;" : "grid-row: 3; grid-column: 1;",
+        FrameSplit.Quad => frameIndex switch
+        {
+            0 => "grid-row: 1; grid-column: 1;",
+            1 => "grid-row: 1; grid-column: 3;",
+            2 => "grid-row: 3; grid-column: 1;",
+            _ => "grid-row: 3; grid-column: 3;",
+        },
+        _ => "grid-row: 1; grid-column: 1;",
+    };
+
+    /// <summary>Задача, уже открытая по ссылке-адресу: второй раз её не открываем.</summary>
+    private string? _openedDeepLink;
+
+    /// <summary>
+    /// ПЕРЕХОД ПО ССЫЛКЕ ВНУТРИ ПРИЛОЖЕНИЯ (T-179). Адрес задачи, написанный в тексте
+    /// просто так, теперь показывается ССЫЛКОЙ — и ходят по ней кликом, а не из адресной
+    /// строки браузера. При таком переходе страница НЕ пересоздаётся: роутер меняет только
+    /// параметр маршрута, а открытие задачи висело на <c>OnInitializedAsync</c>. Со стороны
+    /// это выглядело как «ссылка не работает»: адрес в строке сменился, карточка прежняя.
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (State.Initialized
+            && ((!string.IsNullOrEmpty(DeepLinkTaskId) && _openedDeepLink != DeepLinkTaskId)
+                || (!string.IsNullOrEmpty(DeepLinkObjectId) && _openedDeepLink != DeepLinkObjectId)
+                || (!string.IsNullOrEmpty(DeepLinkDocPath) && _openedDeepLink != DeepLinkDocPath)))
+        {
+            await OpenDeepLinkAsync();
+        }
+    }
+
+    private async Task OpenDeepLinkAsync()
+    {
+        // ССЫЛКА НА СТРАНИЦУ ДОКУМЕНТАЦИИ (T-207-S0) — особняком от задачи и объекта:
+        // документация лежит файлами рядом с приложением, к организации и к архиву
+        // отношения не имеет, поэтому ни выбора среды, ни похода в API ей не нужно
+        if (!string.IsNullOrEmpty(DeepLinkDocPath))
+        {
+            _openedDeepLink = DeepLinkDocPath;
+            State.DocOpen(DeepLinkDocPath);
+            State.OpenView(UiState.ViewDocs);
+            return;
+        }
+        // ссылка ведёт либо на задачу, либо на объект (T-99-S0): маршрут у каждой свой,
+        // а всё, что до открытия — выбор среды по пометке архива, — у них общее
+        var wantedId = string.IsNullOrEmpty(DeepLinkTaskId) ? DeepLinkObjectId : DeepLinkTaskId;
+        if (string.IsNullOrEmpty(wantedId))
+        {
+            return;
+        }
+        _openedDeepLink = wantedId;
+        // ССЫЛКА, ПОМЕЧЕННАЯ АРХИВОМ (T-42-S0, параметр arc=<код>): в архиве лежат тексты,
+        // чьи ссылки на задачи и файлы переписаны при переносе — они обязаны вести в АРХИВ,
+        // а не в рабочую среду, где этой задачи уже нет. Открытие такой ссылки и означает
+        // «перейти в ту среду»: среда меняется, и только потом ищется задача (T-45-S0).
+        // Ссылка без пометки — рабочая среда, и из архива она возвращает в неё
+        var asked = ArchiveLinks.CodeOf(Nav.Uri);
+        if (!string.Equals(asked, State.SelectedArchive?.Code ?? "", StringComparison.OrdinalIgnoreCase))
+        {
+            var wanted = State.Archives.FirstOrDefault(a =>
+                string.Equals(a.Code, asked, StringComparison.OrdinalIgnoreCase));
+            // архив назван, но закрыт или удалён здесь — остаёмся где были: показать всё
+            // равно нечего, а молча уйти в рабочую среду значило бы открыть чужую задачу
+            if (asked.Length == 0 || wanted is not null)
+            {
+                await State.SwitchEnvAsync(wanted?.Id);
+            }
+        }
+        try
+        {
+            if (!string.IsNullOrEmpty(DeepLinkTaskId))
+            {
+                var details = await Api.GetTaskAsync(DeepLinkTaskId);
+                State.OpenTask(details.Task.Id, details.Task.DisplayId, details.Task.Title);
+            }
+            else
+            {
+                // объект адресуется своим uuid, поэтому ссылка открывается и тогда, когда
+                // объект лежит в ДРУГОМ проекте: текущий проект от этого не меняется —
+                // закладка объекта знает свой проект сама
+                var item = await Api.GetObjectAsync(DeepLinkObjectId!);
+                State.OpenObject(item.Id, item.DisplayId, item.Name);
+            }
+        }
+        catch (ApiException)
+        {
+            // задача или объект не найдены (устаревшая ссылка) — остаёмся на обычном
+            // стартовом виде
+        }
+    }
+
+    private string TabTitle(UiTab tab) => tab.Kind switch
+    {
+        UiState.ViewTask => L["tab.task"],
+        UiState.ViewProject => L["tab.project"],
+        UiState.ViewObject => L["tab.object"],
+        _ => L["menu." + tab.Kind],
+    };
+
+    /// <summary>Вторая строка заголовка закладки «Задача»/«Проект»/«Объект» (ТЗ v1.18, todo21;
+    /// объект — T-99-S0): начало названия с «…» либо короткий код — по параметру конфига
+    /// ui.tabTitleMode. Настройка ОДНА на все три вида закладок: «показывай мне коды» —
+    /// это привычка человека, а не свойство сущности.</summary>
+    private string? TabSubtitle(UiTab tab)
+    {
+        if (tab.Kind is not (UiState.ViewTask or UiState.ViewProject or UiState.ViewObject))
+        {
+            return null;
+        }
+        if (State.TabTitleMode == "code")
+        {
+            return tab.Code ?? "";
+        }
+        var title = tab.TitleText ?? "";
+        return title.Length <= 18 ? title : title[..18] + "…";
+    }
+
+    private Task OnProjectChanged(string? projectId) => State.SetCurrentProjectAsync(projectId);
+
+    /// <summary>Смена среды (T-45-S0): null — рабочая, иначе выбранный архив. Все закладки
+    /// закрываются, и навигация начинается по новой среде — этим занимается UiState.</summary>
+    private Task OnEnvChanged(string? archiveId) => State.SwitchEnvAsync(archiveId);
+
+    /// <summary>Название текущего проекта для надписи в тулбаре (T-188); проект не выбран —
+    /// так и написано, пустого места на его месте быть не должно.</summary>
+    private string ProjectName => State.CurrentProject?.Name ?? L["appbar.notSelected"];
+
+    /// <summary>
+    /// СМЕНА ОРГАНИЗАЦИИ (T-188). Отдельная форма, а не выпадающий список: у другой
+    /// организации своя БД, свои проекты, задачи, справочники и свой лейаут закладок, а
+    /// у покидаемой принудительно останавливаются агенты и выгружаются локальные модели.
+    /// Форма сама и останавливает, и уходит по адресу; на другой вкладке браузера тот же
+    /// пользователь при этом остаётся в прежней организации.
+    /// </summary>
+    private Task OpenOrgSwitchAsync() =>
+        Dialogs.ShowAsync<OrgSwitchDialog>(L["orgSwitch.title"],
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+
+    public void Dispose()
+    {
+        State.Changed -= StateHasChanged;
+        L.OnChange -= StateHasChanged;
+        _requestsTimer?.Dispose();
+        _selfRef?.Dispose();
+    }
+}

@@ -1,0 +1,508 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject UiState State
+@implements IDisposable
+
+@* Редактор Markdown (ТЗ гл. 11, v1.29): кнопки форматирования — большинство пользователей
+   не умеют писать разметку вручную; предпросмотр РЕДАКТИРУЕМЫЙ (todo30_2) — как в Trello
+   и Notepad Windows 11: единая поверхность contenteditable без деления экрана, все кнопки
+   панели работают и в предпросмотре; правки конвертируются обратно в Markdown (MdHtml).
+   Вставка картинок и видео: из буфера обмена, из диалога выбора файла и по URL — файлы
+   закачиваются в uploads/ проекта, в текст идёт ссылка; ширина картинки/видео — атрибутом
+   {width=N%} (меню «ширина», пусто — автоширина). *@
+
+<div class="ai2p-md">
+    <style>
+        .ai2p-md .ai2p-md-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--mud-palette-lines-default); padding: 2px 4px; }
+        .ai2p-md textarea.ai2p-md-input { width: 100%; border: 0; outline: none; resize: vertical; background: transparent; color: var(--mud-palette-text-primary); font: inherit; font-size: 0.9rem; padding: 8px; }
+        /* оформление самого Markdown (код, цитаты, таблицы, картинки) — общее, в
+           MainLayout.razor (T-131); здесь только своё, редакторское */
+        .ai2p-md .ai2p-md-preview { padding: 8px 12px; overflow: auto; }
+        .ai2p-md .ai2p-md-preview:focus { outline: none; }
+        .ai2p-md .ai2p-md-upload { display: inline-flex; margin: 0; }
+        .ai2p-md .ai2p-md-upload .mud-input-control { margin: 0; }
+    </style>
+    @if (Label.Length > 0)
+    {
+        <MudText Typo="Typo.caption" Class="d-block mb-1">@Label</MudText>
+    }
+    <MudPaper Outlined="true" Elevation="0">
+        <div class="ai2p-md-toolbar">
+            <MudTooltip Text="@L["md.heading"]"><MudIconButton Icon="@Icons.Material.Filled.Title" Size="Size.Small" OnClick="HeadingAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.bold"]"><MudIconButton Icon="@Icons.Material.Filled.FormatBold" Size="Size.Small" OnClick="BoldAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.italic"]"><MudIconButton Icon="@Icons.Material.Filled.FormatItalic" Size="Size.Small" OnClick="ItalicAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.list"]"><MudIconButton Icon="@Icons.Material.Filled.FormatListBulleted" Size="Size.Small" OnClick="BulletListAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.numberedList"]"><MudIconButton Icon="@Icons.Material.Filled.FormatListNumbered" Size="Size.Small" OnClick="NumberedListAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.quote"]"><MudIconButton Icon="@Icons.Material.Filled.FormatQuote" Size="Size.Small" OnClick="QuoteAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.code"]"><MudIconButton Icon="@Icons.Material.Filled.Code" Size="Size.Small" OnClick="CodeAsync" /></MudTooltip>
+            @* блок кода тремя апострофами и отступы табуляцией (T-136): то же, что делают
+               кнопка «блок кода» и клавиши Tab / Shift+Tab в поле текста *@
+            <MudTooltip Text="@L["md.codeBlock"]"><MudIconButton Icon="@Icons.Material.Filled.DataObject" Size="Size.Small" OnClick="CodeBlockAsync" /></MudTooltip>
+            <MudTooltip Text="@L["md.indent"]"><MudIconButton Icon="@Icons.Material.Filled.FormatIndentIncrease" Size="Size.Small" OnClick="@(() => IndentAsync(false))" /></MudTooltip>
+            <MudTooltip Text="@L["md.outdent"]"><MudIconButton Icon="@Icons.Material.Filled.FormatIndentDecrease" Size="Size.Small" OnClick="@(() => IndentAsync(true))" /></MudTooltip>
+            <MudTooltip Text="@L["md.link"]"><MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small" OnClick="LinkAsync" /></MudTooltip>
+            @* ССЫЛКА НА ОБЪЕКТ ПРОЕКТА (T-267): @obj:OBJ-3 либо @obj:[Герой Вася] — форму
+               задаёт настройка ПРОЕКТА. Кнопка есть только там, где проект известен: без
+               него список объектов брать неоткуда (объекты живут у проекта, T-259) *@
+            @if (HasProject)
+            {
+                <MudTooltip Text="@L["md.objectRef"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.AlternateEmail" Size="Size.Small"
+                                   data-md-objref="1" OnClick="ObjectRefAsync" />
+                </MudTooltip>
+            }
+            <MudDivider Vertical="true" FlexItem="true" Class="mx-1" />
+            @* вставка картинки/видео из диалога выбора файла (todo30); пустой SelectedTemplate
+               убирает стандартный чип с именем файла из тулбара — имена вставленных файлов
+               показываются под рамкой редактора (todo30_3) *@
+            <MudFileUpload T="IBrowserFile" FilesChanged="OnFilePickedAsync" Class="ai2p-md-upload"
+                           Accept="image/*,video/*">
+                <CustomContent>
+                    <MudTooltip Text="@L["md.insertFile"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.AddPhotoAlternate" Size="Size.Small"
+                                       OnClick="@(() => context.OpenFilePickerAsync())" />
+                    </MudTooltip>
+                </CustomContent>
+                <SelectedTemplate Context="_"><span class="d-none"></span></SelectedTemplate>
+            </MudFileUpload>
+            @* вставка картинки по URL (todo30) *@
+            <MudTooltip Text="@L["md.insertUrl"]">
+                <MudIconButton Icon="@Icons.Material.Filled.AddLink" Size="Size.Small"
+                               Color="@(_urlOpen && !_urlForLink ? Color.Primary : Color.Default)"
+                               OnClick="@(() => OpenUrlRow(forLink: false))" />
+            </MudTooltip>
+            @* ширина картинки/видео атрибутом {width=N%}; авто — атрибут не ставится (todo30);
+               в предпросмотре — применяется к выделенной картинке/видео (todo30_2) *@
+            <MudMenu Icon="@Icons.Material.Filled.PhotoSizeSelectLarge" Size="Size.Small" Dense="true"
+                     AriaLabel="@L["md.width"]">
+                @foreach (var percent in new[] { 25, 50, 75, 100 })
+                {
+                    <MudMenuItem OnClick="@(() => WidthAsync(percent))">@percent%</MudMenuItem>
+                }
+            </MudMenu>
+            <MudSpacer />
+            @* копирование этого поля (T-67-S0): простым текстом или разметкой — то же меню,
+               что у полей карточки задачи *@
+            <CopyMenuButton Size="Size.Small" data-field-copy="editor"
+                            Parts="@(() => CopyText.One(Value))" />
+            <MudText Typo="Typo.caption" Class="mr-2" Style="opacity:.6">@L["md.imageHint"]</MudText>
+            <MudTooltip Text="@(_preview ? L["md.edit"] : L["md.preview"])">
+                <MudIconButton Icon="@(_preview ? Icons.Material.Filled.EditNote : Icons.Material.Filled.Visibility)"
+                               Size="Size.Small" Color="@(_preview ? Color.Primary : Color.Default)"
+                               OnClick="TogglePreviewAsync" />
+            </MudTooltip>
+        </div>
+        @if (_urlOpen)
+        {
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="px-2 py-1"
+                      Style="border-bottom: 1px solid var(--mud-palette-lines-default);">
+                <MudTextField @bind-Value="_url" Placeholder="https://…" Margin="Margin.Dense"
+                              Style="flex:1" Immediate="true" />
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="InsertUrlAsync"
+                           Disabled="@(_url.Trim().Length == 0)">@L["md.insert"]</MudButton>
+            </MudStack>
+        }
+        @* предпросмотр редактируемый (todo30_2): contenteditable вместо сплита; Blazor
+           рендерит div пустым — содержимое ставит и читает JS (ai2p.wys*), правки уходят
+           в OnPreviewHtmlChangedAsync и конвертируются обратно в Markdown *@
+        @if (_preview)
+        {
+            <div id="@WysId" class="ai2p-md-preview" contenteditable="true"
+                 style="min-height: @(MinHeightPx)px;"></div>
+        }
+        else
+        {
+            @* содержимое поля ставит JS (ai2p.mdSync), а не Blazor (T-194): значение в
+               разметке (value="@Value") Blazor записывал бы в элемент после каждого
+               нажатия, а с телефона ответ приходит с задержкой — и запись устаревшего
+               значения съедала набранные за это время символы *@
+            <textarea id="@_id" class="ai2p-md-input" rows="@Rows" style="min-height: @(MinHeightPx)px;"
+                      @oninput="OnInput"></textarea>
+        }
+    </MudPaper>
+    @* имена вставленных файлов — под рамкой поля текста (todo30_3): в тулбаре они
+       ломали форматирование *@
+    @if (_insertedFiles.Count > 0)
+    {
+        <MudStack Row="true" Spacing="1" Wrap="MudBlazor.Wrap.Wrap" AlignItems="AlignItems.Center" Class="mt-1">
+            @foreach (var name in _insertedFiles)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Icon="@Icons.Material.Filled.InsertDriveFile">@name</MudChip>
+            }
+        </MudStack>
+    }
+</div>
+
+@code {
+    [Parameter] public string Value { get; set; } = "";
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string Label { get; set; } = "";
+    [Parameter] public int Rows { get; set; } = 8;
+    /// <summary>Минимальная высота поля, px (компактный вариант — чат по задаче).</summary>
+    [Parameter] public int MinHeightPx { get; set; } = 140;
+    /// <summary>Проект — определяет каталог uploads/ для вставленных картинок и видео.</summary>
+    [Parameter] public string? ProjectId { get; set; }
+
+    /// <summary>Ограничение размера файла из диалога выбора (видео, todo30).</summary>
+    private const long MaxUploadBytes = 200 * 1024 * 1024;
+
+    private readonly string _id = "md-" + Guid.NewGuid().ToString("N")[..8];
+    private string WysId => _id + "-wys";
+    private bool _preview;
+    private bool _urlOpen;
+    private bool _urlForLink;
+    private string _url = "";
+    /// <summary>Имена вставленных файлов — показываются под рамкой редактора (todo30_3).</summary>
+    private readonly List<string> _insertedFiles = [];
+    /// <summary>Значение, которому соответствует содержимое contenteditable: внешнее
+    /// изменение Value (например, очистка поля чата после отправки) перерисовывает
+    /// предпросмотр, собственные правки — нет (курсор не сбрасывается) (todo30_3).</summary>
+    private string? _wysValue;
+    /// <summary>То же для поля текста (T-194): содержимое textarea ведёт JS, и переписывать
+    /// его можно ТОЛЬКО когда значение сменилось извне. Свои правки (набор с клавиатуры,
+    /// кнопки панели, Tab) проходят через <see cref="Set"/> и запись не вызывают: иначе
+    /// пришедший с задержкой ответ сервера съедал бы набранные символы.</summary>
+    private string? _taValue;
+    private DotNetObjectReference<MarkdownEditor>? _selfRef;
+
+    protected override void OnParametersSet()
+    {
+        // поле очищено (отправка сообщения чата) — список вставленных файлов неактуален
+        if (string.IsNullOrEmpty(Value) && _insertedFiles.Count > 0)
+        {
+            _insertedFiles.Clear();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        _selfRef ??= DotNetObjectReference.Create(this);
+        if (_preview)
+        {
+            // идемпотентно: после ререндеров (переключение вкладок, обновление DOM)
+            // пересозданный div заново наполняется текущим значением; force — Value
+            // изменилось извне (не правкой в предпросмотре) → перерисовать содержимое
+            var force = _wysValue != Value;
+            await Js.InvokeVoidAsync("ai2p.wysSync", WysId, _selfRef, Md.ToHtml(Value), force);
+            _wysValue = Value;
+        }
+        else
+        {
+            // то же для поля текста (T-194): новый элемент наполняется значением, живой —
+            // только когда значение сменилось ИЗВНЕ. mdSync идемпотентен и ставит
+            // обработчики вставки картинок и Tab
+            var force = _taValue != Value;
+            await Js.InvokeVoidAsync("ai2p.mdSync", _id, _selfRef, Value, force);
+            _taValue = Value;
+        }
+    }
+
+    private Task OnInput(ChangeEventArgs e) => Set(e.Value?.ToString() ?? "");
+
+    /// <summary>Значение изменил САМ редактор (набор, кнопки панели, Tab, вставка):
+    /// _taValue сдвигается вместе с ним, поэтому содержимое поля JS не переписывает —
+    /// именно эта запись и съедала набранные символы на канале с задержкой (T-194).</summary>
+    private Task Set(string value)
+    {
+        Value = value;
+        _taValue = value;
+        return ValueChanged.InvokeAsync(value);
+    }
+
+    /// <summary>Правка в предпросмотре: браузер прислал изменённый HTML — назад в Markdown.
+    /// _wysValue обновляется до Set: собственная правка не должна перерисовать div (курсор).</summary>
+    [JSInvokable]
+    public Task OnPreviewHtmlChangedAsync(string html)
+    {
+        var markdown = MdHtml.ToMarkdown(html);
+        if (markdown == Value)
+        {
+            return Task.CompletedTask;
+        }
+        _wysValue = markdown;
+        return Set(markdown);
+    }
+
+    /// <summary>Переключение предпросмотра: при выходе изменённый HTML дочитывается
+    /// (мог остаться несработавший дебаунс) и конвертируется в Markdown.</summary>
+    private async Task TogglePreviewAsync()
+    {
+        if (_preview)
+        {
+            var html = await Js.InvokeAsync<string?>("ai2p.wysClose", WysId);
+            if (html is not null)
+            {
+                var markdown = MdHtml.ToMarkdown(html);
+                if (markdown != Value)
+                {
+                    await Set(markdown);
+                }
+            }
+            _preview = false;
+        }
+        else
+        {
+            _preview = true; // наполнение div — в OnAfterRenderAsync (wysSync)
+        }
+        _wysValue = null;
+        _taValue = null;   // поле текста будет создано заново — наполнить его значением
+        _urlOpen = false;
+        _urlForLink = false;
+    }
+
+    // --- кнопки панели: в предпросмотре — команды contenteditable, в тексте — textarea ---
+
+    private Task HeadingAsync() => _preview ? Wys("wysToggleBlock", "h2") : PrefixLines("## ");
+    private Task BoldAsync() => _preview ? Wys("wysExec", "bold") : Wrap("**", "**");
+    private Task ItalicAsync() => _preview ? Wys("wysExec", "italic") : Wrap("*", "*");
+    private Task BulletListAsync() => _preview ? Wys("wysExec", "insertUnorderedList") : PrefixLines("* ");
+    private Task NumberedListAsync() => _preview ? Wys("wysExec", "insertOrderedList") : PrefixLines("1. ");
+    private Task QuoteAsync() => _preview ? Wys("wysToggleBlock", "blockquote") : PrefixLines("> ");
+
+    private Task CodeAsync() => _preview
+        ? Js.InvokeVoidAsync("ai2p.wysWrapCode", WysId, L["md.placeholder"]).AsTask()
+        : Wrap("`", "`");
+
+    /// <summary>Блок кода тремя апострофами (T-136): в тексте — ограждения отдельными
+    /// строками, в предпросмотре — &lt;pre&gt;&lt;code&gt; (обратная конвертация вернёт
+    /// те же апострофы).</summary>
+    private async Task CodeBlockAsync()
+    {
+        if (_preview)
+        {
+            await Js.InvokeVoidAsync("ai2p.wysCodeBlock", WysId, L["md.placeholder"]);
+            return;
+        }
+        var value = await Js.InvokeAsync<string?>("ai2p.mdCodeBlock", _id, L["md.placeholder"]);
+        if (value is not null)
+        {
+            await Set(value);
+        }
+    }
+
+    /// <summary>Отступ выделенных строк — то же, что клавиши Tab / Shift+Tab (T-136).
+    /// Отступ табуляцией — это и есть «альтернативное» выделение кода в Markdown.</summary>
+    private async Task IndentAsync(bool outdent)
+    {
+        if (_preview)
+        {
+            await Js.InvokeVoidAsync("ai2p.wysIndent", WysId, outdent);
+            return;
+        }
+        var value = await Js.InvokeAsync<string?>("ai2p.mdIndent", _id, outdent);
+        if (value is not null)
+        {
+            await Set(value);
+        }
+    }
+
+    /// <summary>Текст поля изменён из JS (Tab / Shift+Tab): oninput на программную правку
+    /// value не срабатывает, поэтому новое значение приходит сюда (T-136).</summary>
+    [JSInvokable]
+    public Task OnTextChangedAsync(string value) => Set(value);
+
+    /// <summary>Ссылка: в тексте — обёртка [текст](url); в предпросмотре — поле URL,
+    /// вставка делает выделение ссылкой (todo30_2).</summary>
+    private Task LinkAsync()
+    {
+        if (!_preview)
+        {
+            return Wrap("[", "](https://)");
+        }
+        OpenUrlRow(forLink: true);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Кнопка ссылки на объект имеет смысл только у поля, привязанного к проекту:
+    /// объекты — список ПРОЕКТА, общего не существует (T-259).</summary>
+    private bool HasProject => ProjectId is { Length: > 0 };
+
+    /// <summary>
+    /// ССЫЛКА НА ОБЪЕКТ ПРОЕКТА (T-267): выбранный в списке объект встаёт в позицию курсора
+    /// ссылкой — <c>@obj:OBJ-3</c> или <c>@obj:[Герой Вася]</c>, смотря что задано настройкой
+    /// ПРОЕКТА. При запуске задания ссылка развернётся в паспорт объекта, поэтому переписывать
+    /// внешность персонажа в каждый кадр не нужно (в этом весь смысл объектов).
+    /// </summary>
+    private async Task ObjectRefAsync()
+    {
+        if (ProjectId is not { Length: > 0 } projectId)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ObjectPickerDialog> { { d => d.ProjectId, projectId } };
+        var dialog = await Dialogs.ShowAsync<ObjectPickerDialog>(L["md.objectRef"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ObjectItem item })
+        {
+            return;
+        }
+        // формат — настройка ПРОЕКТА (T-267); незаданная настройка это номер, как было до неё
+        var settings = State.Projects.FirstOrDefault(p => p.Id == projectId)?.SettingsJson;
+        var marker = ObjectRefs.MarkerFor(ProjectSettings.ObjRefFormat(settings), item.DisplayId, item.Name);
+        if (_preview)
+        {
+            // в предпросмотре ссылка — обычный текст: разметкой она не является, и попасть
+            // в HTML как есть не должна (в названии объекта бывает и «<», и «&»)
+            await Js.InvokeVoidAsync("ai2p.wysInsertHtml", WysId, System.Net.WebUtility.HtmlEncode(marker));
+        }
+        else
+        {
+            await InsertAsync(marker);
+        }
+    }
+
+    private void OpenUrlRow(bool forLink)
+    {
+        _urlOpen = !_urlOpen || _urlForLink != forLink;
+        _urlForLink = forLink && _urlOpen;
+    }
+
+    private Task WidthAsync(int percent) => _preview
+        ? Js.InvokeVoidAsync("ai2p.wysSetWidth", WysId, percent).AsTask()
+        : InsertAsync($"{{width={percent}%}}");
+
+    private Task Wys(string function, string argument) =>
+        Js.InvokeVoidAsync("ai2p." + function, WysId, argument).AsTask();
+
+    private async Task Wrap(string before, string after)
+    {
+        var value = await Js.InvokeAsync<string?>("ai2p.mdWrap", _id, before, after, L["md.placeholder"]);
+        if (value is not null)
+        {
+            await Set(value);
+        }
+    }
+
+    private async Task PrefixLines(string prefix)
+    {
+        var value = await Js.InvokeAsync<string?>("ai2p.mdPrefixLines", _id, prefix);
+        if (value is not null)
+        {
+            await Set(value);
+        }
+    }
+
+    private async Task InsertAsync(string markdown)
+    {
+        var value = await Js.InvokeAsync<string?>("ai2p.mdInsert", _id, markdown);
+        if (value is not null)
+        {
+            await Set(value);
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>Вставка картинки/видео в текущий режим: текст — Markdown-ссылка,
+    /// предпросмотр — готовый HTML в позицию курсора (todo30_2).</summary>
+    private async Task InsertMediaAsync(string name, string url)
+    {
+        if (_preview)
+        {
+            await Js.InvokeVoidAsync("ai2p.wysInsertHtml", WysId, MediaHtml(name, url));
+        }
+        else
+        {
+            await InsertAsync($"![{name}]({url})");
+        }
+        if (name.Length > 0 && !_insertedFiles.Contains(name))
+        {
+            _insertedFiles.Add(name); // список под рамкой редактора (todo30_3)
+        }
+    }
+
+    /// <summary>HTML вставляемого файла для предпросмотра — как его рендерит Markdig:
+    /// видео (.mp4/.webm/.ogv) — плеер, остальное — картинка.</summary>
+    private static string MediaHtml(string name, string url)
+    {
+        var href = System.Net.WebUtility.HtmlEncode(url);
+        var lower = url.ToLowerInvariant();
+        string? mime = lower.EndsWith(".mp4") ? "video/mp4"
+            : lower.EndsWith(".webm") ? "video/webm"
+            : lower.EndsWith(".ogv") ? "video/ogg"
+            : null;
+        return mime is null
+            ? $"<img alt=\"{System.Net.WebUtility.HtmlEncode(name)}\" src=\"{href}\">"
+            : $"<video controls=\"\"><source type=\"{mime}\" src=\"{href}\"></source></video>";
+    }
+
+    /// <summary>Картинка из буфера обмена: закачать файлом, вставить в текущий режим (ТЗ гл. 11).</summary>
+    [JSInvokable]
+    public async Task OnPasteImageAsync(string fileName, string dataBase64)
+    {
+        try
+        {
+            var uploaded = await Api.UploadFileAsync(ProjectId, fileName, dataBase64);
+            await InsertMediaAsync(fileName, ApiClient.RawFileUrl(uploaded.Path));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Картинка из буфера больше предела канала UI (T-136): вместо обрыва связи
+    /// страницы с сервером — понятное сообщение; такой файл вставляют кнопкой выбора файла
+    /// (там закачка идёт потоком и предел на порядок больше).</summary>
+    [JSInvokable]
+    public void OnPasteTooBigAsync(int maxMb)
+    {
+        Snackbar.Add(string.Format(L["md.fileTooBig"], maxMb), Severity.Error);
+        StateHasChanged();
+    }
+
+    /// <summary>Картинка/видео из диалога выбора файла (todo30): та же закачка в uploads/,
+    /// вставка в текущий режим; видео (.mp4/.webm/.ogv) рендерится плеером.</summary>
+    private async Task OnFilePickedAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+        try
+        {
+            using var stream = file.OpenReadStream(MaxUploadBytes);
+            using var memory = new MemoryStream();
+            await stream.CopyToAsync(memory);
+            var uploaded = await Api.UploadFileAsync(ProjectId, file.Name, Convert.ToBase64String(memory.ToArray()));
+            await InsertMediaAsync(file.Name, ApiClient.RawFileUrl(uploaded.Path));
+        }
+        catch (IOException)
+        {
+            Snackbar.Add(string.Format(L["md.fileTooBig"], MaxUploadBytes / (1024 * 1024)), Severity.Error);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Поле URL: картинка по адресу (как раньше) либо ссылка в предпросмотре (todo30_2);
+    /// файл не закачивается — адрес используется как есть.</summary>
+    private async Task InsertUrlAsync()
+    {
+        var url = _url.Trim();
+        var forLink = _urlForLink;
+        _url = "";
+        _urlOpen = false;
+        _urlForLink = false;
+        if (forLink && _preview)
+        {
+            await Js.InvokeVoidAsync("ai2p.wysCreateLink", WysId, url);
+        }
+        else if (_preview)
+        {
+            await InsertMediaAsync("", url);
+        }
+        else
+        {
+            await InsertAsync($"![]({url})");
+        }
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+}

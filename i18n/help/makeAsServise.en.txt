@@ -1,0 +1,63 @@
+AI2P - makeAsServise: TURN AN INSTALLATION INTO AN OS SERVICE
+
+Run it BY HAND and once: the application is a console one by default and never
+makes itself a service. The service name is AI2P everywhere - install.* and the
+installation package know it.
+  Linux - the systemd unit AI2P.service
+  macOS - the launchd job labelled AI2P (~/Library/LaunchAgents/AI2P.plist)
+
+The script lies IN THE INSTALLATION FOLDER next to AI2P.Server and works with it.
+
+USAGE (Windows, AN ELEVATED CONSOLE)
+  makeAsServise.cmd                    create the service and start it
+  makeAsServise.ps1 -NoStart           create it but do not start it
+  makeAsServise.ps1 -Manual            start the service by hand, not automatically
+  makeAsServise.ps1 -Remove            remove the service (files and data are kept)
+  makeAsServise.ps1 -Target D:\AI2P    another installation, not the script folder
+  makeAsServise.ps1 -Account .\mike -Password ***  run the service as a user
+  makeAsServise.ps1 -UnprotectSecrets  drop DPAPI from the organization keys
+  makeAsServise.ps1 -Force             do it in spite of the warnings
+  makeAsServise.ps1 -WhatIf            only show what would be done
+  makeAsServise.ps1 -Lang ru           the language of the messages
+  makeAsServise.cmd --help             this help
+
+USAGE (Linux / macOS)
+  ./makeAsServise.sh                   create the service and start it
+  ./makeAsServise.sh --no-start        create it but do not start it
+  ./makeAsServise.sh --manual          do not start at system boot
+  ./makeAsServise.sh --remove          remove the service
+  ./makeAsServise.sh --target ~/ai/AI2P  another installation
+  ./makeAsServise.sh --system          a SYSTEM systemd unit (root is needed), Linux
+  ./makeAsServise.sh --lang ru         the language of the messages
+  ./makeAsServise.sh --help            this help
+
+WHAT CHANGES IN THE APPLICATION ITSELF: nothing. It recognizes its start mode by
+itself - under a service manager it works as a service, from a console as usual.
+The service does not open the browser at the start: it has no desktop.
+
+MEMORY OF THIS. The real state of the service is known by the OS, and install.*
+asks exactly it: the service has to be stopped before an update and started after.
+On top of that the script writes the note "serviceMode": true into the config.json
+of the installation - it survives a version update and is visible in the settings.
+
+A USER SERVICE IS THE DEFAULT ON LINUX, and that is not an accident: the server
+runs as an ordinary user and keeps everything of its own in its own folder. So that
+such a service comes up without a human logging in, lingering is needed - the
+script calls loginctl enable-linger itself.
+
+DPAPI AND THE SERVICE ACCOUNT (Windows, important)
+  An organization key in secrets.json is protected by DPAPI OF THE USER SCOPE on
+  Windows: only the account that wrote it can decrypt it. By default a service runs
+  as LocalSystem - ANOTHER account - and it will not be able to read the model API
+  keys (the cloud models stop working, and it looks like "the model is there but
+  the job does not go"). So the script checks secrets.json and, having found
+  DPAPI-protected values, offers a choice:
+    * -Account <user> -Password <password> - the service runs as THE SAME user
+      (it needs the "Log on as a service" right; without it the service does not
+      start, error 1069);
+    * -UnprotectSecrets - drop DPAPI and keep the organization keys as plain base64
+      (exactly the way they lie on Linux/macOS; the file permissions still protect
+      them);
+    * -Force - create the service as it is, knowing the keys are unreadable for it.
+  The same applies to the Claude CLI login: it belongs to the user profile, and a
+  LocalSystem service will not see it. On Linux and macOS DPAPI is irrelevant.

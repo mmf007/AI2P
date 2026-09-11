@@ -1,0 +1,90 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+
+@* Фильтр репликации папки Common — файл .repignore (ТЗ гл. 6, этап 44; todo44).
+
+   Синтаксис и назначение те же, что у .gitignore: человек их уже знает, придумывать свой
+   формат ради того же самого незачем. Правится простым текстом — так же, как .gitignore
+   правят в любом редакторе.
+
+   Сам .repignore реплицируется как обычный файл, если не исключил себя собственным
+   правилом: он часть договорённости между серверами, а не локальная настройка. *@
+<MudDialog>
+    <DialogContent>
+        @if (_dto is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_dto.NotConfigured)
+        {
+            <MudAlert Severity="Severity.Info" Dense="true">@L["repignore.notConfigured"]</MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="2" Style="min-width: 560px;">
+                <MudText Typo="Typo.caption">@L["repignore.hint"]</MudText>
+                <MudTextField @bind-Value="_text" Lines="14" Variant="Variant.Outlined"
+                              Style="font-family: ui-monospace, Consolas, monospace;"
+                              Placeholder="@Placeholder" spellcheck="false" />
+                <MudText Typo="Typo.caption" Style="opacity:.7; word-break: break-all;">
+                    @_dto.Path
+                </MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        @if (_dto is { NotConfigured: false })
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@_busy"
+                       OnClick="SaveAsync">@L["common.save"]</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Проект, чью папку Common фильтруем.</summary>
+    [Parameter] public string ProjectId { get; set; } = "";
+
+    private RepIgnoreDto? _dto;
+    private string _text = "";
+    private bool _busy;
+
+    /// <summary>Подсказка синтаксиса прямо в поле — она же пример (текст из словарей, T-180).</summary>
+    private string Placeholder => L["repl.ignore.placeholder"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _dto = await Api.GetRepIgnoreAsync(ProjectId);
+            _text = _dto.Text;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.SaveRepIgnoreAsync(ProjectId, _text);
+            Snackbar.Add(L["repignore.saved"], Severity.Success);
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

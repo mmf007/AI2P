@@ -1,0 +1,82 @@
+@inject I18nService L
+@inject UiState State
+
+@* Смена сервера-владельца задачи (ТЗ гл. 6, этап 42, кнопка «сменить сервер» карточки задачи).
+
+   У каждой задачи ровно один сервер-писатель: на нём она правится и на нём же выполняются
+   её задания. После смены задача здесь становится ТОЛЬКО ДЛЯ ЧТЕНИЯ, а на новом сервере
+   станет редактируемой после ближайшего цикла репликации. Номер задачи не меняется — это
+   идентификатор и имя каталога её файлов.
+
+   Варианта «без сервера» больше нет (T-1-S0): он привязывал задачу не к компьютеру, а к РОЛИ
+   дирижёра, и при её смене задача уезжала на другой сервер вместе с заданиями. Отдать задачу
+   дирижёру можно и нужно, НАЗВАВ его сервер. *@
+<MudDialog>
+    <DialogContent>
+        @* тот же диалог служит и ШАБЛОНУ (T-36-S0) — подсказка тогда своя: шаблон уезжает
+           всем поддеревом узлов, а заданий у него нет вовсе *@
+        @* и ОБЪЕКТУ ПРОЕКТА (T-102-S0): у него тоже есть сервер-владелец, и он тоже уезжает
+           всем своим поддеревом — датасеты и кадры это его содержимое *@
+        <MudText Typo="Typo.body2" Class="mb-3">
+            @L[IsObject ? "objects.server.dialogHint"
+                        : IsTemplate ? "task.server.dialogHint.template" : "task.server.dialogHint"]
+        </MudText>
+        <MudSelect T="string" @bind-Value="_serverId" Label="@L["task.server"]"
+                   ToStringFunc="@(id => Title(id))" data-task-server="@_serverId">
+            @foreach (var server in State.OrgServers.Where(s => s.IsActive))
+            {
+                <MudSelectItem T="string" Value="@server.ServerId">@Title(server.ServerId)</MudSelectItem>
+            }
+        </MudSelect>
+        @if (_serverId != Current)
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-3">
+                @L[IsObject ? "objects.server.warning"
+                            : IsTemplate ? "task.server.warning.template" : "task.server.warning"]
+            </MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        @* сервер обязателен (T-1-S0): у задачи прежних версий его может не быть вовсе —
+           тогда поле пустое, и сохранять нечего, пока сервер не выбран *@
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_serverId.Length == 0)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_serverId)))">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Текущий сервер задачи (внутренний ключ); пусто — сервера нет.</summary>
+    [Parameter] public string Current { get; set; } = "";
+
+    /// <summary>Передаётся ШАБЛОН, а не задача (T-36-S0): меняются только пояснения.</summary>
+    [Parameter] public bool IsTemplate { get; set; }
+
+    /// <summary>Передаётся ОБЪЕКТ ПРОЕКТА (T-102-S0): меняются только пояснения.</summary>
+    [Parameter] public bool IsObject { get; set; }
+
+    private string _serverId = "";
+
+    protected override void OnInitialized() => _serverId = Current;
+
+    /// <summary>«S1 (ноутбук)» — код и имя сервера; пусто — «без сервера» (правит дирижёр).</summary>
+    private string Title(string? serverId)
+    {
+        if (serverId is not { Length: > 0 })
+        {
+            return L["task.server.none"];
+        }
+        var server = State.OrgServers.FirstOrDefault(s => s.ServerId == serverId);
+        if (server is null)
+        {
+            return serverId;
+        }
+        var suffix = server.IsLocal ? " — " + L["task.server.thisOne"] : "";
+        return server.Name.Length > 0
+            ? $"{server.Code} ({server.Name}){suffix}"
+            : server.Code + suffix;
+    }
+}

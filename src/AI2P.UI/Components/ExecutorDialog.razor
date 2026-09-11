@@ -1,0 +1,505 @@
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ApiClient Api
+
+@* Форма ввода исполнителя — все поля по ТЗ п. 2.2 (правка v1.13):
+   ник и внутреннее имя человека уникальны; у ИИ внутреннее имя выбирается из справочника
+   активных моделей (п. 2.9), id модели, профайл и декларация подставляются синхронно
+   и пользователю не показываются — только кнопки редакторов. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_executor.Nick" Label="@L["executors.nick"]" Immediate="true"
+                          Error="@NickTaken" ErrorText="@L["executors.nickTaken"]" />
+            <MudSelect T="ExecutorKind" Value="_executor.Kind" ValueChanged="OnKindChanged"
+                       Label="@L["executors.kind"]" data-executor-kind="1">
+                @* НЕ НА ДИРИЖЁРЕ выбор сужен до местных (T-177-S0): человек и облачный ИИ —
+                   записи всей организации, их по-прежнему правит дирижёр *@
+                @if (State.IsConductor)
+                {
+                    <MudSelectItem T="ExecutorKind" Value="ExecutorKind.Human">@L["executors.kind.human"]</MudSelectItem>
+                }
+                <MudSelectItem T="ExecutorKind" Value="ExecutorKind.Ai">@L["executors.kind.ai"]</MudSelectItem>
+                @* третий тип (T-153-S0): внешняя программа длительной работы *@
+                <MudSelectItem T="ExecutorKind" Value="ExecutorKind.Software">@L["executors.kind.software"]</MudSelectItem>
+            </MudSelect>
+            @if (!State.IsConductor)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary" data-executor-localonly="1">
+                    @L["executors.localOnly.hint"]
+                </MudText>
+            }
+            @if (_executor.Kind == ExecutorKind.Software)
+            {
+                @* «АВТО ПО» (T-153-S0): вместо модели и профайла — пара «плагин + именованная
+                   операция» из списка «Плагины и MCP». Список ЭТОГО сервера: программа стоит
+                   на конкретном компьютере, и её путь лежит в config.json именно этого *@
+                <MudSelect T="string" Value="@_executor.PluginCode" ValueChanged="OnPluginChangedAsync"
+                           Label="@L["executors.plugin"]" HelperText="@L["executors.plugin.hint"]"
+                           data-executor-plugin="1" Disabled="@ForeignServer">
+                    @foreach (var plugin in _plugins)
+                    {
+                        <MudSelectItem T="string" Value="@plugin.Code">@plugin.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" @bind-Value="_executor.PluginOp"
+                           Label="@L["executors.pluginOp"]" HelperText="@L["executors.pluginOp.hint"]"
+                           data-executor-pluginop="1" Disabled="@ForeignServer">
+                    @foreach (var action in _pluginActions)
+                    {
+                        @* пометка «один экземпляр» (T-155-S0): она решает, будет ли вторая
+                           такая задача ЖДАТЬ освобождения программы, и видеть её надо здесь —
+                           именно тут выбирают, чем будет занят этот исполнитель *@
+                        <MudSelectItem T="string" Value="@action.Tool">
+                            @action.Title@(action.SingleInstance ? " · " + L["plugins.actionSingle"] : "")
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+                @* плагин выбран, а операций у него нет: сохранить такого исполнителя нельзя,
+                   и человек должен понимать, почему кнопка серая (T-166-S0) *@
+                @if (_executor.PluginCode.Length > 0 && _pluginActions.Count == 0 && !ForeignServer)
+                {
+                    <MudText Typo="Typo.caption" Class="mud-error-text" data-executor-nopluginops="1">
+                        @L["executors.pluginOp.none"]
+                    </MudText>
+                }
+                @* сервер ОБЯЗАТЕЛЕН и не выбирается: исполнителя заводят там, где стоит
+                   программа, — как исполнителя локальной модели (T-8-S1) *@
+                <MudText Typo="Typo.body2" data-executor-server="1">
+                    @L["servers.one"]: @(ServerText.Length > 0 ? ServerText : L["executors.server.here"])
+                </MudText>
+            }
+            else if (_executor.Kind == ExecutorKind.Ai)
+            {
+                @* внутреннее имя ИИ — из справочника активных моделей; model_id подставляется синхронно *@
+                <MudSelect T="string" Value="@_executor.ModelId" ValueChanged="OnModelChanged"
+                           Label="@L["executors.internalName"]">
+                    @foreach (var model in ModelChoices)
+                    {
+                        <MudSelectItem T="string" Value="@model.Id">@model.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudTextField @bind-Value="_executor.InternalName" Label="@L["executors.internalName"]"
+                              Immediate="true"
+                              Error="@InternalNameTaken" ErrorText="@L["executors.nameTaken"]" />
+            }
+            <MudSelect T="SystemRole" @bind-Value="_executor.SystemRole" Label="@L["executors.systemRole"]">
+                @foreach (var role in Enum.GetValues<SystemRole>())
+                {
+                    <MudSelectItem T="SystemRole" Value="@role">@role.ToDb()</MudSelectItem>
+                }
+            </MudSelect>
+            @* аккаунт входа (ТЗ п. 2.14, этап 39): только у человека и только у владельца
+               аккаунта появляется возможность войти и работать от имени этого исполнителя *@
+            @if (_executor.Kind == ExecutorKind.Human && State.CanManageAccounts)
+            {
+                <MudSelect T="string" @bind-Value="_executor.AccountId" Label="@L["executors.account"]"
+                           Clearable="true" HelperText="@L["executors.accountHint"]">
+                    @foreach (var account in _accounts)
+                    {
+                        <MudSelectItem T="string" Value="@account.Id">@AccountLabel(account)</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            @* профайл и декларация: значения (пути) не показываются — только редакторы.
+               У «авто ПО» их нет вовсе (T-153-S0): профайл подключения заменяет плагин,
+               а декларация возможностей нужна автоподбору, который такого исполнителя
+               не берёт ни при каких условиях *@
+            @if (_executor.Kind != ExecutorKind.Software)
+            {
+                <MudStack Row="true" Spacing="2">
+                    <MudButton StartIcon="@Icons.Material.Filled.Tune" Variant="Variant.Outlined"
+                               Disabled="@FilesUnavailable" OnClick="EditProfileAsync">
+                        @L["models.profile"]
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.FactCheck" Variant="Variant.Outlined"
+                               Disabled="@FilesUnavailable" OnClick="EditScopeAsync">
+                        @L["models.scope"]
+                    </MudButton>
+                </MudStack>
+            }
+            @* ПОЧТА ДЛЯ ОПОВЕЩЕНИЯ (T-272). Логин в AI2P и есть почта (ТЗ п. 2.14), поэтому
+               умолчание — «брать из логина»: у вошедшего человека второй адрес обычно не
+               нужен. Снятая галочка открывает поле — так письма уходят на другой ящик и так
+               же задаётся адрес исполнителю, у которого аккаунта входа нет вовсе *@
+            <MudSwitch T="bool" @bind-Value="_executor.EmailFromLogin" Color="Color.Primary"
+                       data-executor-mailfromlogin="1" Label="@L["executors.emailFromLogin"]" />
+            @if (_executor.EmailFromLogin)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary" data-executor-loginmail="1">
+                    @L["executors.notifyEmail"]: @(LoginEmail.Length > 0 ? LoginEmail : L["executors.noLoginEmail"])
+                </MudText>
+            }
+            else
+            {
+                <MudTextField @bind-Value="_executor.NotifyEmail" Label="@L["executors.notifyEmail"]"
+                              data-executor-notifyemail="1"
+                              HelperText="@L["executors.notifyEmail.hint"]" />
+            }
+            <MudSwitch T="bool" @bind-Value="_executor.IsActive" Label="@L["common.active"]" Color="Color.Primary" />
+            @* ЛИМИТЫ ПРОВАЙДЕРА — ТОЛЬКО У АГЕНТА (T-121; уточнено в T-153-S0): у «авто ПО»
+               токенов нет вовсе, а значит нет ни лимита за окно, ни расхода за окно, и поля
+               эти ему не показываются. Пусто или 0 — лимиты не указаны, остаток не
+               вычисляется и предупреждений перед запуском не будет *@
+            @if (_executor.Kind == ExecutorKind.Ai)
+            {
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="long?" @bind-Value="_executor.TokenLimit" Min="0"
+                                     Label="@L["executors.tokenLimit"]" Clearable="true"
+                                     HelperText="@L["executors.tokenLimit.hint"]" />
+                    <MudNumericField T="double?" @bind-Value="_executor.LimitWindowHours" Min="0" Step="0.5"
+                                     Label="@L["executors.limitWindow"]" Clearable="true"
+                                     HelperText="@L["executors.limitWindow.hint"]" />
+                </MudStack>
+            }
+            @* ТАЙМАУТ ОЖИДАНИЯ ОТВЕТА (T-124) — «не человек»: программу длительной работы
+               ждут так же, как агента, и предел ожидания ей нужен ничуть не меньше.
+               Пусто — умолчание 30 мин, 0 — ждать без ограничения *@
+            @if (_executor.Kind != ExecutorKind.Human)
+            {
+                <MudNumericField T="int?" @bind-Value="_executor.ResponseTimeoutMinutes" Min="0"
+                                 Label="@L["executors.responseTimeout"]" Clearable="true"
+                                 HelperText="@L["executors.responseTimeout.hint"]" />
+            }
+            @* расход за окно — тоже про токены, то есть про агента (T-153-S0) *@
+            @if (_executor.Kind == ExecutorKind.Ai && Source is { TokenLimit: > 0 } source)
+            {
+                <MudText Typo="Typo.body2">
+                    @L["executors.windowUsed"]: @source.WindowTokens / @source.TokenLimit
+                    @(source.WindowResetAt is { } reset
+                        ? $" · {L["executors.windowReset"]}: {reset.ToLocalTime():dd.MM HH:mm}"
+                        : "")
+                </MudText>
+            }
+            @* занятость (ТЗ v1.37): человеку «занят до» проставляется через форму
+               (в дальнейшем — график работы); ИИ отслеживается автоматически при
+               исчерпании лимита провайдера — показывается только для справки *@
+            @if (_executor.Kind == ExecutorKind.Human)
+            {
+                <MudStack Row="true" Spacing="2">
+                    <MudDatePicker Date="@_busyDate" DateChanged="OnBusyDateChanged"
+                                   Label="@L["executors.busyUntil"]" Clearable="true" />
+                    <MudTimePicker Time="@_busyTime" TimeChanged="OnBusyTimeChanged"
+                                   Label="@L["executors.busyUntil.time"]" />
+                </MudStack>
+            }
+            else if (_executor.BusyUntil is { } busy && busy > DateTime.UtcNow)
+            {
+                <MudText Typo="Typo.body2">
+                    @L["executors.busyUntil"]: @busy.ToLocalTime().ToString("dd.MM HH:mm")
+                    @(_executor.LimitPercent is { } pct ? $" · {L["executors.limitPercent"]}: {pct:0.#}%" : "")
+                </MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@SaveDisabled"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_executor)))">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — создание нового исполнителя.</summary>
+    [Parameter] public Executor? Source { get; set; }
+
+    private Executor _executor = new();
+
+    /// <summary>Аккаунты для выбора (ТЗ п. 2.14) — читает только владелец системы.</summary>
+    private List<Account> _accounts = [];
+
+    // --- «АВТО ПО» (T-153-S0): плагин и его именованные операции ---
+
+    /// <summary>Плагины ЭТОГО сервера, у которых есть хоть одна операция: программа стоит на
+    /// конкретном компьютере, и список у каждого свой (пути лежат в его config.json).</summary>
+    private List<PluginListItemDto> _plugins = [];
+
+    /// <summary>Операции выбранного плагина; пусто — плагин ещё не выбран.</summary>
+    private List<PluginActionDto> _pluginActions = [];
+
+    /// <summary>
+    /// Модели на выбор (ТЗ п. 2.9): активные плюс уже выбранная. НЕ НА ДИРИЖЁРЕ остаются
+    /// только ЛОКАЛЬНЫЕ (T-177-S0): облачная модель одна на всю организацию, и её исполнитель
+    /// правится там же, где сама запись, — на дирижёре. У локальной модели признак «активна»
+    /// свой на каждом сервере (T-8-S1), поэтому список здесь — ровно то, что работает здесь.
+    /// </summary>
+    private IEnumerable<AiModel> ModelChoices =>
+        State.Models.Where(m => (m.IsActive || m.Id == _executor.ModelId)
+                                && (State.IsConductor || m.IsLocal));
+
+    /// <summary>Исполнитель принадлежит ДРУГОМУ серверу: список плагинов оттуда нам не виден,
+    /// и менять пару «плагин + операция» здесь нельзя (правится она на своём сервере).</summary>
+    private bool ForeignServer =>
+        _executor.Kind == ExecutorKind.Software
+        && _executor.ServerId is { Length: > 0 } server && server != State.ServerId;
+
+    /// <summary>Сервер исполнителя для показа; пусто — «этот» (новая запись).</summary>
+    private string ServerText =>
+        _executor.ServerCode.Length > 0 && _executor.ServerName.Length > 0
+            ? $"{_executor.ServerCode} ({_executor.ServerName})"
+            : _executor.ServerCode + _executor.ServerName;
+
+    /// <summary>Почта аккаунта входа (T-272): её показывает форма при поднятой галочке
+    /// «брать из логина». Значение заполняет сервис исполнителей — аккаунты лежат
+    /// в СЕРВЕРНОЙ базе, и организация про них ничего не знает. Если список аккаунтов
+    /// доступен (владелец системы), берётся выбранный в форме — тогда адрес виден сразу
+    /// после смены аккаунта, до сохранения.</summary>
+    private string LoginEmail =>
+        _accounts.FirstOrDefault(a => a.Id == _executor.AccountId)?.Email
+        ?? _executor.LoginEmail;
+
+    private static string AccountLabel(Account account) =>
+        account.Name.Length > 0 ? $"{account.Name} ({account.Email})" : account.Email;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (State.CanManageAccounts)
+        {
+            try
+            {
+                _accounts = await Api.GetAccountsAsync();
+            }
+            catch (ApiException)
+            {
+                // список аккаунтов недоступен — поле просто не заполнится вариантами
+            }
+        }
+        if (_executor.Kind == ExecutorKind.Software)
+        {
+            await LoadPluginsAsync();
+        }
+    }
+
+    /// <summary>Плагины этого сервера и операции уже выбранного (T-153-S0). Читается лениво —
+    /// у человека и агента этот список не нужен вовсе.</summary>
+    private async Task LoadPluginsAsync()
+    {
+        if (_plugins.Count > 0)
+        {
+            return;
+        }
+        try
+        {
+            _plugins = await Api.GetPluginsAsync(L.Lang);
+            if (_executor.PluginCode.Length > 0)
+            {
+                await LoadActionsAsync(_executor.PluginCode);
+            }
+        }
+        catch (ApiException)
+        {
+            // плагины недоступны (нет прав, чужой сервер) — поля останутся пустыми
+        }
+    }
+
+    private async Task LoadActionsAsync(string code)
+    {
+        try
+        {
+            var details = await Api.GetPluginAsync(code, L.Lang);
+            _pluginActions = details.Actions;
+        }
+        catch (ApiException)
+        {
+            _pluginActions = [];
+        }
+    }
+
+    /// <summary>Смена плагина: имя исполнителя берётся из плагина (как имя модели у агента),
+    /// операция сбрасывается — у другого плагина она другая.</summary>
+    private async Task OnPluginChangedAsync(string? code)
+    {
+        _executor.PluginCode = code ?? "";
+        _executor.PluginOp = "";
+        _pluginActions = [];
+        if (_executor.PluginCode.Length == 0)
+        {
+            return;
+        }
+        _executor.InternalName =
+            _plugins.FirstOrDefault(p => p.Code == _executor.PluginCode)?.Name ?? _executor.PluginCode;
+        await LoadActionsAsync(_executor.PluginCode);
+    }
+
+    // «занят до» человека (ТЗ v1.37): дата и время редактируются раздельно, собираются при правке
+    private DateTime? _busyDate;
+    private TimeSpan? _busyTime;
+
+    private void OnBusyDateChanged(DateTime? date)
+    {
+        _busyDate = date;
+        ComposeBusy();
+    }
+
+    private void OnBusyTimeChanged(TimeSpan? time)
+    {
+        _busyTime = time;
+        ComposeBusy();
+    }
+
+    private void ComposeBusy() =>
+        _executor.BusyUntil = _busyDate is { } date
+            ? (date.Date + (_busyTime ?? TimeSpan.Zero)).ToUniversalTime()
+            : null;
+
+    private bool NickTaken => State.Executors.Any(e =>
+        e.Id != _executor.Id &&
+        e.Nick.Trim().Equals(_executor.Nick.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool InternalNameTaken =>
+        _executor.Kind == ExecutorKind.Human &&
+        _executor.InternalName.Trim().Length > 0 &&
+        State.Executors.Any(e =>
+            e.Id != _executor.Id && e.Kind == ExecutorKind.Human &&
+            e.InternalName.Trim().Equals(_executor.InternalName.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>У ИИ редакторы доступны только после выбора модели.</summary>
+    private bool FilesUnavailable =>
+        _executor.Kind == ExecutorKind.Ai && string.IsNullOrEmpty(_executor.ModelId);
+
+    /// <summary>Такого исполнителя здесь не завести (T-177-S0): не на дирижёре местным
+    /// считается «авто ПО» и ИИ с ЛОКАЛЬНОЙ моделью, остальное — записи всей организации.</summary>
+    private bool KindNotAllowedHere =>
+        !State.IsConductor
+        && (_executor.Kind == ExecutorKind.Human
+            || (_executor.Kind == ExecutorKind.Ai
+                && State.Models.FirstOrDefault(m => m.Id == _executor.ModelId) is not { IsLocal: true }));
+
+    private bool SaveDisabled =>
+        _executor.Nick.Trim().Length == 0 || NickTaken || InternalNameTaken ||
+        KindNotAllowedHere ||
+        (_executor.Kind == ExecutorKind.Ai && string.IsNullOrEmpty(_executor.ModelId)) ||
+        // «авто ПО» без плагина и операции сохранять нечего: это и есть его «модель» (T-153-S0)
+        (_executor.Kind == ExecutorKind.Software
+         && (_executor.PluginCode.Length == 0 || _executor.PluginOp.Length == 0));
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            _executor = new Executor
+            {
+                Id = Source.Id,
+                DisplayId = Source.DisplayId,
+                Nick = Source.Nick,
+                InternalName = Source.InternalName,
+                Kind = Source.Kind,
+                SystemRole = Source.SystemRole,
+                ModelId = Source.ModelId,
+                // «авто ПО» (T-153-S0): пара «плагин + операция» и сервер, где стоит программа
+                PluginCode = Source.PluginCode,
+                PluginOp = Source.PluginOp,
+                ServerId = Source.ServerId,
+                ServerCode = Source.ServerCode,
+                ServerName = Source.ServerName,
+                AccountId = Source.AccountId,
+                ProfilePath = Source.ProfilePath,
+                CapabilitiesPath = Source.CapabilitiesPath,
+                IsActive = Source.IsActive,
+                BusyUntil = Source.BusyUntil,
+                LimitPercent = Source.LimitPercent,
+                // лимиты агента (T-121)
+                TokenLimit = Source.TokenLimit,
+                LimitWindowHours = Source.LimitWindowHours,
+                // таймаут ожидания ответа (T-124)
+                ResponseTimeoutMinutes = Source.ResponseTimeoutMinutes,
+                // почта для уведомлений (T-272)
+                EmailFromLogin = Source.EmailFromLogin,
+                NotifyEmail = Source.NotifyEmail,
+                LoginEmail = Source.LoginEmail,
+            };
+            if (Source.BusyUntil is { } busy)
+            {
+                var local = busy.ToLocalTime();
+                _busyDate = local.Date;
+                _busyTime = local.TimeOfDay;
+            }
+            return;
+        }
+        // НОВАЯ запись не на дирижёре (T-177-S0): «человек» тут выбрать нельзя, и открывать
+        // форму на недоступном типе незачем — начинаем с ИИ (список сужен до локальных моделей)
+        if (!State.IsConductor)
+        {
+            _executor.Kind = ExecutorKind.Ai;
+        }
+    }
+
+    private async Task OnKindChanged(ExecutorKind kind)
+    {
+        if (_executor.Kind == kind)
+        {
+            return;
+        }
+        _executor.Kind = kind;
+        // при смене типа связка с моделью, плагином, аккаунтом и файлами теряет смысл — сбрасываем
+        _executor.ModelId = null;
+        _executor.AccountId = null;
+        _executor.PluginCode = "";
+        _executor.PluginOp = "";
+        _pluginActions = [];
+        _executor.InternalName = "";
+        _executor.ProfilePath = "";
+        _executor.CapabilitiesPath = "";
+        if (kind == ExecutorKind.Software)
+        {
+            // сервер у «авто ПО» обязателен и берётся этот: программа стоит здесь (T-153-S0)
+            _executor.ServerId = State.ServerId;
+            await LoadPluginsAsync();
+        }
+    }
+
+    /// <summary>Перевыбор модели: имя, профайл и декларация меняются синхронно (ТЗ п. 2.2).</summary>
+    private void OnModelChanged(string? modelId)
+    {
+        _executor.ModelId = modelId;
+        var model = State.Models.FirstOrDefault(m => m.Id == modelId);
+        if (model is not null)
+        {
+            _executor.InternalName = model.Name;
+            _executor.ProfilePath = model.ProfilePath;
+            _executor.CapabilitiesPath = model.CapabilitiesPath;
+        }
+    }
+
+    private Task EditProfileAsync()
+    {
+        if (_executor.Kind == ExecutorKind.Ai)
+        {
+            // тот же редактор, что и в справочнике моделей — правится файл модели
+            var parameters = new DialogParameters<AiProfileDialog> { { d => d.Path, _executor.ProfilePath } };
+            return Dialogs.ShowAsync<AiProfileDialog>(L["profile.title"], parameters,
+                new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        }
+        // человек: файл по схеме profile_<ID>.json создаётся при первом обращении (п. 2.2)
+        if (_executor.ProfilePath.Length == 0)
+        {
+            _executor.ProfilePath = $"executors/profile_{_executor.Id}.json";
+        }
+        var humanParameters = new DialogParameters<HumanProfileDialog> { { d => d.Path, _executor.ProfilePath } };
+        return Dialogs.ShowAsync<HumanProfileDialog>(L["profile.human.title"], humanParameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    private Task EditScopeAsync()
+    {
+        // редактор декларации один и тот же для ИИ и человека (ТЗ п. 2.2)
+        if (_executor.Kind == ExecutorKind.Human && _executor.CapabilitiesPath.Length == 0)
+        {
+            _executor.CapabilitiesPath = $"executors/scope_{_executor.Id}.json";
+        }
+        var parameters = new DialogParameters<ScopeEditorDialog>
+        {
+            { d => d.Path, _executor.CapabilitiesPath },
+            { d => d.DefaultName, _executor.Kind == ExecutorKind.Ai ? _executor.InternalName : _executor.Nick },
+        };
+        return Dialogs.ShowAsync<ScopeEditorDialog>(L["scope.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+}

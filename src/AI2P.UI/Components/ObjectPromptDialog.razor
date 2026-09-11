@@ -1,0 +1,72 @@
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+@* ЧТО УЙДЁТ В МОДЕЛЬ (T-259; два поля — T-99-S0).
+
+   У обычного объекта данные одни: паспорт со ссылками на эталонные файлы, который встанет
+   вместо «@obj:OBJ-3» при запуске задания. У объекта-АДАПТЕРА LoRA их двое, и это разные
+   данные — поэтому и полей два:
+   * ПРИ ИСПОЛЬЗОВАНИИ — тот же текст подстановки: он уходит в промпт генерации;
+   * ПРИ ОБУЧЕНИИ — кадры текущего датасета с их подписями: ровно то, что тренер получит
+     на вход (LoraTrainService.PrepareDataset кладёт подпись рядом с каждой картинкой).
+   Кадр без подписи виден здесь пустой строкой — и увидеть это надо ДО того, как обучение
+   начнёт считать часами.
+
+   Оба поля показывают СОХРАНЁННОЕ состояние: несохранённые правки формы в модель ещё
+   не уехали. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                <MudTextField T="string" Value="@Prompt" ReadOnly="true" Lines="@Lines(Prompt)"
+                              Label="@(HasTrain ? L["objects.prompt.use"] : L["objects.prompt"])"
+                              HelperText="@L["objects.prompt.hint"]"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1"
+                              data-object-prompt-use="1" />
+                <MudTooltip Text="@L["common.copy"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Primary"
+                                   OnClick="@(() => CopyAsync(Prompt))" />
+                </MudTooltip>
+            </MudStack>
+            @if (HasTrain)
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                    <MudTextField T="string" Value="@TrainPrompt" ReadOnly="true" Lines="@Lines(TrainPrompt)"
+                                  Label="@L["objects.prompt.train"]"
+                                  HelperText="@L["objects.prompt.train.hint"]"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1"
+                                  data-object-prompt-train="1" />
+                    <MudTooltip Text="@L["common.copy"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Primary"
+                                       OnClick="@(() => CopyAsync(TrainPrompt))" />
+                    </MudTooltip>
+                </MudStack>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close())">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Текст подстановки — что уйдёт в модель при использовании объекта.</summary>
+    [Parameter] public string Prompt { get; set; } = "";
+
+    /// <summary>Кадры датасета с подписями — что уйдёт в модель при обучении адаптера;
+    /// пусто у всех объектов, кроме адаптера LoRA: обучать нечего, и второе поле не рисуется.</summary>
+    [Parameter] public string TrainPrompt { get; set; } = "";
+
+    private bool HasTrain => TrainPrompt.Trim().Length > 0;
+
+    private static int Lines(string text) => Math.Clamp(text.Split('\n').Length + 1, 3, 14);
+
+    private async Task CopyAsync(string text)
+    {
+        await Js.InvokeVoidAsync("ai2p.copyText", text);
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+}

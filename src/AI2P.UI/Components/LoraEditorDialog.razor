@@ -1,0 +1,1030 @@
+@implements IDisposable
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+@* РЕДАКТОР LoRA (T-12-S1, версия 1.95) — то, что открывается кнопкой «настройка LoRA»
+   формы объекта вместо трёх прежних кнопок-заглушек (T-259).
+
+   Форма собрана ровно по заданию: поле описания и две закладки — ДАТАСЕТ и МОДЕЛИ. За этим
+   делением стоит смысл: датасет один на объект (персонажа учат по одним и тем же кадрам),
+   а обучение — своё под каждую модель, потому что веса у моделей разные и файл, обученный
+   для одной, к другой не подходит.
+
+   ЧТО СОХРАНЯЕТСЯ КОГДА. Кадры и строки обучения — сами по себе, каждым действием сразу:
+   это отдельные записи, и держать их в памяти формы до нажатия «сохранить» значило бы
+   потерять обучение, которое идёт часами, от случайного «отмена». А ОПИСАНИЕ принадлежит
+   объекту и возвращается в его форму — там его и сохранят вместе с остальным. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 520px;">
+            @* СПРАВКА ПО РЕДАКТОРУ (T-273): что писать в описаниях, что из них уедет в
+               обучение, как запускать обучение. Открывается окном ПОВЕРХ формы — уходить
+               из формы за справкой нельзя, набранное описание пропало бы *@
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudSpacer />
+                <MudIconButton Icon="@Icons.Material.Filled.MenuBook" Color="Color.Info"
+                               Size="Size.Small" data-lora-doc="1" title="@L["lora.doc"]"
+                               OnClick="OpenDocAsync" />
+            </MudStack>
+
+            @* ОПИСАНИЕ — это паспорт самого объекта: у адаптера LoRA он и есть описание того,
+               чему адаптер обучен. Второго описания заводить не стали: два поля с одинаковым
+               названием в двух формах — верный способ получить два разных текста *@
+            <MudTextField T="string" @bind-Value="_description" Label="@L["lora.description"]"
+                          Lines="4" Variant="Variant.Outlined" data-lora-description="1"
+                          HelperText="@L["lora.description.hint"]" />
+
+            <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true">
+                @* --- ЗАКЛАДКА 1: ДАТАСЕТ --- *@
+                <MudTabPanel Text="@L["lora.tab.dataset"]" data-lora-tab="dataset">
+                    <MudStack Spacing="2">
+                        @* ТЕКУЩИЙ ДАТАСЕТ (T-274). Датасетов у объекта несколько — у разных
+                           моделей разные требования к картинкам, — и всё на этой закладке
+                           относится к ВЫБРАННОМУ: и кадры, и настройки контроля *@
+                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                            @if (_datasets is null)
+                            {
+                                <MudProgressLinear Indeterminate="true" Class="flex-grow-1" />
+                            }
+                            else
+                            {
+                                <MudSelect T="string" Value="@_datasetId" ValueChanged="PickDatasetAsync"
+                                           Label="@L["lora.dataset.current"]" Class="flex-grow-1"
+                                           data-lora-dataset-pick="1" Dense="true"
+                                           ToStringFunc="@NameOfDataset">
+                                    @foreach (var set in _datasets)
+                                    {
+                                        <MudSelectItem T="string" Value="@set.Id">
+                                            @set.Name (@set.Frames)
+                                        </MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary"
+                                               data-lora-dataset-add="1" title="@L["lora.dataset.add"]"
+                                               OnClick="AddDatasetAsync" />
+                            }
+                        </MudStack>
+
+                        @* НАСТРОЙКИ КОНТРОЛЯ КАРТИНОК ЭТОГО ДАТАСЕТА. Переписаны из общих
+                           настроек при заведении и правятся здесь: требования к кадрам —
+                           свойство модели, а не приложения *@
+                        <MudExpansionPanels Elevation="0" data-lora-limits-panel="1">
+                            <MudExpansionPanel Text="@L["lora.limits"]">
+                                <MudStack Spacing="2">
+                                    <MudStack Row="true" Spacing="2">
+                                        <MudNumericField T="int" @bind-Value="_limits.MaxWidth" Min="16" Max="8192"
+                                                         Label="@L["settings.lora.maxWidth"]"
+                                                         data-lora-limit-width="1" />
+                                        <MudNumericField T="int" @bind-Value="_limits.MaxHeight" Min="16" Max="8192"
+                                                         Label="@L["settings.lora.maxHeight"]"
+                                                         data-lora-limit-height="1" />
+                                        <MudNumericField T="int" @bind-Value="_limits.MaxKb" Min="16" Max="102400"
+                                                         Label="@L["settings.lora.maxKb"]"
+                                                         data-lora-limit-kb="1" />
+                                        <MudSelect T="string" @bind-Value="_limits.Format"
+                                                   Label="@L["settings.lora.format"]"
+                                                   data-lora-limit-format="1">
+                                            <MudSelectItem T="string" Value="@("png")">PNG</MudSelectItem>
+                                            <MudSelectItem T="string" Value="@("jpeg")">JPEG</MudSelectItem>
+                                        </MudSelect>
+                                    </MudStack>
+                                    <MudStack Row="true" Spacing="2">
+                                        <MudNumericField T="int" @bind-Value="_limits.MinItems" Min="0" Max="10000"
+                                                         Label="@L["lora.limits.minItems"]"
+                                                         data-lora-limit-min="1" />
+                                        <MudNumericField T="int" @bind-Value="_limits.MaxItems" Min="0" Max="10000"
+                                                         Label="@L["lora.limits.maxItems"]"
+                                                         data-lora-limit-max="1" />
+                                    </MudStack>
+                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                        @L["lora.limits.hint"]
+                                    </MudText>
+                                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                        @* ПОДСТАВИТЬ ИЗ МОДЕЛИ: в списке только те модели закладки
+                                           «Модели», у которых в справочнике заполнены контрольные
+                                           настройки — подставлять из молчащей модели нечего *@
+                                        @if (_modelLimits is { Count: > 0 })
+                                        {
+                                            <MudMenu Label="@L["lora.limits.fromModel"]"
+                                                     Variant="Variant.Outlined" Color="Color.Primary"
+                                                     data-lora-limits-frommodel="1">
+                                                @foreach (var model in _modelLimits)
+                                                {
+                                                    <MudMenuItem OnClick="@(() => TakeFromModel(model))"
+                                                                 data-lora-limits-model="@model.ModelDisplayId">
+                                                        @model.ModelDisplayId @model.ModelName
+                                                    </MudMenuItem>
+                                                }
+                                            </MudMenu>
+                                        }
+                                        <MudSpacer />
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                                   Disabled="@(_datasetId.Length == 0)"
+                                                   data-lora-limits-save="1" OnClick="SaveLimitsAsync">
+                                            @L["common.save"]
+                                        </MudButton>
+                                    </MudStack>
+                                </MudStack>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary"
+                                           data-lora-frame-add="1" title="@L["lora.frame.add"]"
+                                           OnClick="AddFrameAsync" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary"
+                                     data-lora-frame-count="@(_frames?.Count ?? 0)">
+                                @string.Format(L["lora.frame.count"], _frames?.Count ?? 0)
+                            </MudText>
+                        </MudStack>
+                        @if (_frames is null)
+                        {
+                            <MudProgressLinear Indeterminate="true" />
+                        }
+                        else if (_frames.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" data-lora-dataset-empty="1">@L["lora.frame.empty"]</MudText>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Hover="true" data-lora-dataset="1">
+                                <tbody>
+                                @foreach (var frame in _frames)
+                                {
+                                    <tr data-lora-frame="@frame.DisplayId">
+                                        @* ПРЕВЬЮ обязательно: кадры отличают глазами, по именам
+                                           «001.png» и «002.png» не отличить ничего *@
+                                        <td style="width: 96px;">
+                                            <img src="@FrameUrl(frame)" alt="@frame.Name" loading="lazy"
+                                                 data-lora-frame-img="1"
+                                                 style="width: 84px; height: 84px; object-fit: contain;" />
+                                        </td>
+                                        <td>
+                                            <MudText Typo="Typo.body2"><b>@frame.Name</b></MudText>
+                                            <MudText Typo="Typo.caption" data-lora-frame-caption="1"
+                                                     Style="overflow-wrap: anywhere;">
+                                                @frame.Description
+                                            </MudText>
+                                        </td>
+                                        <td style="width: 96px; text-align: right;">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                           data-lora-frame-edit="@frame.DisplayId"
+                                                           title="@L["common.edit"]"
+                                                           OnClick="@(() => EditFrameAsync(frame))" />
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                           data-lora-frame-del="@frame.DisplayId"
+                                                           title="@L["common.delete"]"
+                                                           OnClick="@(() => DeleteFrameAsync(frame))" />
+                                        </td>
+                                    </tr>
+                                }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
+
+                @* --- ЗАКЛАДКА 2: МОДЕЛИ --- *@
+                <MudTabPanel Text="@L["lora.tab.models"]" data-lora-tab="models">
+                    <MudStack Spacing="2">
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary"
+                                           data-lora-model-add="1" title="@L["lora.model.add"]"
+                                           OnClick="AddModelAsync" />
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                @L["lora.model.hint"]
+                            </MudText>
+                        </MudStack>
+                        @if (_models is null)
+                        {
+                            <MudProgressLinear Indeterminate="true" />
+                        }
+                        else if (_models.Count == 0)
+                        {
+                            <MudText Typo="Typo.body2" data-lora-models-empty="1">@L["lora.model.empty"]</MudText>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Hover="true" data-lora-models="1">
+                                <thead>
+                                <tr>
+                                    <th>@L["lora.model.id"]</th>
+                                    <th>@L["lora.model.code"]</th>
+                                    <th>@L["lora.model.status"]</th>
+                                    <th style="text-align: right;"></th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                @foreach (var row in _models)
+                                {
+                                    <tr data-lora-model="@row.ModelDisplayId">
+                                        <td data-lora-model-id="1">@row.ModelDisplayId</td>
+                                        <td data-lora-model-code="1">@row.ModelName</td>
+                                        @* СОСТОЯНИЕ. У ошибки в подсказке — то, что сказали
+                                           процесс обучения или API: без этого от слова
+                                           «ошибка» нет никакой пользы *@
+                                        <td data-lora-model-status="@row.Status"
+                                            title="@(row.Status == LoraModelStates.Error ? row.Error : null)">
+                                            @* СОСТОЯНИЕ — ССЫЛКА НА ЗАДАЧУ ОБУЧЕНИЯ (T-157-S0):
+                                               обучение идёт задачей, и в её карточке лежит всё,
+                                               ради чего оно ею стало — консоль, лог и кнопка
+                                               остановки. Ссылка есть у ЛЮБОГО состояния, лишь бы
+                                               задача была известна: к упавшему обучению человек
+                                               приходит через сутки именно за логом *@
+                                            @if (row.TrainTaskDisplayId.Length > 0)
+                                            {
+                                                <MudLink Typo="Typo.body2" Color="@StatusColor(row.Status)"
+                                                         Href="@($"task/{row.TrainTaskId}")"
+                                                         data-lora-model-task="@row.TrainTaskDisplayId"
+                                                         title="@L["lora.task.open"]">
+                                                    @L["lora.state." + row.Status] (@row.TrainTaskDisplayId)
+                                                </MudLink>
+                                            }
+                                            else
+                                            {
+                                                <MudText Typo="Typo.body2"
+                                                         Color="@StatusColor(row.Status)">
+                                                    @L["lora.state." + row.Status]
+                                                </MudText>
+                                            }
+                                        </td>
+                                        <td style="width: 96px; text-align: right;">
+                                            @if (row.Status == LoraModelStates.Training)
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.Stop" Size="Size.Small"
+                                                               data-lora-model-stop="@row.ModelDisplayId"
+                                                               title="@L["lora.model.stop"]"
+                                                               OnClick="@(() => StopAsync(row))" />
+                                            }
+                                            else
+                                            {
+                                                <MudIconButton Icon="@Icons.Material.Filled.ModelTraining"
+                                                               Size="Size.Small" Color="Color.Primary"
+                                                               data-lora-model-train="@row.ModelDisplayId"
+                                                               title="@L["lora.model.train"]"
+                                                               Disabled="@(!row.LoraSupported)"
+                                                               OnClick="@(() => TrainAsync(row))" />
+                                            }
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                           data-lora-model-del="@row.ModelDisplayId"
+                                                           title="@L["common.delete"]"
+                                                           OnClick="@(() => DeleteModelAsync(row))" />
+                                        </td>
+                                    </tr>
+                                }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                    </MudStack>
+                </MudTabPanel>
+            </MudTabs>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        @* «Применить», а не «Сохранить»: кадры и обучения уже сохранены каждый своим
+           действием, а описание уедет в форму объекта — сохранит его она *@
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" data-lora-ok="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_description)))">
+            @L["lora.apply"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Объект-адаптер, чья это настройка. Обязан быть СОХРАНЁННЫМ: у кадров и строк
+    /// обучения есть владелец, и завести их у ещё не существующего объекта нечему.</summary>
+    [Parameter, EditorRequired] public ObjectItem Item { get; set; } = default!;
+
+    /// <summary>Описание объекта на момент открытия: правится здесь, сохраняется формой объекта.</summary>
+    [Parameter] public string Description { get; set; } = "";
+
+    private string _description = "";
+    private List<ObjectItem>? _frames;
+    private List<ObjectLoraModel>? _models;
+
+    /// <summary>Датасеты объекта и выбранный из них (T-274): всё на закладке «Датасет»
+    /// относится к выбранному — и кадры, и настройки контроля картинок.</summary>
+    private List<LoraDatasetDto>? _datasets;
+    private string _datasetId = "";
+
+    /// <summary>Настройки контроля картинок ВЫБРАННОГО датасета — снимок, который правит
+    /// форма: пока не нажали «сохранить», в записи лежит прежнее.</summary>
+    private LoraDatasetLimitsDto _limits = new();
+
+    /// <summary>Модели закладки «Модели», из которых есть что подставить в настройки.</summary>
+    private List<LoraModelLimitsDto>? _modelLimits;
+
+    private CancellationTokenSource? _poll;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _description = Description;
+        // ДАТАСЕТ ЕСТЬ ВСЕГДА (T-274): «при вводе и редактировании автоматически создавать
+        // дочерний объект типа датасет». Заводится он здесь, при открытии редактора, а не
+        // при первом кадре, — иначе первый же кадр уходил бы неизвестно куда
+        try
+        {
+            await Api.EnsureLoraDatasetAsync(Item.Id);
+        }
+        catch (ApiException ex)
+        {
+            // редактор открывают и на чужом сервере, где объект только читают: не дать
+            // посмотреть датасет из-за того, что не завёлся новый, было бы хуже
+            Snackbar.Add(ex.Message, Severity.Warning);
+        }
+        await ReloadAsync();
+    }
+
+    /// <summary>Датасеты и настройки выбранного. Зовётся и после заведения датасета,
+    /// и после правки настроек: список показывает число кадров, а оно меняется.</summary>
+    private async Task LoadDatasetsAsync()
+    {
+        try
+        {
+            _datasets = await Api.GetLoraDatasetsAsync(Item.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _datasets = [];
+        }
+        var current = _datasets.FirstOrDefault(d => d.Id == _datasetId)
+                      ?? _datasets.FirstOrDefault(d => d.IsCurrent)
+                      ?? _datasets.FirstOrDefault();
+        _datasetId = current?.Id ?? "";
+        // правится СНИМОК: иначе «отмена» в форме была бы уже применена к списку
+        _limits = Copy(current?.Limits ?? new LoraDatasetLimitsDto());
+    }
+
+    private static LoraDatasetLimitsDto Copy(LoraDatasetLimitsDto from) => new()
+    {
+        MaxWidth = from.MaxWidth,
+        MaxHeight = from.MaxHeight,
+        MaxKb = from.MaxKb,
+        Format = from.Format,
+        MinItems = from.MinItems,
+        MaxItems = from.MaxItems,
+    };
+
+    /// <summary>Подпись выбранного датасета: у MudSelect в поле иначе стоит идентификатор.</summary>
+    private string NameOfDataset(string id) =>
+        _datasets?.FirstOrDefault(d => d.Id == id) is { } set ? $"{set.Name} ({set.Frames})" : "";
+
+    /// <summary>Сменить текущий датасет: выбор запоминается у объекта — в него лягут новые
+    /// кадры и по нему пойдёт обучение, в том числе и не из этой формы.</summary>
+    private async Task PickDatasetAsync(string id)
+    {
+        if (id.Length == 0 || id == _datasetId)
+        {
+            return;
+        }
+        _datasetId = id;
+        try
+        {
+            await Api.SetCurrentLoraDatasetAsync(Item.Id, id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await ReloadAsync();
+    }
+
+    /// <summary>Завести датасет: имя спрашиваем — их у объекта несколько, и «датасет 2»
+    /// через месяц не скажет ничего.</summary>
+    private async Task AddDatasetAsync()
+    {
+        var parameters = new DialogParameters<TextPromptDialog>
+        {
+            { d => d.Label, L["lora.dataset.name"] },
+            { d => d.Hint, L["lora.dataset.name.hint"] },
+        };
+        var dialog = await Dialogs.ShowAsync<TextPromptDialog>(L["lora.dataset.add"], parameters,
+            FormDialogs.Options(MaxWidth.ExtraSmall));
+        if (await dialog.Result is not { Canceled: false, Data: string name })
+        {
+            return;
+        }
+        try
+        {
+            var created = await Api.CreateLoraDatasetAsync(Item.Id, name.Trim());
+            _datasetId = created.Id;
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Подставить настройки из модели: PNG выбирается сам, если модель его называет.</summary>
+    private void TakeFromModel(LoraModelLimitsDto model)
+    {
+        _limits = Copy(model.Limits);
+        Snackbar.Add(string.Format(L["lora.limits.taken"], model.ModelName), Severity.Info);
+    }
+
+    private async Task SaveLimitsAsync()
+    {
+        if (_datasetId.Length == 0)
+        {
+            return;
+        }
+        try
+        {
+            await Api.SaveLoraDatasetLimitsAsync(_datasetId, _limits);
+            await LoadDatasetsAsync();
+            Snackbar.Add(L["common.saved"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Обучение идёт часами и меняет состояние САМО, без участия человека, — поэтому пока
+    /// в списке есть обучающаяся строка, форма перечитывает его сама. Опрос заводится ровно
+    /// на это время: список, который дёргает сервер вечно, — это списанный впустую канал.
+    /// </summary>
+    private void EnsurePolling()
+    {
+        var needed = _models?.Any(m => m.Status == LoraModelStates.Training) == true;
+        if (!needed)
+        {
+            _poll?.Cancel();
+            _poll = null;
+            return;
+        }
+        if (_poll is not null)
+        {
+            return;
+        }
+        _poll = new CancellationTokenSource();
+        var token = _poll.Token;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), token);
+                    await InvokeAsync(async () =>
+                    {
+                        await LoadModelsAsync();
+                        StateHasChanged();
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // окно закрыли — опрос просто кончается, это не ошибка
+            }
+        }, token);
+    }
+
+    private async Task ReloadAsync()
+    {
+        await LoadDatasetsAsync();
+        try
+        {
+            _frames = await Api.GetLoraDatasetAsync(Item.Id, _datasetId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _frames = [];
+        }
+        await LoadModelsAsync();
+    }
+
+    private async Task LoadModelsAsync()
+    {
+        try
+        {
+            _models = await Api.GetLoraModelsAsync(Item.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _models = [];
+        }
+        try
+        {
+            // список для кнопки «подставить из модели» читается вместе с моделями: он и
+            // состоит из них — из тех, у кого в справочнике заполнены настройки картинок
+            _modelLimits = await Api.GetLoraModelLimitsAsync(Item.Id);
+        }
+        catch (ApiException)
+        {
+            _modelLimits = [];
+        }
+        EnsurePolling();
+    }
+
+    /// <summary>Справка по редактору (T-273): страница поставляемой документации в окне
+    /// поверх формы. Путь один на все языки — файл ищется в каталоге языка интерфейса,
+    /// а нет перевода, страница покажется на том языке, на котором она есть.</summary>
+    private async Task OpenDocAsync()
+    {
+        var parameters = new DialogParameters<DocPageDialog> { { d => d.Path, DocPath } };
+        await Dialogs.ShowAsync<DocPageDialog>(L["lora.doc"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    /// <summary>Страница справки редактора внутри языкового каталога документации.</summary>
+    public const string DocPath = "man/LoRAEditor.md";
+
+    private string FrameUrl(ObjectItem frame) => FrameUrlOf(frame.PathOrUrl);
+
+    private static Color StatusColor(string status) => status switch
+    {
+        LoraModelStates.Ready => Color.Success,
+        LoraModelStates.Training => Color.Info,
+        LoraModelStates.Error => Color.Error,
+        _ => Color.Default,
+    };
+
+    // --- датасет ---
+
+    /// <summary>Пределы кадра для формы добавления: она сжимает картинку холстом браузера,
+    /// и берёт их у ДАТАСЕТА (T-274), а не у приложения.</summary>
+    private LoraImageLimitsDto FrameLimits => new()
+    {
+        MaxWidth = _limits.MaxWidth,
+        MaxHeight = _limits.MaxHeight,
+        MaxKb = _limits.MaxKb,
+        Format = _limits.Format,
+    };
+
+    private async Task AddFrameAsync()
+    {
+        var parameters = new DialogParameters<LoraFrameDialog>
+        {
+            { d => d.Owner, Item },
+            { d => d.Limits, FrameLimits },
+            { d => d.DatasetId, _datasetId },
+        };
+        var dialog = await Dialogs.ShowAsync<LoraFrameDialog>(L["lora.frame.add"], parameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        if (await dialog.Result is { Canceled: false })
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task EditFrameAsync(ObjectItem frame)
+    {
+        var parameters = new DialogParameters<LoraFrameDialog>
+        {
+            { d => d.Owner, Item },
+            { d => d.Frame, frame },
+            { d => d.Limits, FrameLimits },
+            { d => d.DatasetId, _datasetId },
+        };
+        var dialog = await Dialogs.ShowAsync<LoraFrameDialog>(L["lora.frame.edit"], parameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        if (await dialog.Result is { Canceled: false })
+        {
+            await ReloadAsync();
+        }
+    }
+
+    private async Task DeleteFrameAsync(ObjectItem frame)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["common.delete"],
+            string.Format(L["lora.frame.deleteConfirm"], frame.Name),
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            // сама картинка в папке проекта остаётся: файл могли положить туда не мы,
+            // и удалять чужие файлы по нажатию «убрать из датасета» мы не будем
+            await Api.DeleteObjectAsync(frame.Id);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // --- модели ---
+
+    private async Task AddModelAsync()
+    {
+        var parameters = new DialogParameters<LoraModelPickDialog>
+        {
+            { d => d.Taken, (_models ?? []).Select(m => m.ModelId).ToList() },
+        };
+        var dialog = await Dialogs.ShowAsync<LoraModelPickDialog>(L["lora.model.add"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string modelId })
+        {
+            try
+            {
+                await Api.AddLoraModelAsync(Item.Id, modelId);
+                await LoadModelsAsync();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    private async Task DeleteModelAsync(ObjectLoraModel row)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["common.delete"],
+            string.Format(L["lora.model.deleteConfirm"], row.ModelName),
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteLoraModelAsync(row.Id);
+            await LoadModelsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// ЗАПУСК ОБУЧЕНИЯ. У обученной модели переспрашиваем: переобучение затирает готовый
+    /// файл адаптера, который мог быть уже подставлен в модель, — и отменить это нечем.
+    /// </summary>
+    private async Task TrainAsync(ObjectLoraModel row)
+    {
+        var force = row.Status == LoraModelStates.Ready;
+        if (force)
+        {
+            var confirmed = await Dialogs.ShowMessageBoxAsync(L["lora.model.train"],
+                string.Format(L["lora.model.retrainConfirm"], row.ModelName),
+                yesText: L["lora.model.retrain"], cancelText: L["common.cancel"]);
+            if (confirmed != true)
+            {
+                return;
+            }
+        }
+        // О ЧЁМ СПРОСИТЬ ПЕРЕД ЗАПУСКОМ (T-274). Оба вопроса — про то, что обучение молча
+        // сделает не то, чего ждут: возьмёт другой датасет либо кадры, которых модель не
+        // примет. Те же условия сервер проверяет сам — форма только задаёт вопрос
+        var dataset = _datasetId;
+        var confirmDataset = false;
+        LoraTrainCheck check;
+        try
+        {
+            check = await Api.CheckLoraTrainAsync(row.Id, dataset);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return;
+        }
+        if (check.DatasetChanged)
+        {
+            // ТРИ ответа, а не два: «по текущему», «по тому, по которому обучали» и «отмена».
+            // Второй нужен именно здесь: адаптер, обученный на других кадрах, — это другой
+            // персонаж, и человек, переключивший датасет ради кадров, о прошлом обучении
+            // мог и не помнить
+            var answer = await Dialogs.ShowMessageBoxAsync(L["lora.model.train"],
+                string.Format(L["lora.dataset.changed"], check.TrainedDatasetName, check.DatasetName),
+                yesText: string.Format(L["lora.dataset.useCurrent"], check.DatasetName),
+                noText: string.Format(L["lora.dataset.useTrained"], check.TrainedDatasetName),
+                cancelText: L["common.cancel"]);
+            if (answer is null)
+            {
+                return;
+            }
+            if (answer == true)
+            {
+                confirmDataset = true;
+            }
+            else
+            {
+                // обучаем по запомненному — датасет не менялся, и переспрашивать не о чем,
+                // но сверку настроек надо повторить: у того датасета они свои
+                dataset = check.TrainedDatasetId;
+                try
+                {
+                    check = await Api.CheckLoraTrainAsync(row.Id, dataset);
+                }
+                catch (ApiException ex)
+                {
+                    Snackbar.Add(ex.Message, Severity.Error);
+                    return;
+                }
+            }
+        }
+        // НЕСОВПАДЕНИЕ НАСТРОЕК С МОДЕЛЬЮ. Ответов три: обучать как есть, ОТМЕНИТЬ и —
+        // с T-57-S0 — «создать/переключить на нужный датасет»: не человеку же руками заводить
+        // датасет, переписывать в него настройки из модели и пережимать полсотни картинок.
+        // После пережатия сверку повторяем (датасет-то другой), а кнопку пережатия во второй
+        // раз не показываем: если она не помогла, не поможет и повтор
+        var confirmLimits = false;
+        var fitted = false;
+        while (check.Warnings.Count > 0)
+        {
+            var answer = await Dialogs.ShowMessageBoxAsync(L["lora.model.train"],
+                string.Format(L["lora.limits.mismatch"], row.ModelName,
+                    string.Join("; ", check.Warnings)),
+                yesText: L["lora.limits.trainAnyway"],
+                noText: fitted ? null : L["lora.dataset.fit"],
+                cancelText: L["common.cancel"]);
+            if (answer is null)
+            {
+                return;
+            }
+            if (answer == true)
+            {
+                confirmLimits = true;
+                break;
+            }
+            if (await FitDatasetAsync(row, dataset) is not { } fit)
+            {
+                return;
+            }
+            fitted = true;
+            dataset = fit;
+            // обучать будем по ДРУГОМУ датасету, чем в прошлый раз, и это выбор человека,
+            // сделанный только что, — второй раз о том же не спрашиваем
+            confirmDataset = true;
+            _datasetId = fit;
+            await ReloadAsync();
+            try
+            {
+                check = await Api.CheckLoraTrainAsync(row.Id, dataset);
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+                return;
+            }
+        }
+        // ДАЛЬШЕ ОБУЧЕНИЕ ЗАПУСКАЕТСЯ ЗАДАЧЕЙ (T-157-S0), а не фоном сервиса: у задачи есть
+        // консоль, лог, кнопка остановки, планирование и место в иерархии. Прямого запуска у
+        // клиента больше нет — два пути к одной работе разъезжаются молча
+        await CreateTrainTaskAsync(row, dataset, force, confirmDataset, confirmLimits);
+    }
+
+    /// <summary>
+    /// ОБУЧЕНИЕ ЗАДАЧЕЙ (T-157-S0) — то, что происходит ПОСЛЕ проверок датасета. Порядок ровно
+    /// такой, как заказан: ищем годный узел шаблонов; нет шаблона, но есть исполнитель —
+    /// предлагаем завести шаблон; нет исполнителя — предлагаем завести его из записи «Плагинов
+    /// и MCP»; нет плагина вовсе — отправляем в окно установки плагина. И только потом
+    /// переспрашиваем «создать и запустить / только создать / отмена».
+    ///
+    /// Заголовок, описание, исполнителя и тэги человек не пишет ни на одном шаге: они приезжают
+    /// из узла шаблона вместе с его опытом.
+    /// </summary>
+    private async Task CreateTrainTaskAsync(ObjectLoraModel row, string? dataset, bool force,
+        bool confirmDataset, bool confirmLimits)
+    {
+        LoraTrainOptionsDto options;
+        try
+        {
+            options = await Api.GetLoraTrainOptionsAsync(row.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return;
+        }
+        // обучать нечем: модель не работает с LoRA либо плагина-тренера нет вовсе. Текст
+        // отказа человеку надо ПРОЧИТАТЬ — искать его в подсказке на слове «ошибка» поздно
+        if (options.Error.Length > 0 || options.PluginCode.Length == 0)
+        {
+            Snackbar.Add(options.Error.Length > 0 ? options.Error : L["lora.task.noPlugin"],
+                Severity.Error);
+            return;
+        }
+        // ПЛАГИН ЕСТЬ, НО НЕ ГОТОВ — программа не найдена на этом компьютере. Отправляем в то
+        // самое окно установки плагина: сами мы её не поставим, а задача без программы встала
+        // бы в очередь и не тронулась с места
+        if (!options.PluginReady)
+        {
+            var install = await Dialogs.ShowMessageBoxAsync(L["lora.model.train"],
+                string.Format(L["lora.task.pluginNotReady"], options.PluginName),
+                yesText: L["lora.task.openPlugin"], cancelText: L["common.cancel"]);
+            if (install == true)
+            {
+                var parameters = new DialogParameters<PluginInstallDialog>
+                {
+                    { d => d.Code, options.PluginCode },
+                };
+                var dialog = await Dialogs.ShowAsync<PluginInstallDialog>(
+                    L["plugins.setup"] + " — " + options.PluginName, parameters,
+                    new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+                await dialog.Result;
+            }
+            return;
+        }
+        // ИСПОЛНИТЕЛЯ НЕТ — заводим его из записи «Плагинов и MCP» с уже подставленной
+        // программой и операцией: выбирать их человеку значило бы спрашивать про внутренности
+        // манифеста, которых он не видел
+        if (options.ExecutorId.Length == 0)
+        {
+            var make = await Dialogs.ShowMessageBoxAsync(L["lora.model.train"],
+                string.Format(L["lora.task.noExecutor"], options.PluginName),
+                yesText: L["lora.task.makeExecutor"], cancelText: L["common.cancel"]);
+            if (make != true)
+            {
+                return;
+            }
+            try
+            {
+                var executor = await Api.CreateLoraTrainExecutorAsync(row.Id);
+                Snackbar.Add(string.Format(L["lora.task.executorMade"], executor.Nick),
+                    Severity.Success);
+                options = await Api.GetLoraTrainOptionsAsync(row.Id);
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+                return;
+            }
+        }
+        // ШАБЛОНА НЕТ — заводим узел с этим исполнителем. Дальше он и будет источником
+        // заголовка, описания и тэгов КАЖДОГО обучения, и править их человек станет в одном
+        // месте, а не в каждой задаче
+        if (options.Templates.Count == 0)
+        {
+            var make = await Dialogs.ShowMessageBoxAsync(L["lora.model.train"],
+                string.Format(L["lora.task.noTemplate"], options.ExecutorNick),
+                yesText: L["lora.task.makeTemplate"], cancelText: L["common.cancel"]);
+            if (make != true)
+            {
+                return;
+            }
+            try
+            {
+                var node = await Api.CreateLoraTrainTemplateAsync(row.Id, options.ExecutorId);
+                Snackbar.Add(string.Format(L["lora.task.templateMade"], node.DisplayId),
+                    Severity.Success);
+                options = await Api.GetLoraTrainOptionsAsync(row.Id);
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+                return;
+            }
+            if (options.Templates.Count == 0)
+            {
+                Snackbar.Add(L["lora.task.noTemplateStill"], Severity.Error);
+                return;
+            }
+        }
+        // ВЫБОР ШАБЛОНА И ПЕРЕСПРОС «КАК ЗАПУСТИТЬ» — одним окном: вопросы про одно решение
+        var pick = new DialogParameters<LoraTrainTaskDialog>
+        {
+            { d => d.Templates, options.Templates },
+        };
+        var ask = await Dialogs.ShowAsync<LoraTrainTaskDialog>(L["lora.model.train"], pick,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var answer = await ask.Result;
+        if (answer is not { Canceled: false, Data: LoraTrainTaskCreateDto wanted })
+        {
+            return;
+        }
+        try
+        {
+            var created = await Api.CreateLoraTrainTaskAsync(row.Id, wanted.TemplateId, dataset,
+                wanted.Run, force, confirmDataset, confirmLimits);
+            // «создана, но не запустилась» — не ошибка создания: занятая программа и чужой
+            // сервер означают «задача подождёт», и сказать об этом надо отдельно
+            Snackbar.Add(string.Format(created.Started
+                    ? L["lora.task.started"]
+                    : L["lora.task.created"], created.DisplayId),
+                Severity.Success);
+            if (created.StartError.Length > 0)
+            {
+                Snackbar.Add(created.StartError, Severity.Warning);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await LoadModelsAsync();
+    }
+
+    /// <summary>
+    /// СОЗДАТЬ/ПЕРЕКЛЮЧИТЬ НА НУЖНЫЙ ДАТАСЕТ (T-57-S0). Возвращает датасет, по которому
+    /// можно обучать, либо null — если не вышло (о чём человеку уже сказано).
+    ///
+    /// Что делает сервер: ищет подходящий среди уже заведённых датасетов объекта и, найдя,
+    /// делает его текущим — тогда пережимать нечего вовсе. Не нашёл — заводит новый с
+    /// настройками из модели и присылает список кадров-исходников. Пережимает их БРАУЗЕР,
+    /// холстом (ai2p.loraFitImage), по тому же правилу, по которому режется кадр при
+    /// добавлении: картинка вписывается в кадр целиком, поля закрашиваются цветом настройки.
+    /// </summary>
+    private async Task<string?> FitDatasetAsync(ObjectLoraModel row, string datasetId)
+    {
+        LoraDatasetFitDto fit;
+        try
+        {
+            fit = await Api.FitLoraDatasetAsync(row.Id, datasetId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return null;
+        }
+        if (fit.Found)
+        {
+            Snackbar.Add(string.Format(L["lora.dataset.fit.found"], fit.DatasetName), Severity.Success);
+            return fit.DatasetId;
+        }
+        var done = 0;
+        var failed = new List<string>();
+        foreach (var frame in fit.Frames)
+        {
+            try
+            {
+                var image = await Js.InvokeAsync<CropResult?>("ai2p.loraFitImage",
+                    FrameUrlOf(frame.Path), fit.Limits.MaxWidth, fit.Limits.MaxHeight,
+                    fit.Limits.MaxKb, fit.Limits.Format, fit.PadColor);
+                if (image is null || image.Data.Length == 0
+                    || image.Bytes > fit.Limits.MaxKb * 1024L)
+                {
+                    failed.Add(frame.FileName);
+                    continue;
+                }
+                await Api.AddLoraFrameAsync(Item.Id, new LoraDatasetAddDto
+                {
+                    FileName = frame.FileName,
+                    Description = frame.Description,
+                    DataBase64 = image.Data,
+                    DatasetId = fit.DatasetId,
+                });
+                done++;
+            }
+            catch (ApiException ex)
+            {
+                // один кадр не переехал — это не повод бросать остальные: датасет из
+                // сорока девяти кадров всё ещё годится, а о пропущенных мы скажем
+                failed.Add(frame.FileName + ": " + ex.Message);
+            }
+        }
+        if (done == 0)
+        {
+            Snackbar.Add(L["lora.dataset.fit.failed"], Severity.Error);
+            return null;
+        }
+        Snackbar.Add(string.Format(L["lora.dataset.fit.done"], fit.DatasetName, done), Severity.Success);
+        if (failed.Count > 0)
+        {
+            Snackbar.Add(string.Format(L["lora.dataset.fit.skipped"], string.Join(", ", failed)),
+                Severity.Warning);
+        }
+        return fit.DatasetId;
+    }
+
+    /// <summary>Ссылка на файл кадра — по ней его читает холст браузера. Кадр датасета лежит
+    /// в каталоге данных организации (T-98-S0), кадр прежних версий — в папке проекта;
+    /// откуда его брать, говорит сам путь.</summary>
+    private string FrameUrlOf(string path) =>
+        ObjectFiles.Link(path, Item.ProjectId) is { } link ? FileLinks.Relative(link) : "";
+
+    /// <summary>Что вернул холст браузера: готовая картинка (base64) и её размеры.</summary>
+    private sealed class CropResult
+    {
+        public string Data { get; set; } = "";
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public long Bytes { get; set; }
+    }
+
+    private async Task StopAsync(ObjectLoraModel row)
+    {
+        try
+        {
+            await Api.CancelLoraTrainAsync(row.Id);
+            await LoadModelsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    public void Dispose()
+    {
+        _poll?.Cancel();
+        _poll = null;
+    }
+}

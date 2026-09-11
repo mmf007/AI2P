@@ -1,0 +1,67 @@
+@inject I18nService L
+
+@* «Создать из шаблона» (ТЗ п. 2.4): данные, переспрашиваемые при копировании (todo31) —
+   по итогам анализа иерархии шаблона: базовая дата (если в шаблоне есть задачи со
+   сроками; встаёт на место самой ранней даты, остальные сдвигаются с сохранением
+   интервалов) и вариант автоподбора исполнителей (если есть задачи со skills без
+   активного исполнителя). *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @if (AskDate)
+            {
+                <MudText Typo="Typo.body2">@L["task.instantiate.hint"]</MudText>
+                <MudDatePicker @bind-Date="_baseDate" Label="@L["task.instantiate.baseDate"]" Clearable="true" />
+            }
+            @if (AskPick)
+            {
+                <MudText Typo="Typo.body2">@L["task.instantiate.pickHint"]</MudText>
+                <MudRadioGroup T="string" @bind-Value="_pick">
+                    <MudRadio T="string" Value="@("ai_first")" Dense="true">@L["task.instantiate.pick.aiFirst"]</MudRadio>
+                    <MudRadio T="string" Value="@("human_first")" Dense="true">@L["task.instantiate.pick.humanFirst"]</MudRadio>
+                    @* «не искать» (T-56-S0) — копия создаётся с пустым исполнителем: значение
+                       "none" сервер не знает и приводит к null, то есть к отказу от подбора *@
+                    <MudRadio T="string" Value="@("none")" Dense="true">@L["task.instantiate.pick.none"]</MudRadio>
+                </MudRadioGroup>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(
+                       new Choice(_baseDate?.ToUniversalTime(), PickAnswer))))">
+            @L["common.create"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    /// <summary>
+    /// Ответы переспроса: базовая дата и вариант автоподбора ("ai_first"/"human_first";
+    /// null — «не искать исполнителя», T-56-S0).
+    /// </summary>
+    public sealed record Choice(DateTime? BaseDate, string? Pick);
+
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Спрашивать базовую дату (в шаблоне есть задачи со сроками).</summary>
+    [Parameter] public bool AskDate { get; set; }
+    /// <summary>Спрашивать вариант автоподбора (есть задачи со skills без активного исполнителя).</summary>
+    [Parameter] public bool AskPick { get; set; }
+    /// <summary>Самая ранняя дата иерархии шаблона — начальное значение базовой даты.</summary>
+    [Parameter] public DateTime? TemplateDue { get; set; }
+
+    private DateTime? _baseDate;
+    private string _pick = "ai_first";
+
+    /// <summary>
+    /// Ответ про подбор исполнителя: вариант «не искать» (T-56-S0) уезжает НА СЕРВЕР пустым —
+    /// именно пустое правило подбора и означает «оставить исполнителя незаполненным»
+    /// (TaskService.ResolveExecutors без pickMode подбор не делает).
+    /// </summary>
+    private string? PickAnswer => AskPick && _pick != "none" ? _pick : null;
+
+    protected override void OnInitialized() =>
+        _baseDate = (TemplateDue ?? DateTime.UtcNow).ToLocalTime().Date;
+}

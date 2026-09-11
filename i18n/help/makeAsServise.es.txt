@@ -1,0 +1,64 @@
+AI2P — makeAsServise: CONVERTIR LA INSTALACIÓN EN SERVICIO DEL SO
+
+Se ejecuta A MANO y una sola vez: la aplicación es de consola por defecto y nunca se
+convierte a sí misma en servicio. El nombre del servicio es AI2P en todos los sistemas;
+lo conocen install.* y el paquete de instalación.
+  Linux — unidad de systemd AI2P.service
+  macOS — trabajo de launchd con la etiqueta AI2P (~/Library/LaunchAgents/AI2P.plist)
+
+El script está EN LA CARPETA DE INSTALACIÓN, junto a AI2P.Server, y trabaja con él mismo.
+
+USO (Windows, consola COMO ADMINISTRADOR)
+  makeAsServise.cmd                    crear el servicio e iniciarlo
+  makeAsServise.ps1 -NoStart           crearlo, pero no iniciarlo
+  makeAsServise.ps1 -Manual            arranque manual del servicio, no automático
+  makeAsServise.ps1 -Remove            retirar el servicio (archivos y datos no se tocan)
+  makeAsServise.ps1 -Target D:\AI2P    otra instalación, no la carpeta del script
+  makeAsServise.ps1 -Account .\mike -Password ***  servicio en nombre de un usuario
+  makeAsServise.ps1 -UnprotectSecrets  quitar DPAPI de las claves de las organizaciones
+  makeAsServise.ps1 -Force             hacerlo pese a las advertencias
+  makeAsServise.ps1 -WhatIf            sólo mostrar qué se haría
+  makeAsServise.ps1 -Lang es           idioma de los mensajes
+  makeAsServise.cmd --help             esta ayuda
+
+USO (Linux / macOS)
+  ./makeAsServise.sh                   crear el servicio e iniciarlo
+  ./makeAsServise.sh --no-start        crearlo, pero no iniciarlo
+  ./makeAsServise.sh --manual          no iniciarlo al arrancar el sistema
+  ./makeAsServise.sh --remove          retirar el servicio
+  ./makeAsServise.sh --target ~/ai/AI2P  otra instalación
+  ./makeAsServise.sh --system          unidad de systemd DEL SISTEMA (hace falta root), Linux
+  ./makeAsServise.sh --lang es         idioma de los mensajes
+  ./makeAsServise.sh --help            esta ayuda
+
+QUÉ CAMBIA EN LA PROPIA APLICACIÓN: nada. Reconoce el modo de arranque sola: bajo el
+gestor de servicios funciona como servicio y desde la consola, como siempre. Al arrancar,
+el servicio no abre el navegador: no tiene escritorio.
+
+MEMORIA DE ESTO. El estado real del servicio lo conoce el SO, y install.* le pregunta
+precisamente a él: antes de la actualización hay que detener el servicio y después
+iniciarlo. Además, el script pone la nota "serviceMode": true en el config.json de la
+instalación, que sobrevive a la actualización de versión y la persona la ve en los
+ajustes de la aplicación.
+
+EL SERVICIO DE USUARIO EN LINUX ES EL VALOR POR DEFECTO, y no es casualidad: el servidor
+funciona con un usuario normal y guarda todo lo suyo en su propia carpeta. Para que un
+servicio así levante sin que la persona inicie sesión hace falta el «inicio retardado»:
+el script llama solo a loginctl enable-linger.
+
+DPAPI Y LA CUENTA DEL SERVICIO (Windows, importante)
+  La clave de la organización en secrets.json está protegida en Windows por DPAPI del
+  ÁMBITO DE USUARIO: sólo puede descifrarla la cuenta que la escribió. El servicio
+  funciona por defecto como LocalSystem, que es OTRA cuenta, y un servicio así no podrá
+  leer las claves de API de los modelos (los modelos en la nube dejarán de funcionar y
+  se verá como «el modelo está, pero el encargo no avanza»). Por eso el script comprueba
+  secrets.json y, si encuentra en él valores protegidos con DPAPI, ofrece elegir:
+    * -Account <cuenta> -Password <contraseña>: el servicio funciona con el MISMO usuario
+      (necesita el permiso «Iniciar sesión como servicio»; sin él el servicio no arranca,
+      error 1069);
+    * -UnprotectSecrets: quitar DPAPI y dejar las claves de las organizaciones en base64
+      normal (exactamente como están en Linux/macOS; la protección queda en los permisos
+      del archivo);
+    * -Force: crear el servicio tal cual, sabiendo que las claves le serán inaccesibles.
+  Lo mismo vale para el acceso a Claude CLI: pertenece al perfil del usuario, y un
+  servicio como LocalSystem no lo verá. En Linux y macOS DPAPI no pinta nada.

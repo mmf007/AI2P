@@ -1,0 +1,268 @@
+{
+  "seedVersion": 21,
+  "actions": [
+    {
+      "id": "ac710000-0000-4000-9000-000000000001",
+      "code": "AI2P.Files.List",
+      "tool": "list_files",
+      "title": "Project file list",
+      "hint": "Recursive list of project folder files with sizes. The agent uses it to see the project layout and find a file by name.",
+      "prompt": "List files in a folder (recursive, with sizes). Use it to understand the project layout and to find a file by its name. Parameter path — a subfolder relative to the project root; empty — the whole project; for a folder opened by security rules — its full path."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000002",
+      "code": "AI2P.Files.Search",
+      "tool": "search_files",
+      "title": "Search in project files",
+      "hint": "Substring search over project file contents (case-insensitive); returns files, line numbers and fragments.",
+      "prompt": "Search text inside files (substring, case-insensitive). Returns files, line numbers and fragments. Use it to find a file by its content. Parameters: query — the string to search for; path — a subfolder to search in, empty — the whole project; for a folder opened by security rules — its full path."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000003",
+      "code": "AI2P.Files.Read",
+      "tool": "read_file",
+      "title": "Read project file",
+      "hint": "Reads a text file of the project by relative path (binary files are rejected, long files are truncated).",
+      "prompt": "Read a text file. Use it before changing a file to see its current content. Parameter path — the file path relative to the project root; for a file in a folder opened by security rules — the full path."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000004",
+      "code": "AI2P.Files.Write",
+      "tool": "write_file",
+      "title": "Write project file",
+      "hint": "Creates or overwrites a text file of the project; the reply contains an external link to the file. No deletions.",
+      "prompt": "Create a new or overwrite an existing text file. path is a path relative to the project root (a new file next to the source is fine); write into a folder opened by security rules using its full path. content is the full new content. The reply returns an external link to the file — use exactly that link when you need to give the user a link."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000005",
+      "code": "AI2P.Files.Url",
+      "tool": "file_url",
+      "title": "External file link",
+      "hint": "Returns an external URL of a project file; protects from made-up links.",
+      "prompt": "Get an external link (URL) to a file. Use it when you need to give the user a link to a file. Do NOT invent links yourself — take only the one returned by this tool or by write_file. Parameter path — the file path relative to the project root; for a file in a folder opened by security rules — the full path (the link will be a file: link)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000006",
+      "code": "AI2P.Tasks.GetParent",
+      "tool": "get_parent_task",
+      "title": "Parent task",
+      "hint": "Returns the parent task of the current one: description, acceptance criteria, status and result artifacts.",
+      "prompt": "Get the parent task of the current task: its description, acceptance criteria, status and execution results (artifacts). Use it when the assignment mentions the «parent task» or you need to verify its result."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000007",
+      "code": "AI2P.Tasks.GetByCode",
+      "tool": "get_task_by_code",
+      "title": "Task by code",
+      "hint": "Returns a task of the same project by its short code (T-15). A CLI agent has no AI2P tools — it does the same via the AI2P_GET_TASK marker in its answer (the task arrives together with its chat), and this action governs that too.",
+      "prompt": "Get a task by its short code (for example T-15 or P-3): description, acceptance criteria, status and results (artifacts). Tasks of this project are available. Parameter code — the short task code."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000008",
+      "code": "AI2P.Tasks.GetByUrl",
+      "tool": "get_task_by_url",
+      "title": "Task by link",
+      "hint": "Returns a task by its URL (…/task/<id>) — people often reply with a link. A CLI agent has no AI2P tools — it does the same via the AI2P_GET_TASK marker in its answer (the task arrives together with its chat), and this action governs that too.",
+      "prompt": "Get a task by a link to it (URL like …/task/<id>): description, acceptance criteria, status and results (artifacts). Use it when a person sent a link to a task. Tasks of this project are available. Parameter url — the task link."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000009",
+      "code": "AI2P.Tasks.FindByTitle",
+      "tool": "find_tasks_by_title",
+      "title": "Find tasks by title",
+      "hint": "Searches project tasks by a title substring; returns code, title, status, parent. A CLI agent has no AI2P tools — it does the same via the AI2P_GET_TASK marker in its answer, and this action governs that too.",
+      "prompt": "Find tasks of this project by title (substring, case-insensitive). Returns a list: code, title, status, parent. Then read the needed task via get_task_by_code. Parameter title — a part of the task title."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000010",
+      "code": "AI2P.Tasks.GetChat",
+      "tool": "get_task_chat",
+      "title": "Task chat",
+      "hint": "Returns the task chat: messages of people and agents, questions and answers (last 100 messages). A CLI agent has no AI2P tools — the chat arrives together with a task requested via the AI2P_GET_TASK marker, and this action governs that too.",
+      "prompt": "Read the task chat: messages of people and agents, questions and answers. Without the code parameter — the chat of the current task; with code — the chat of another task of this project. Use it when the discussion context matters (clarifications, agreements, human answers)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000011",
+      "code": "AI2P.Chat.AskQuestion",
+      "tool": "ask_question",
+      "title": "Question to a human",
+      "hint": "The agent asks the human a question and waits: the job pauses until the answer, then continues from the same place.",
+      "prompt": "Ask the human a question and wait for the answer: the work will pause until the answer and then continue. Use it only when you cannot proceed without the answer. Parameters: question — the question text; options — answer options (optional); the human can pick an option or reply with free text."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000012",
+      "code": "AI2P.Tasks.Create",
+      "tool": "create_task",
+      "title": "Create a subtask",
+      "hint": "The agent creates a subtask of the current task (title, description, skills, numeric priority); the executor is picked automatically 'AI first, then human'. The first call marks the task as split (do not split again). A CLI agent has no AI2P tools — it does the same via the AI2P_SUBTASK marker in its answer, and this action governs that too.",
+      "prompt": "Create a subtask of the current task. Parameters: title — the subtask title; description — a self-contained description of the work (Markdown); skills — what actually needs doing, names from the skills catalog (the list is in the system prompt); priority — numeric priority (more important = higher: low 0–10, normal 11–20, high 21+); acceptance — acceptance criteria (optional); startAfterMinutes — deferred start: in how many minutes the subtask may be launched (0 or empty — as usual, one day maximum). A deferred start is for a follow-up subtask whose input appears later (a long test run, a build): such a subtask waits for its time and starts by itself. The subtask executor is picked automatically: AI first, then human. Do not perform the subtasks yourself — only create them."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000023",
+      "code": "AI2P.Tasks.Move",
+      "tool": "move_task",
+      "title": "Move a task along the hierarchy",
+      "hint": "The agent gives a task another parent or makes it a root one — within its own project. It is needed so that a human decision «release without this subtask, move it to the next release» can be carried out at all: before T-2-S0 the agent could only write «a human has to re-parent it» in the report. The agent does not move its own task. A CLI agent has no AI2P tools — it does the same via the AI2P_MOVE_TASK marker in its answer, and this action governs that too. A deny/confirm security rule on this code closes moving tasks for agents.",
+      "prompt": "Move a task along the hierarchy: give it another parent or make it a root task. Parameters: code — the code of the task being moved (for example T-241); parent — the code of the new parent task, empty or «root» makes the task a root one. Tasks of the same project are available (moving into another project is not allowed). You cannot move your own task, and you cannot make a task from its own subtree the parent. Use it when a human told you to take a subtask out of the hierarchy; if there is nowhere to move it (the receiving task does not exist yet), do not drop the decision — ask the human what to do."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000032",
+      "code": "AI2P.Tasks.Update",
+      "tool": "update_task",
+      "title": "Change the fields of a task",
+      "hint": "The agent edits the fields of ANOTHER task of the same project: the executor, the \"can substitute\" list, the responsible person, the skills and the tags. It exists because there was NO WAY to set an executor on a task inside an already running hierarchy: the agent could only create a copy of the task, and the auto-pick gave the copy the same busy executor. The agent does not edit its own task this way. A deny/confirm security rule on this code closes the possibility entirely. A CLI agent has the same — the \"ai2p update\" command.",
+      "prompt": "Change the fields of ANOTHER task of the same project. Parameters: code — the task code (for example T-241); executor — the executor nick (an empty string clears the executor); altExecutors — the list of nicks that can substitute the executor; responsible — the nick of the responsible person (only a human can be one); skills — the task skills (names from the skills catalog); tags — the task tags. A field that is not named is not changed, a field named empty is cleared. You do not change the fields of your own task this way. Use it when a human told you to set or change the executor, the responsible person, the skills or the tags of another task: there is no need to create a copy of the task for that."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000013",
+      "code": "AI2P.Tasks.AutoStart",
+      "tool": null,
+      "title": "Auto-start of subtasks",
+      "hint": "A policy action (there is no agent tool): a deny or confirm security rule on this code disables the automatic start of AI executors of subtasks after auto-split — starting remains with the human.",
+      "prompt": ""
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000014",
+      "code": "AI2P.Experience.Create",
+      "tool": "create_experience",
+      "title": "Add experience record",
+      "hint": "The agent adds an experience record: either for the template node of the current task or for the whole project (the “Project experience” block of the task). A deny/confirm security rule on this code blocks/confirms experience creation by agents. A CLI agent has no AI2P tools — it does the same via the AI2P_EXPERIENCE marker in its answer, and this action governs that too.",
+      "prompt": "Add an experience record. Parameters: text — a short lesson or takeaway useful for future runs (what worked, pitfalls, what to do differently); scope — “project” (experience of the whole project) or “template” (experience of a template node); by default a task created from a template writes to its node and any other task writes to the project; template — code or title of the template node (only for scope=template, when it is not your own node); skill — a skill code from the catalog: such a record is given only to executors having that skill, without it the record is common. Record only verified observations and do not duplicate what the experience blocks already say. Add PROJECT experience (and experience of other nodes) only when the task explicitly asks for it or the takeaway matters for every task of the project."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000015",
+      "code": "AI2P.Experience.Update",
+      "tool": "update_experience",
+      "title": "Fix experience record",
+      "hint": "The agent edits an existing experience record of its project or the project's templates. A deny/confirm security rule on this code blocks/confirms experience edits by agents. A CLI agent uses the same AI2P_EXPERIENCE marker with an id parameter.",
+      "prompt": "Fix an experience record. Parameters: id — record identifier from the “Project experience” or “Execution experience” block of the task text; text — the new full text of the record; skill — skill code (passed — the record skill changes, omitted — it stays as is). Use when an existing record is outdated or contradicts the actual run; otherwise add a new record via create_experience."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000016",
+      "code": "AI2P.Tasks.ImportFromUrl",
+      "tool": "import_task_from_url",
+      "title": "Import task by URL",
+      "hint": "The agent imports a single Trello card by link: a draft task is created in the current project, attachments are downloaded into the project uploads/. A deny/confirm security rule on this code blocks/confirms the import.",
+      "prompt": "Import a task from an external system by link (currently Trello only: https://trello.com/c/<code>). Creates a draft task in the current project: title and description from the card, attachments are downloaded and linked. Importing the same card again does not create a duplicate. Parameter url is the card link."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000017",
+      "code": "AI2P.Tasks.GetSiblings",
+      "tool": "get_sibling_tasks",
+      "title": "Sibling tasks",
+      "hint": "Returns the other subtasks of the same parent as the current task: code, title, status, executor, link and result of each (no descriptions — those are read by code). A CLI agent has no AI2P tools — siblings are put into its task prompt as a block, and this action governs that too.",
+      "prompt": "Get the sibling tasks of the current task — the other subtasks of the same parent. For each one you get code, title, status, executor, link and execution results (artifacts); descriptions are not included — read the full text of a particular sibling separately by its code (get_task_by_code). Use it when the work is split into subtasks and yours builds on what the others have already done."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000018",
+      "code": "AI2P.Templates.List",
+      "tool": "list_templates",
+      "title": "List project templates",
+      "hint": "The agent gets the list of the project's template nodes with their codes — any template work starts here. A deny/confirm security rule on this code closes the list.",
+      "prompt": "List the template nodes of the current project: code, title, parent node and the number of experience records. No parameters. The codes are needed for update_template, for the parent of create_template and for the template of create_experience; read a node's text with get_task_by_code."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000019",
+      "code": "AI2P.Templates.Create",
+      "tool": "create_template",
+      "title": "Create a template node",
+      "hint": "The agent creates a template node of the project (templates are blueprints of recurring work). A deny/confirm security rule on this code blocks/confirms template edits by agents. A CLI agent uses the AI2P_TEMPLATE marker. Templates are edited on the conductor server only.",
+      "prompt": "Create a template node of the current project. Parameters: title — the node title; description — the work statement (Markdown); acceptance — acceptance criteria (optional); parent — code (or title) of the parent node, without it the node is a root template; skills — skill names from the catalog. Create a template only when the task explicitly asks to set one up or to describe recurring work."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000020",
+      "code": "AI2P.Templates.Update",
+      "tool": "update_template",
+      "title": "Change a template node",
+      "hint": "The agent edits an existing template node of the project. A deny/confirm security rule on this code blocks/confirms template edits by agents.",
+      "prompt": "Change a template node of the current project. Parameters: code — the node code (or its title); title, description, acceptance — what to change; an omitted field stays as it was. The node list is list_templates, the current text is get_task_by_code."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000021",
+      "code": "AI2P.Chat.Send",
+      "tool": "send_chat_message",
+      "title": "Message to the task chat",
+      "hint": "The agent writes to the human in the current task chat — first of all, it answers a message that arrived while the agent was working (chat interrupt). A deny security rule on this code leaves the agent unable to answer in the chat.",
+      "prompt": "Write to the human in the chat of the CURRENT task. Always use this tool to answer messages that reach you from the chat while you are working: the human is waiting for an answer now, and will see the final result only at the end. It also fits a short note along the way ('this is taking longer than usual'). Parameter text — the message text. Do not put the final result of the task here."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000022",
+      "code": "AI2P.Files.Fetch",
+      "tool": "fetch_file",
+      "title": "Fetch a file by link",
+      "hint": "The agent fetches a file (an image attached to a task by an import from Trello, GitHub or GitLab, for instance) by a link from the job text: the file is put into the agent cache (cache/agent-files inside the data directory) and the agent reads it as an ordinary file. An already fetched file is taken from the cache, otherwise it comes from the AI2P storage or from the internet (with the credentials of the active import source of the same system). A deny/confirm security rule on this code blocks/confirms fetching; directory access rules do not apply here — the cache directory is always ours.",
+      "prompt": "Fetch a file by link and put it on disk so that it can be read. Supported: an external http(s):// address (including a Trello, GitHub or GitLab attachment — the system adds the credentials), our own file link (api/files/raw?path=…, api/files/project?projectId=…&path=…) and a file path inside the data directory the way it is written in the task description. The answer holds the path of the file on disk, its name, size, type and source (cache, AI2P storage or internet). The url parameter is the link to the file."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000024",
+      "code": "AI2P.Tasks.GetChildren",
+      "tool": "get_child_tasks",
+      "title": "Subtasks of a task",
+      "hint": "The agent gets the list of subtasks (its own or of a named task of the same project): code, title, status, executor and link of each; the list holds no statements and no results — those are read by code. A CLI agent has the «ai2p children» command and the AI2P_GET_TASK marker form with a children field for that, and this action governs them too.",
+      "prompt": "Get the subtasks of a task: code, title, status, executor and link of each. Parameters: code — the code of the task whose subtasks are needed (empty — the subtasks of the CURRENT task); depth — the walk depth, 1 (default) means direct subtasks only, 3 at most. Statements and results are not in the list on purpose — read the full text of the subtask you need separately by its code (get_task_by_code). Use it when you have to see the shape of a branch: what is already done, what is left and who is busy with what."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000025",
+      "code": "AI2P.Tasks.SetStatus",
+      "tool": "set_task_status",
+      "title": "Status of another task",
+      "hint": "The agent changes the status of ANOTHER task of the same project — with a restart flag (the spent queue attempts and the delayed start are cleared, the launch mode becomes automatic). It is needed by a task that runs the tests for the whole branch and sends back to work those tasks whose tests failed. The agent does not touch its own task this way: its status is set by the system by the job outcome. A deny/confirm security rule on this code closes the possibility entirely. A CLI agent has the same — the «ai2p status» command and the AI2P_SET_STATUS marker.",
+      "prompt": "Change the status of ANOTHER task of the same project. Parameters: code — the task code; status — the status code (draft, pending, in_progress, paused, error, review, needs_fix, done, cancelled); restart — true when the task has to be RESTARTED: then the spent queue attempts and the delayed start are cleared and the launch mode becomes automatic, otherwise a task sent back to work may not move at all. You do not set the status of your own task this way — the system sets it by the job outcome. Use it when, after a shared test run, tasks with failures have to be sent back for fixing; first declare them as your blocking tasks, then change their status."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000026",
+      "code": "AI2P.Tasks.Recheck",
+      "tool": "restart_task_for_recheck",
+      "title": "Restart a task for a re-check",
+      "hint": "One action instead of four for a task that runs the tests for the whole branch: the named task is moved to «needs fix», its «status on completion» is set to «done» (for a blocking task «finished» means only «done»), the spent queue attempts and the delayed start are cleared, the launch mode becomes automatic, and the task itself is declared a blocking task of the current one — that is, the current task will wait for it. When the hierarchy run queue is open, its «start tasks in needs fix too» flag is raised as well, otherwise the queue pass would walk right past. Your own task and your ancestors cannot be restarted this way. A deny/confirm security rule on this code closes the possibility entirely, and the agent reports the refusal in the task chat. A CLI agent has the same — the «ai2p restart» command and the AI2P_RESTART_TASK marker.",
+      "prompt": "Restart ANOTHER task of the same project for your own re-check: it goes to «needs fix» with «done» as its status on completion, its spent queue attempts and delayed start are cleared, and it is declared your blocking task — so your task will wait for it. Parameters: code — the task code; comment — an optional note into that task's chat (write WHAT exactly failed: the check name and the error line, otherwise its executor will have to guess). Use it after a shared test run: restart every task whose checks failed, and only then go waiting (wait_for_recheck). Your own task and an ancestor task cannot be restarted this way."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000027",
+      "code": "AI2P.Tasks.WaitRecheck",
+      "tool": "wait_for_recheck",
+      "title": "Wait for the restarted tasks",
+      "hint": "The test-running task finishes its job and goes to «waiting» instead of its «status on completion»: the executor is released (and may take those very restarted tasks), while the queue starts the run again once all the restarted tasks are finished. A refusal comes in two cases: there is nothing to wait for (no unfinished blocking tasks), or the project limit of re-check rounds is exhausted — it is set in the project settings, three by default. A CLI agent has the same — the «ai2p wait» command and the AI2P_WAIT_RECHECK marker.",
+      "prompt": "Go waiting for the restarted tasks: at the end of this job your task will go to «waiting» and start again by itself once every task you restarted is finished. There are no parameters. Call it ONCE and AFTER all the restarts (restart_task_for_recheck), when the analysis of the run is over; in the answer itself write what exactly failed and whom you restarted. If a refusal comes back (nothing to wait for, or the project limit of re-check rounds is exhausted), do not repeat the call: finish the work and tell the human what is still red."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000028",
+      "code": "AI2P.Archives.AutoRun",
+      "title": "Run automatic archiving",
+      "hint": "Select everything the rules of the CURRENT archive say is due and move it into the archive. It is put into a schedule (the «system action» kind of firing) and is called by a button in the add-archive dialog. It works ONLY on the conductor server of the organisation: an organisation has a single current archive, and running it on every server would move the same data several times over. A task hierarchy is archived as a whole: the root task is checked by its status and age, every descendant only by whether its status is in the rule's list, and a single unsuitable descendant cancels the archiving of the whole branch. The answer is a summary: how many records were selected, moved, skipped and failed.",
+      "prompt": "Run automatic archiving: select everything the rules of the current archive say is due and move it into the archive. There are no parameters. It works only on the conductor server of the organisation; the answer is a summary of how many records were selected, moved, skipped and failed to move."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000029",
+      "code": "AI2P.Media.Add",
+      "tool": "media_add",
+      "title": "Add a resource to the project media library",
+      "hint": "Puts a LINK to an existing file into the project media library (no bytes are copied): path, kind, caption, scene, take, order, duration and the source task. An entry is a project object of the «media resource» kind; the path must be relative (to the project folder, or a store: path inside the data directory). Calling it again with the same path updates the entry instead of creating a duplicate.",
+      "prompt": "Put a file into the project media library AS A LINK (the file is not copied). path — the file path, RELATIVE ONLY: to the project folder, or a store: path inside the organisation data directory; an absolute path is rejected. kind — video, audio, image, subtitle or project (video by default). Also: name (entry name; empty — the file name), caption, scene (it also becomes the tag scene:<name>), take (a number), order (position on the edit list, a number), durationSec (seconds), tags, parent (parent object code), sourceTask (the source task; the current task by default). Video editor projects are later built out of this library, so fill in scene, take, order and duration whenever you know them."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000030",
+      "code": "AI2P.Media.List",
+      "tool": "media_list",
+      "title": "The project media library",
+      "hint": "Shows the project media library as a table, filtered by scene, kind and tag: code, kind, scene, take, order, duration, path, caption, source task. Rows come in the order the clips will go onto the track.",
+      "prompt": "Show the project media library. The filter is optional: scene, kind (video, audio, image, subtitle, project), tag. Rows come in editing order: scene, order, take, code. Columns: code | kind | scene | take | order | duration, s | path | caption | source task."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000031",
+      "code": "AI2P.Media.Remove",
+      "tool": "media_remove",
+      "title": "Remove a resource from the media library",
+      "hint": "Removes an entry from the project media library by object code or by path. THE FILE ITSELF IS UNTOUCHED: the library keeps links, and the same file is usually a task artifact.",
+      "prompt": "Remove an entry from the project media library. code — the object code (OBJ-7, for example); instead of it you may give path — the file path exactly as it is written in the library. The file is NOT deleted, only the entry is removed."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000033",
+      "code": "AI2P.Software.Run",
+      "tool": null,
+      "title": "Launch of a software-executor task",
+      "hint": "A policy action (there is no agent tool): a deny or confirm security rule on this code forbids launching tasks of the «software» executor — that is, the work of an external plugin program (LoRA training and other long runs). The decision is taken before EVERY launch, including one where the task was created and started by an AI agent. Which plugin exactly may be launched is set by a separate rule kind — «plugins and MCP».",
+      "prompt": ""
+    }
+  ]
+}

@@ -1,0 +1,298 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* СПИСОК УВЕДОМЛЕНИЙ (T-272) — содержимое закладки «Настройки → Уведомления».
+   Список свой у каждой организации и изначально пуст; заводится кнопкой «+».
+
+   Представлений четыре (по заданию): таблица и три вида категорий —
+   «проект / событие», «проект / исполнитель», «исполнитель / проект». Раскладку по
+   категориям считает NotificationGroups (её же проверяют тесты), здесь только разметка.
+
+   Выбранное представление ПОМНИТСЯ между входами, а сами категории при открытии вкладки
+   ЗАКРЫТЫ — то же правило, что у справочника моделей (T-217): набор открытых категорий
+   в состояние не пишется намеренно. *@
+<style>
+    .ai2p-notify-cat td { background: var(--mud-palette-background-grey); }
+    .ai2p-notify-sub td { background: var(--mud-palette-background-grey); opacity: .9; }
+</style>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 1100px;">
+    <MudText Typo="Typo.h6">@L["notify.title"]</MudText>
+    <MudSpacer />
+    <MudSelect T="string" Value="@View" ValueChanged="OnViewChanged" Label="@L["common.view"]"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 220px;"
+               data-notify-viewpick="1">
+        @foreach (var view in NotificationViews.All)
+        {
+            <MudSelectItem T="string" Value="@view">@L["notify.view." + view]</MudSelectItem>
+        }
+    </MudSelect>
+    <MudTooltip Text="@L["notify.add"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Add" data-notify-add="1"
+                       Disabled="@(!State.CanAdmin)" OnClick="@(() => EditAsync(null))" />
+    </MudTooltip>
+</MudStack>
+
+@* Почта не настроена — правила заводить можно, но письма никуда не уйдут. Сказать об этом
+   надо здесь: иначе «уведомления не приходят» разбирать нечем (T-272). *@
+@if (_transport is { Ready: false })
+{
+    <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2" Style="max-width: 1100px;"
+              data-notify-transport="0">
+        @_transport.Reason
+    </MudAlert>
+}
+
+@if (_rules.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Style="max-width: 1100px;"
+              data-notify-empty="1">@L["common.empty"]</MudAlert>
+}
+else
+{
+    <div data-notify-view="@View">
+        <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>@L["notify.event"]</th>
+                    <th>@L["notify.when"]</th>
+                    <th>@L["notify.executors"]</th>
+                    <th>@L["notify.projects"]</th>
+                    <th>@L["notify.channel"]</th>
+                    <th>@L["notify.subject"]</th>
+                    <th>@L["common.active"]</th>
+                    @if (State.IsCluster)
+                    {
+                        <th>@L["task.server"]</th>
+                    }
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (View == NotificationViews.Table)
+                {
+                    @foreach (var rule in _rules)
+                    {
+                        @Row(rule)
+                    }
+                }
+                else
+                {
+                    @foreach (var group in Groups())
+                    {
+                        var openGroup = _open.Contains(group.Key);
+                        <tr class="ai2p-notify-cat" style="cursor: pointer;"
+                            data-notify-cat="@group.Key" data-notify-open="@(openGroup ? "1" : "0")"
+                            @onclick="@(() => Toggle(group.Key))">
+                            <td colspan="@Columns">
+                                <MudIcon Icon="@(openGroup ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                         Size="Size.Small" Style="vertical-align: middle;" />
+                                <b>@group.Title</b>
+                                <MudText Typo="Typo.caption" Class="ml-2" Style="display: inline;">
+                                    @group.Count
+                                </MudText>
+                            </td>
+                        </tr>
+                        @if (openGroup)
+                        {
+                            @foreach (var sub in group.Items)
+                            {
+                                var subKey = group.Key + "|" + sub.Key;
+                                var openSub = _open.Contains(subKey);
+                                <tr class="ai2p-notify-sub" style="cursor: pointer;"
+                                    data-notify-subcat="@subKey" data-notify-open="@(openSub ? "1" : "0")"
+                                    @onclick="@(() => Toggle(subKey))">
+                                    <td colspan="@Columns" style="padding-left: 32px;">
+                                        <MudIcon Icon="@(openSub ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                                 Size="Size.Small" Style="vertical-align: middle;" />
+                                        @sub.Title
+                                        <MudText Typo="Typo.caption" Class="ml-2" Style="display: inline;">
+                                            @sub.Rules.Count
+                                        </MudText>
+                                    </td>
+                                </tr>
+                                @if (openSub)
+                                {
+                                    @foreach (var rule in sub.Rules)
+                                    {
+                                        @Row(rule)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    private List<NotificationRule> _rules = [];
+    private NotificationTransportDto? _transport;
+
+    /// <summary>Открытые категории. В app_state НЕ сохраняются намеренно (T-217):
+    /// вкладка всегда открывается со свёрнутыми категориями.</summary>
+    private readonly HashSet<string> _open = new(StringComparer.Ordinal);
+
+    private sealed class ViewState
+    {
+        public string View { get; set; } = NotificationViews.Table;
+    }
+
+    private ViewState _view = new();
+
+    private string View => NotificationViews.Normalize(_view.View);
+
+    /// <summary>Колонок в таблице — на них растягивается строка категории.</summary>
+    private int Columns => State.IsCluster ? 10 : 9;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _view = State.ComponentState<ViewState>("notificationsView");
+        await ReloadAsync();
+    }
+
+    private void OnViewChanged(string view)
+    {
+        _view.View = NotificationViews.Normalize(view);
+        _open.Clear();
+        State.PersistComponentStates();
+    }
+
+    private void Toggle(string key)
+    {
+        if (!_open.Remove(key))
+        {
+            _open.Add(key);
+        }
+    }
+
+    private List<NotificationGroups.Group> Groups() =>
+        NotificationGroups.Build(_rules, View, ProjectTitle, ExecutorTitle, EventTitle);
+
+    private string ProjectTitle(string key) =>
+        key.Length == 0
+            ? L["notify.all.projects"]
+            : State.Projects.FirstOrDefault(p => p.Id == key)?.Name ?? key;
+
+    private string ExecutorTitle(string key) =>
+        key.Length == 0
+            ? L["notify.all.executors"]
+            : State.Executors.FirstOrDefault(e => e.Id == key)?.Nick ?? key;
+
+    private string EventTitle(string code) => L["notify.event." + code];
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _rules = await Api.GetNotificationRulesAsync();
+            _transport = await Api.GetNotificationTransportAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Строка правила — одна и та же во всех представлениях.</summary>
+    private RenderFragment Row(NotificationRule rule) =>
+        @<tr data-notify-row="@rule.DisplayId">
+            <td style="white-space: nowrap;">@rule.DisplayId</td>
+            <td>@L["notify.event." + rule.EventKind]</td>
+            <td style="white-space: nowrap;">@WhenText(rule)</td>
+            <td>@ExecutorsText(rule)</td>
+            <td>@ProjectsText(rule)</td>
+            <td>@L["notify.channel." + rule.Channel]</td>
+            <td>@rule.Subject</td>
+            <td>
+                @if (rule.IsActive)
+                {
+                    <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small"
+                             Class="mud-success-text" />
+                }
+            </td>
+            @if (State.IsCluster)
+            {
+                <td style="white-space: nowrap;">
+                    @(rule.ServerCode.Length > 0 ? rule.ServerCode : L["security.server.common"])
+                </td>
+            }
+            <td style="white-space: nowrap;">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               data-notify-edit="@rule.DisplayId"
+                               Disabled="@(!State.CanAdmin || rule.IsReadOnly)"
+                               OnClick="@(() => EditAsync(rule))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               data-notify-delete="@rule.DisplayId"
+                               Disabled="@(!State.CanAdmin || rule.IsReadOnly)"
+                               OnClick="@(() => DeleteAsync(rule))" />
+            </td>
+        </tr>;
+
+    /// <summary>Уточнение события: состояние либо время до срока; у «проверки» — прочерк.</summary>
+    private string WhenText(NotificationRule rule) => rule.EventKind switch
+    {
+        NotificationEvents.Status => State.TaskStatuses
+            .FirstOrDefault(s => s.Id == rule.StatusCode)?.Name ?? rule.StatusCode,
+        NotificationEvents.Due => $"{rule.LeadMinutes / 60:00}:{rule.LeadMinutes % 60:00}",
+        _ => "—",
+    };
+
+    private string ExecutorsText(NotificationRule rule) =>
+        rule.ExecutorIds.Count == 0
+            ? L["notify.all.executors"]
+            : string.Join(", ", rule.ExecutorIds.Select(ExecutorTitle));
+
+    private string ProjectsText(NotificationRule rule) =>
+        rule.ProjectIds.Count == 0
+            ? L["notify.all.projects"]
+            : string.Join(", ", rule.ProjectIds.Select(ProjectTitle));
+
+    private async Task EditAsync(NotificationRule? rule)
+    {
+        var parameters = new DialogParameters<NotificationDialog> { { d => d.Source, rule } };
+        var dialog = await Dialogs.ShowAsync<NotificationDialog>(
+            rule is null ? L["notify.add"] : L["common.edit"], parameters,
+            FormDialogs.Options(MaxWidth.Small));
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: NotificationRule edited })
+        {
+            return;
+        }
+        try
+        {
+            if (rule is null)
+            {
+                await Api.CreateNotificationRuleAsync(edited);
+            }
+            else
+            {
+                await Api.UpdateNotificationRuleAsync(edited);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(NotificationRule rule)
+    {
+        try
+        {
+            await Api.DeleteNotificationRuleAsync(rule.Id);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

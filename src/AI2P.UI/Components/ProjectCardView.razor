@@ -1,0 +1,427 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Закладка «Проект» (ТЗ v1.18, todo21): открывается кликом по проекту в списке.
+   Вкладки: «основное» (форма проекта; переименование переименовывает хранилище, п. 2.7),
+   «задачи» (список задач проекта; новая задача — с этим проектом и его командой),
+   «команда» (участники со статусами + запуск + добавление, ТЗ v1.17). *@
+@if (Project is not { } project)
+{
+    <MudAlert Severity="Severity.Warning">@L["projects.notFound"]</MudAlert>
+}
+else
+{
+    @* карточка занимает всю высоту фрейма (T-128): на вкладке «Задачи» живёт доска,
+       а ей нужна фиксированная высота — иначе она растёт вниз вместе с карточкой *@
+    <div class="ai2p-card-fill">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudText Typo="Typo.h5"><b>@project.DisplayId</b> @project.Name</MudText>
+        @if (!project.IsActive)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@L["projects.inactive"]</MudChip>
+        }
+    </MudStack>
+
+    @* активная подвкладка запоминается и восстанавливается при возврате на закладку (todo23) *@
+    <MudTabs Elevation="1" Rounded="true" @key="@project.Id"
+             ActivePanelIndex="@_tabState.TabIndex"
+             ActivePanelIndexChanged="@(i => _tabState.TabIndex = i)">
+        <MudTabPanel Text="@L["projects.tab.main"]">
+            @* форма открывается в режиме чтения; карандаш → редактирование + «сохранить» (todo23) *@
+            <MudStack Spacing="3" Class="pa-4" Style="max-width: 560px;">
+                @* карандаш/«сохранить» — в правом верхнем углу формы (гл. 11, эргономика) *@
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudSpacer />
+                    @if (_editing)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   data-project-save="1"
+                                   Disabled="@(_name.Trim().Length == 0 || NameTaken)"
+                                   OnClick="SaveMainAsync">@L["common.save"]</MudButton>
+                        @* «отменить» рядом с «сохранить» (T-123-S0): выход из режима
+                           редактирования без сохранения — поля читаются заново из проекта *@
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   data-project-cancel="1"
+                                   OnClick="CancelMain">@L["common.cancel"]</MudButton>
+                    }
+                    else
+                    {
+                        <MudTooltip Text="@L["common.edit"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
+                                           data-project-edit="1"
+                                           Disabled="@(!State.CanManageProjects)"
+                                           OnClick="@(() => _editing = true)" />
+                        </MudTooltip>
+                    }
+                </MudStack>
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudTextField T="string" @bind-Value="_folder" ReadOnly="@(!_editing)"
+                                  Label="@L["projects.folder"]" Immediate="true" Class="flex-grow-1" />
+                    @if (_editing)
+                    {
+                        <MudTooltip Text="@L["folders.browse"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" OnClick="BrowseAsync" />
+                        </MudTooltip>
+                    }
+                </MudStack>
+                @* папка Common (ТЗ гл. 6, этап 42): её содержимое реплицируется между
+                   серверами — быстрый перенос результатов (сама репликация — этап 44) *@
+                @if (State.IsCluster)
+                {
+                    <MudTextField T="string" @bind-Value="_common" ReadOnly="@(!_editing)"
+                                  Label="@L["projects.common"]"
+                                  HelperText="@(_editing ? L["projects.commonHint"] : null)" />
+                }
+                @* каталог хранилища назван внешним кодом проекта — переименование его не трогает (todo37) *@
+                <MudTextField @bind-Value="_name" Label="@L["projects.name"]" Immediate="true"
+                              ReadOnly="@(!_editing)"
+                              HelperText="@(_editing ? L["projects.renameHint"] : null)"
+                              Error="@(_editing && NameTaken)" ErrorText="@L["projects.nameTaken"]" />
+                <MudSelect T="string" Value="@_teamId" ValueChanged="OnTeamChanged"
+                           Label="@L["projects.team"]"
+                           ReadOnly="@(!_editing)" Clearable="@_editing">
+                    @foreach (var team in State.Teams.Where(t => t.IsActive || t.Id == _teamId))
+                    {
+                        <MudSelectItem T="string" Value="@team.Id">@team.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                @* ответственный по умолчанию (T-5-S0): подставляется в поле «ответственный»
+                   новой задачи проекта и в копию узла шаблона, у которого оно не заполнено.
+                   Пусто — ввод задачи идёт как раньше *@
+                <MudSelect T="string" @bind-Value="_defaultResponsibleId"
+                           Label="@L["projects.defaultResponsible"]"
+                           ReadOnly="@(!_editing)" Clearable="@_editing" data-project-responsible="1"
+                           HelperText="@(_editing ? L["projects.defaultResponsible.hint"] : null)"
+                           ToStringFunc="@ExecutorNick">
+                    @foreach (var human in ResponsibleCandidates)
+                    {
+                        <MudSelectItem T="string" Value="@human.Id">@human.Nick</MudSelectItem>
+                    }
+                </MudSelect>
+                @* цена ↔ качество при автоподборе исполнителя (ТЗ v1.26) *@
+                <div>
+                    <MudText Typo="Typo.caption">@L["projects.qualityBias"]: @_qualityBias.ToString("0.00")</MudText>
+                    <MudSlider T="double" @bind-Value="_qualityBias" Min="0" Max="1" Step="0.05"
+                               Color="Color.Primary" Disabled="@(!_editing)" />
+                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.caption" Style="opacity:.7;">@L["projects.qualityBias.price"]</MudText>
+                        <MudText Typo="Typo.caption" Style="opacity:.7;">@L["projects.qualityBias.quality"]</MudText>
+                    </MudStack>
+                </div>
+                @* «время ↔ качество» по умолчанию (T-23-S0): подставляется в поле новой
+                   задачи проекта и берётся у задачи, где поле не заполнено *@
+                <div data-project-timequality="1">
+                    <MudText Typo="Typo.caption">@L["projects.timeQuality"]: @_timeQuality.ToString("0.00")</MudText>
+                    <MudSlider T="double" @bind-Value="_timeQuality" Min="0" Max="1" Step="0.05"
+                               Color="Color.Primary" Disabled="@(!_editing)" />
+                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.caption" Style="opacity:.7;">@L["projects.timeQuality.time"]</MudText>
+                        <MudText Typo="Typo.caption" Style="opacity:.7;">@L["projects.timeQuality.quality"]</MudText>
+                    </MudStack>
+                    @if (_editing)
+                    {
+                        <MudText Typo="Typo.caption" Style="opacity:.7;">@L["projects.timeQuality.hint"]</MudText>
+                    }
+                </div>
+                @* предел подстановки опыта в промпт задания (T-29-S0): суммарно по трём
+                   блокам опыта. Контроль мягкий — последняя запись входит целиком *@
+                <MudNumericField T="int" @bind-Value="_experienceLimit" Min="1000" Step="10000"
+                                 Label="@L["projects.experienceLimit"]" ReadOnly="@(!_editing)"
+                                 data-project-explimit="1"
+                                 HelperText="@(_editing ? L["projects.experienceLimit.hint"] : null)" />
+                @* предел кругов повторной проверки после прогона тестов (T-31-S0) *@
+                <MudNumericField T="int" @bind-Value="_recheckLimit" Min="1" Max="20" Step="1"
+                                 Label="@L["projects.recheckLimit"]" ReadOnly="@(!_editing)"
+                                 data-project-recheck="1"
+                                 HelperText="@(_editing ? L["projects.recheckLimit.hint"] : null)" />
+                @* длительность задачи по умолчанию (T-132-S0): ширина квадрата на диаграмме
+                   подзадач у задачи без плановой длительности *@
+                <MudNumericField T="double" @bind-Value="_defaultTaskHours" Min="0.1" Max="1000" Step="0.5"
+                                 Label="@L["projects.defaultTaskHours"]" ReadOnly="@(!_editing)"
+                                 data-project-taskhours="1"
+                                 HelperText="@(_editing ? L["projects.defaultTaskHours.hint"] : null)" />
+                @* форма ссылки на объект проекта, которую ставит кнопка MD-редактора
+                   (T-267): по номеру (@obj:OBJ-3) либо по названию (@obj:[Герой Вася]).
+                   Читаются обе формы всегда — настройка решает только, какую пишут *@
+                <MudSelect T="string" @bind-Value="_objRefFormat" Label="@L["projects.objRefFormat"]"
+                           ReadOnly="@(!_editing)" data-project-objref="1"
+                           HelperText="@(_editing ? L["projects.objRefFormat.hint"] : null)"
+                           ToStringFunc="@(value => L["projects.objRefFormat." + ObjectRefFormats.Normalize(value)])">
+                    @foreach (var format in ObjectRefFormats.All)
+                    {
+                        <MudSelectItem T="string" Value="@format">@L["projects.objRefFormat." + format]</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSwitch T="bool" @bind-Value="_isActive" Label="@L["common.active"]"
+                           Color="Color.Primary" Disabled="@(!_editing)" />
+            </MudStack>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.tasks"]">
+            @* высоту держит содержимое вкладки (T-128): доска внутри листается сама *@
+            <div class="pa-2 ai2p-card-tab-fill">
+                @* тот же список задач, но отфильтрован по проекту; новая задача — с этим
+                   проектом и его командой (ТЗ v1.17) *@
+                <TasksView FixedProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        @* ОБЪЕКТЫ ПРОЕКТА (ТЗ пп. 2.5–2.6; T-259): персонажи, локации, реквизит, стиль,
+           эталонные кадры и адаптеры LoRA. Вкладка карточки проекта, а не общий вид
+           экшен-бара: список объектов свой у каждого проекта, общего не существует *@
+        <MudTabPanel Text="@L["projects.tab.objects"]">
+            <div class="pa-2">
+                <ObjectsView ProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.team"]">
+            <div class="pa-2">
+                <ProjectTeamTab Project="project" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.security"]">
+            <div class="pa-2">
+                @* правила безопасности проекта (ТЗ гл. 12, todo25; переименовано из «процесса») *@
+                <SecurityRulesPanel Scope="@(SecurityScope.Project)" ScopeId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.templates"]">
+            <div class="pa-2">
+                @* шаблоны проекта (todo31_2): те же представления с сортировками, но
+                   ограниченные этим проектом; новый шаблон — сразу с этим проектом *@
+                <TemplatesView FixedProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.experience"]">
+            <div class="pa-2">
+                @* опыт ПРОЕКТА (ТЗ п. 2.11, todo48): обобщение работы по всему проекту —
+                   его получает любая задача проекта, но только по своим навыкам *@
+                <ExperienceTab ProjectId="@project.Id" CanEdit="@State.CanEdit" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.history"]">
+            <div class="pa-2">
+                @* история работ по проекту (todo37): тот же журнал, что общий, но только
+                   события этого проекта — включая запуск команды и ошибки подключения *@
+                <HistoryView FixedProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+    </MudTabs>
+    </div>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    private string _folder = "";
+    /// <summary>Папка Common — путь внутри каталога проекта (ТЗ гл. 6, этап 42).</summary>
+    private string _common = "";
+    private string _name = "";
+    private string? _teamId;
+    private bool _isActive = true;
+    private double _qualityBias = 0.5;
+    /// <summary>Форма ссылки на объект, которую ставит кнопка редактора (T-267).</summary>
+    private string _objRefFormat = ObjectRefFormats.Default;
+    /// <summary>Ответственный по умолчанию для новых задач проекта (T-5-S0); null — нет.</summary>
+    private string? _defaultResponsibleId;
+    /// <summary>«Время ↔ качество» по умолчанию для задач проекта (T-23-S0).</summary>
+    private double _timeQuality = ProjectSettings.TimeQualityDefault;
+    /// <summary>Предел подстановки опыта в промпт задания, знаков (T-29-S0).</summary>
+    private int _experienceLimit = ProjectSettings.ExperienceLimitDefault;
+    /// <summary>Предел кругов повторной проверки после прогона тестов (T-31-S0).</summary>
+    private int _recheckLimit = ProjectSettings.RecheckLimitDefault;
+
+    /// <summary>Длительность задачи по умолчанию, часы (T-132-S0): диаграмма подзадач.</summary>
+    private double _defaultTaskHours = ProjectSettings.DefaultTaskHoursDefault;
+    private string? _loadedProjectId;
+    /// <summary>Форма «основное» открывается в режиме чтения (todo23).</summary>
+    private bool _editing;
+    /// <summary>Активная подвкладка — запоминается на время сессии (todo23).</summary>
+    private ProjectCardState _tabState = new();
+
+    private sealed class ProjectCardState
+    {
+        public int TabIndex { get; set; }
+    }
+
+    private Project? Project => State.Projects.FirstOrDefault(p => p.Id == ProjectId);
+
+    /// <summary>
+    /// Кандидаты в ответственные по умолчанию (T-5-S0): люди команды проекта. Ответственным
+    /// задачи может быть только человек (правило хранилища), а поле «ответственный» формы
+    /// задачи собирается из участников её команды — здесь тот же отбор.
+    /// </summary>
+    private IEnumerable<Executor> ResponsibleCandidates
+    {
+        get
+        {
+            var team = State.Teams.FirstOrDefault(t => t.Id == _teamId);
+            var people = State.Executors.Where(e => e.Kind == ExecutorKind.Human);
+            if (team is not null)
+            {
+                people = people.Where(e => team.Members.Any(m => m.ExecutorId == e.Id));
+            }
+            return people.Where(e => e.IsActive || e.Id == _defaultResponsibleId);
+        }
+    }
+
+    /// <summary>Ник по id: MudSelect без ToStringFunc показывает GUID при программной
+    /// установке значения (наука todo34_3).</summary>
+    private string ExecutorNick(string? id) =>
+        id is null ? "" : State.Executors.FirstOrDefault(e => e.Id == id)?.Nick ?? id;
+
+    /// <summary>Смена команды проекта снимает ответственного по умолчанию, если он не
+    /// участник новой команды: иначе выбор остался бы в настройках, не показываясь в списке.</summary>
+    private void OnTeamChanged(string? teamId)
+    {
+        _teamId = teamId;
+        if (_defaultResponsibleId is { } id && ResponsibleCandidates.All(e => e.Id != id))
+        {
+            _defaultResponsibleId = null;
+        }
+    }
+
+    private bool NameTaken => State.Projects.Any(p =>
+        p.Id != ProjectId &&
+        p.Name.Trim().Equals(_name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+
+    protected override void OnParametersSet() => LoadProject();
+
+    public void Dispose() => State.Changed -= OnStateChanged;
+
+    private void OnStateChanged() => StateHasChanged();
+
+    private void LoadProject()
+    {
+        if (_loadedProjectId == ProjectId || Project is not { } project)
+        {
+            return;
+        }
+        _loadedProjectId = ProjectId;
+        _tabState = State.ComponentState<ProjectCardState>("projectTab:" + ProjectId);
+        _editing = false;
+        _name = project.Name;
+        _isActive = project.IsActive;
+        // каталог и папка Common — пер-серверные (ТЗ гл. 6, этап 42): их подставляет сервер
+        _folder = project.FolderPath;
+        _common = project.CommonPath;
+        (_teamId, _qualityBias) = ReadSettings(project.SettingsJson);
+        _objRefFormat = ProjectSettings.ObjRefFormat(project.SettingsJson);
+        _defaultResponsibleId = ProjectSettings.DefaultResponsibleId(project.SettingsJson);
+        _timeQuality = ProjectSettings.TimeQuality(project.SettingsJson);
+        _experienceLimit = ProjectSettings.ExperienceLimitChars(project.SettingsJson);
+        _recheckLimit = ProjectSettings.RecheckLimit(project.SettingsJson);
+        _defaultTaskHours = ProjectSettings.DefaultTaskHours(project.SettingsJson);
+    }
+
+    /// <summary>
+    /// «Отменить» (T-123-S0): выход из режима редактирования без сохранения. Введённое
+    /// нигде не запоминается — поля просто читаются заново из проекта, поэтому достаточно
+    /// сбросить отметку «этот проект уже загружен» и позвать обычную загрузку формы.
+    /// </summary>
+    private void CancelMain()
+    {
+        _loadedProjectId = null;
+        LoadProject(); // сам ставит _editing = false
+    }
+
+    /// <summary>Сохранение вкладки «основное»: переименование меняет и слаг хранилища (ТЗ v1.17).</summary>
+    private async Task SaveMainAsync()
+    {
+        if (Project is not { } project)
+        {
+            return;
+        }
+        try
+        {
+            var folder = _folder.Trim().Length == 0 ? null : _folder.Trim();
+            var updated = await Api.UpdateProjectAsync(new Project
+            {
+                Id = project.Id,
+                DisplayId = project.DisplayId,
+                Slug = project.Slug,
+                Name = _name.Trim(),
+                IsActive = _isActive,
+                // каталог и папка Common — пер-серверные (ТЗ гл. 6, этап 42): отдельные поля,
+                // а не настройки проекта, потому что на каждом сервере они свои
+                FolderPath = folder ?? "",
+                CommonPath = _common.Trim(),
+                SettingsJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    defaultTeamId = _teamId,
+                    qualityBias = _qualityBias,
+                    objRefFormat = ObjectRefFormats.Normalize(_objRefFormat),
+                    // ответственный по умолчанию (T-5-S0): пусто — новые задачи как раньше
+                    defaultResponsibleId = _defaultResponsibleId,
+                    // «время ↔ качество» по умолчанию (T-23-S0)
+                    timeQuality = _timeQuality,
+                    // предел подстановки опыта в промпт задания (T-29-S0): настройки
+                    // собираются заново обеими формами, поэтому поле нужно в каждой
+                    experienceLimitChars = _experienceLimit,
+                    // предел кругов повторной проверки (T-31-S0): настройки собираются
+                    // заново обеими формами, поэтому поле нужно в каждой
+                    recheckLimit = _recheckLimit,
+                    // длительность задачи по умолчанию (T-132-S0): поле нужно в каждой форме
+                    defaultTaskHours = _defaultTaskHours,
+                }),
+            });
+            await State.RefreshReferenceDataAsync();
+            // обновить заголовок закладки (название могло смениться)
+            State.OpenProject(updated.Id, updated.DisplayId, updated.Name, FrameIndex);
+            _editing = false; // после сохранения — обратно в режим чтения (todo23)
+            Snackbar.Add(L["settings.saved"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task BrowseAsync()
+    {
+        var parameters = new DialogParameters<FolderPickerDialog>
+        {
+            { d => d.StartPath, _folder.Trim().Length == 0 ? null : _folder.Trim() },
+        };
+        var dialog = await Dialogs.ShowAsync<FolderPickerDialog>(L["folders.title"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string path })
+        {
+            _folder = path;
+        }
+    }
+
+    /// <summary>Реплицируемые настройки проекта: команда по умолчанию и цена↔качество.
+    /// Каталог и папка Common сюда больше не входят — они пер-серверные (ТЗ гл. 6, этап 42).</summary>
+    private static (string? TeamId, double QualityBias) ReadSettings(string settingsJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(settingsJson);
+            var team = doc.RootElement.TryGetProperty("defaultTeamId", out var t) ? t.GetString() : null;
+            var bias = doc.RootElement.TryGetProperty("qualityBias", out var q) && q.TryGetDouble(out var b)
+                ? Math.Clamp(b, 0.0, 1.0)
+                : 0.5;
+            return (team, bias);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return (null, 0.5);
+        }
+    }
+}

@@ -1,0 +1,342 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Вкладка «Опыт» — одна на три вида записей (ТЗ п. 2.11):
+   * ПРОЕКТ (todo48) — обобщение работы по всему проекту, его получает любая задача проекта;
+     сверху фильтр по навыкам (множественный выбор);
+   * УЗЕЛ ШАБЛОНА (todo32) — опыт поддерева шаблона, полезный при повторном выполнении;
+   * ОБЩИЕ ПРАВИЛА РАБОТЫ (T-11-S0) — правила, годные для любого проекта: их получает
+     каждая задача организации; закладка «Общий опыт» настроек.
+
+   Интерфейс намеренно один и тот же: пользователь видит ту же таблицу и те же кнопки,
+   меняются только колонка «узел» (у проекта и у общих правил её нет) и фильтр. *@
+<MudStack Spacing="2" data-experience-scope="@Scope">
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        @if (HasSkillFilter)
+        {
+            @* навык записи — зачем он: медиа-модели незачем читать выводы кодировщиков.
+               Фильтр показывает записи выбранных навыков И общие записи (без навыка) *@
+            <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_filter"
+                       Label="@L["exp.filter.skills"]" Clearable="true" Dense="true"
+                       MultiSelectionTextFunc="@SkillNames" Style="max-width: 420px;">
+                @foreach (var skill in State.Skills)
+                {
+                    <MudSelectItem T="string" Value="@skill.Id">@SkillLabel(skill)</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        @* ФИЛЬТР ПО ТЭГАМ (T-24-S0), множественный выбор: показываются записи, у которых
+           есть хоть один из выбранных тэгов, — то же правило «или», что у фильтра задач.
+           Здесь, в отличие от навыков, запись БЕЗ тэгов не показывается: выбрав тему,
+           человек хочет видеть записи этой темы, а не весь список заодно *@
+        <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_tagFilter"
+                   Label="@L["exp.filter.tags"]" Clearable="true" Dense="true"
+                   data-exp-filter-tags="1" Style="max-width: 420px;"
+                   MultiSelectionTextFunc="@(list => string.Join(", ", list))">
+            @foreach (var tag in _allTags)
+            {
+                <MudSelectItem T="string" Value="@tag">@tag</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSpacer />
+        @* правку прячем, а не гасим (T-45-S0): в архиве опыт только читается *@
+        @if (CanEdit)
+        {
+            <MudTooltip Text="@L["exp.add"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Disabled="@(!CanEdit)"
+                               data-exp-add="1" OnClick="@(() => EditAsync(null))" />
+            </MudTooltip>
+        }
+    </MudStack>
+
+    @if (Visible.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="opacity:.7">
+            @(IsGeneral ? L["exp.empty.general"] : IsProject ? L["exp.empty.project"] : L["exp.empty"])
+        </MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    @if (IsTemplate)
+                    {
+                        <th>@L["exp.node"]</th>
+                    }
+                    <th style="width:160px">@L["exp.skill"]</th>
+                    <th style="width:180px">@L["exp.tags"]</th>
+                    <th>@L["exp.text"]</th>
+                    <th>@L["exp.created"]</th>
+                    <th>@L["exp.updated"]</th>
+                    <th style="width:88px"></th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var record in Visible)
+            {
+                <tr data-experience-row="@record.Id">
+                    @if (IsTemplate)
+                    {
+                        <td>@record.TemplateDisplayId</td>
+                    }
+                    <td>
+                        @if (record.SkillName.Length > 0)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default">@SkillText(record)</MudChip>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Style="opacity:.6">@L["exp.skill.any"]</MudText>
+                        }
+                    </td>
+                    @* ТЭГИ записи (T-24-S0) и пометка «загружать всегда»: без неё в списке
+                       не видно, какие записи идут в задание мимо отбора *@
+                    <td data-exp-row-tags="@record.Id">
+                        @if (record.AlwaysLoad)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                                     title="@L["exp.alwaysLoad.hint"]">@L["exp.alwaysLoad.short"]</MudChip>
+                        }
+                        @foreach (var tag in record.Tags)
+                        {
+                            <MudChip T="string" Size="Size.Small" Color="Color.Default">@tag</MudChip>
+                        }
+                        @if (!record.AlwaysLoad && record.Tags.Count == 0)
+                        {
+                            <MudText Typo="Typo.caption" Style="opacity:.6">@L["exp.tags.none"]</MudText>
+                        }
+                    </td>
+                    <td style="white-space: pre-wrap;">@record.Text</td>
+                    <td style="white-space: nowrap; opacity:.7">
+                        @record.CreatedBy<br />@record.CreatedAt.ToLocalTime().ToString("g")
+                    </td>
+                    <td style="white-space: nowrap; opacity:.7">
+                        @record.UpdatedBy<br />@record.UpdatedAt.ToLocalTime().ToString("g")
+                    </td>
+                    <td style="white-space: nowrap;">
+                        @if (CanEdit)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                           OnClick="@(() => EditAsync(record))" />
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                           OnClick="@(() => DeleteAsync(record))" />
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudStack>
+
+@* удаление записи опыта спрашивается формой выбора «перенести в архив или удалить
+   совсем» (T-44-S0) — простого переспроса здесь больше нет *@
+
+@code {
+    /// <summary>Проект, опыт которого показывается (todo48); пусто — режим узла шаблона.</summary>
+    [Parameter] public string ProjectId { get; set; } = "";
+
+    /// <summary>Узел шаблона, опыт поддерева которого показывается (todo32).</summary>
+    [Parameter] public string TemplateTaskId { get; set; } = "";
+
+    /// <summary>
+    /// ОБЩИЕ ПРАВИЛА РАБОТЫ организации (T-11-S0): записи без проекта и без узла шаблона,
+    /// их получает каждая задача. Ставится закладкой «Общий опыт» настроек.
+    /// </summary>
+    [Parameter] public bool General { get; set; }
+
+    /// <summary>Правка разрешена (роль, владение сервером — решает вызывающая карточка).</summary>
+    [Parameter] public bool CanEdit { get; set; } = true;
+
+    private List<ExperienceRecordDto> _records = [];
+    private IReadOnlyCollection<string> _filter = [];
+
+    /// <summary>Выбранные тэги фильтра (T-24-S0); пусто — тэгами не отбираем.</summary>
+    private IReadOnlyCollection<string> _tagFilter = [];
+
+    /// <summary>Тэги для фильтра: набор организации (у опыта и у задач он общий) плюс те,
+    /// что стоят у показанных записей.</summary>
+    private List<string> _allTags = [];
+
+    private string _loadedFor = "";
+
+    private bool IsGeneral => General;
+    private bool IsProject => !General && ProjectId.Length > 0;
+    private bool IsTemplate => !General && ProjectId.Length == 0;
+
+    /// <summary>Фильтр по навыкам нужен там, где записей много и они разноплановые, —
+    /// у опыта проекта и у общих правил; в поддереве шаблона записей единицы.</summary>
+    private bool HasSkillFilter => IsProject || IsGeneral;
+
+    /// <summary>Вид записей — для проверок разметки: project / template / general.</summary>
+    private string Scope => IsGeneral ? "general" : IsProject ? "project" : "template";
+
+    /// <summary>
+    /// Фильтр применяется на клиенте: список опыта короткий, а лишний поход на сервер при
+    /// каждом щелчке в фильтре ничего не даёт. По НАВЫКАМ: записи без навыка показываются
+    /// всегда — они общие. По ТЭГАМ (T-24-S0): нужен хоть один из выбранных, запись без
+    /// тэгов в отбор не попадает. Оба фильтра действуют вместе.
+    /// </summary>
+    private List<ExperienceRecordDto> Visible
+    {
+        get
+        {
+            IEnumerable<ExperienceRecordDto> visible = _records;
+            if (_filter.Any())
+            {
+                visible = visible.Where(r => r.SkillId.Length == 0 || _filter.Contains(r.SkillId));
+            }
+            if (_tagFilter.Any())
+            {
+                visible = visible.Where(r => r.Tags.Any(
+                    tag => _tagFilter.Any(chosen => TaskTags.Same(chosen, tag))));
+            }
+            return visible.ToList();
+        }
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = IsGeneral ? "g:" : IsProject ? "p:" + ProjectId : "t:" + TemplateTaskId;
+        if (key != _loadedFor)
+        {
+            _loadedFor = key;
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _records = IsGeneral
+                ? await Api.GetGeneralExperienceAsync()
+                : IsProject
+                    ? await Api.GetProjectExperienceAsync(ProjectId)
+                    : await Api.GetExperienceAsync(TemplateTaskId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _records = [];
+        }
+        await ReloadTagsAsync();
+    }
+
+    /// <summary>Набор тэгов для фильтра (T-24-S0): заведённые в организации плюс стоящие
+    /// у показанных записей — тэг мог остаться только у них.</summary>
+    private async Task ReloadTagsAsync()
+    {
+        var own = _records.SelectMany(r => r.Tags);
+        try
+        {
+            var known = await Api.GetExperienceTagsAsync();
+            _allTags = known.Concat(own).Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+        catch (ApiException)
+        {
+            // без общего списка фильтр работает по тэгам показанных записей
+            _allTags = own.Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+    }
+
+    /// <summary>Добавление (record=null) либо правка записи: текст и навык.</summary>
+    private async Task EditAsync(ExperienceRecordDto? record)
+    {
+        var parameters = new DialogParameters<ExperienceDialog>
+        {
+            { d => d.Text, record?.Text ?? "" },
+            { d => d.SkillId, record?.SkillId ?? "" },
+            // «загружать всегда» и тэги (T-24-S0); у новой записи признак выключен
+            { d => d.AlwaysLoad, record?.AlwaysLoad ?? false },
+            { d => d.Tags, (IReadOnlyCollection<string>)(record?.Tags ?? []) },
+        };
+        var dialog = await Dialogs.ShowAsync<ExperienceDialog>(L["exp.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ExperienceSaveDto saved })
+        {
+            return;
+        }
+        try
+        {
+            if (record is null)
+            {
+                if (IsGeneral)
+                {
+                    await Api.CreateGeneralExperienceAsync(saved);
+                }
+                else if (IsProject)
+                {
+                    await Api.CreateProjectExperienceAsync(ProjectId, saved);
+                }
+                else
+                {
+                    await Api.CreateExperienceAsync(TemplateTaskId, saved);
+                }
+            }
+            else
+            {
+                await Api.UpdateExperienceAsync(record.Id, saved);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Удаление записи опыта — с выбором «перенести в архив или удалить совсем»
+    /// (T-44-S0). Запись опыта уезжает одна: потомков у неё нет.</summary>
+    private async Task DeleteAsync(ExperienceRecordDto record)
+    {
+        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["exp.delete.title"],
+            ArchiveMoveTargets.Experience, record.Id, Excerpt(record.Text));
+        if (choice is null)
+        {
+            return;
+        }
+        try
+        {
+            if (choice == ArchiveOrDeleteDialog.Archive)
+            {
+                await Api.MoveToArchiveAsync(ArchiveMoveTargets.Experience, record.Id);
+                await ReloadAsync();
+                return;
+            }
+            await Api.DeleteExperienceAsync(record.Id);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Как назвать запись опыта в вопросе об удалении: номера у неё нет,
+    /// поэтому берётся начало текста.</summary>
+    private static string Excerpt(string? text)
+    {
+        var value = (text ?? "").Trim().ReplaceLineEndings(" ");
+        return value.Length > 80 ? value[..80] + "…" : value;
+    }
+
+    private string SkillLabel(Skill skill) => skill.IsCustom ? skill.Name : L["skill." + skill.Name];
+
+    /// <summary>Название навыка записи: встроенные навыки переводятся (гл. 9).</summary>
+    private string SkillText(ExperienceRecordDto record) =>
+        State.Skills.FirstOrDefault(s => s.Id == record.SkillId) is { } skill
+            ? SkillLabel(skill)
+            : record.SkillName;
+
+    private string SkillNames(IReadOnlyList<string> ids) =>
+        string.Join(", ", ids.Select(id =>
+            State.Skills.FirstOrDefault(s => s.Id == id) is { } skill ? SkillLabel(skill) : id));
+}

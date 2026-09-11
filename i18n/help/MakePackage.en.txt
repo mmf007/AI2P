@@ -1,0 +1,65 @@
+AI2P - MakePackage: AN INSTALLATION PACKAGE OUT OF A READY RELEASE
+
+One installer file that can be handed to a human without explaining install.* and
+folders to them.
+
+IT IS RUN FROM THE RELEASE FOLDER. buildRelease puts this script into
+builds/<os>/release and builds/<os>/releasefull, and it works "from here to there":
+the source is the folder where the script itself lies, the target is ../../packages
+(that is, builds/packages).
+
+USAGE (Windows)
+  MakePackage.cmd                   from the release folder, the ordinary run
+  MakePackage.cmd D:\out            put the package into another folder
+  MakePackage.ps1 -Output D:\out    the same
+  MakePackage.ps1 -Source D:\release  build the package out of another release
+  MakePackage.ps1 -KeepStage        keep the temporary folder (error analysis)
+  MakePackage.ps1 -Lang ru          the language of the messages
+  MakePackage.cmd --help            this help
+
+USAGE (Linux / macOS)
+  ./MakePackage.sh                  from the release folder
+  ./MakePackage.sh /tmp/out         put the package into another folder
+  ./MakePackage.sh --source DIR     build the package out of another release
+  ./MakePackage.sh --lang ru        the language of the messages
+  ./MakePackage.sh --help           this help
+
+THE FILE NAME is composed by itself, out of version.json of the release:
+  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
+  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
+NN is the build number (the second part of the version), no need to ask for it.
+On Windows the installer is built by Inno Setup (ISCC.exe) and .exe is its kind of
+result; .run is the kind of result of makeself - a self-extracting archive that
+starts install.sh itself.
+
+WHAT IS NEEDED ON THE MACHINE
+  Windows      - Inno Setup 6 (ISCC.exe), installed by install_required.bat
+                 (winget: JRSoftware.InnoSetup)
+  Linux/macOS  - makeself, installed by install_required.sh
+                 (apt/dnf/brew: makeself)
+If the tool is missing, the script says so honestly.
+
+WHAT GETS INTO THE PACKAGE: the whole release EXCEPT the user data (data, logs,
+secrets, secrets.json) and the inventory of the previous installation
+(installed.json). The working config.json is not overwritten by the installer: it
+is put only if the file does not exist, and config.new.json is always put next to
+it - the application merges them at the first start (ConfigMerge), exactly the way
+install.* does it.
+
+THE OS SERVICE. If the installation was made a service (makeAsServise, the service
+name is AI2P), the installer stops it before copying and starts it back after, and
+removes it when the program is uninstalled. A foreign service that leads to another
+folder is not touched. makeAsServise itself travels in the package and gets into
+the installation: a service is made out of it by hand.
+
+WHERE THE DATA GOES (Windows). The "for all users" installation is
+C:\Program Files\AI2P, and an ordinary user cannot write there. So the working
+files (config.json, data, logs, secrets) of such an installation lie in
+C:\ProgramData\AI2P; the installer creates that folder and opens it for writing to
+all the users of the computer. The "just for me" installation puts the program into
+the user folder - there everything is as before, next to the program.
+
+THE LANGUAGE OF THE INSTALLER ITSELF. The Inno Setup script carries both languages
+(russian and english); the AI2P texts of the [Code] section are taken from
+i18n/scripts.<lang>.txt at build time and put into [CustomMessages], so a new
+language of the installer is a new catalogue plus one line in [Languages].

@@ -1,0 +1,101 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+@* НАСТРОЙКА ОДНОЙ ПРОГРАММЫ ПЛАГИНА (T-146-S0). Раньше поле пути стояло прямо в окне
+   установки одной строкой с тремя кнопками: у плагина, ведущего к НЕСКОЛЬКИМ программам,
+   такое поле означало бы один путь на всех, а надписи кнопок в узкой строке заезжали за
+   их края. Теперь путь спрашивается окном от КОНКРЕТНОЙ записи софта — её имя (Soft)
+   уходит на сервер и решает, куда в config.json лечь значению. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 460px;" data-pluginp-form="@Soft">
+            <MudText Typo="Typo.subtitle2" data-pluginp-name="1">@Name</MudText>
+            @if (Hint.Length > 0)
+            {
+                <MudText Typo="Typo.caption" Style="opacity:.75;">@Hint</MudText>
+            }
+            <MudTextField @bind-Value="_path" Label="@L["plugins.path"]"
+                          HelperText="@L["plugins.pathHint"]" ReadOnly="@(!CanEdit)"
+                          data-pluginp-path="1" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                   StartIcon="@Icons.Material.Filled.FolderOpen" Disabled="@(!CanEdit || _busy)"
+                   data-pluginp-browse="1" OnClick="BrowseAsync">
+            @L["plugins.browse"]
+        </MudButton>
+        <MudSpacer />
+        <MudButton data-pluginp-cancel="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(false)))">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanEdit || _busy)"
+                   data-pluginp-save="1" OnClick="SaveAsync">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Код плагина (<c>editor.shotcut</c>).</summary>
+    [Parameter, EditorRequired] public string Code { get; set; } = "";
+
+    /// <summary>Имя записи софта внутри плагина; пусто — главная программа.</summary>
+    [Parameter] public string Soft { get; set; } = "";
+
+    /// <summary>Название программы — то же, что в строке списка.</summary>
+    [Parameter] public string Name { get; set; } = "";
+
+    /// <summary>Подсказка манифеста: что делать, если программа не нашлась.</summary>
+    [Parameter] public string Hint { get; set; } = "";
+
+    /// <summary>Путь, который уже указан; пусто — не указан.</summary>
+    [Parameter] public string Path { get; set; } = "";
+
+    /// <summary>Правка настроек сервера — админу этого компьютера (b26391b3).</summary>
+    [Parameter] public bool CanEdit { get; set; } = true;
+
+    private string _path = "";
+    private bool _busy;
+
+    protected override void OnInitialized() => _path = Path;
+
+    /// <summary>ОБЗОР ДИСКА ЭТОГО КОМПЬЮТЕРА: путь в «Program Files» набирать руками — работа,
+    /// которую человек делает вместо программы.</summary>
+    private async Task BrowseAsync()
+    {
+        var parameters = new DialogParameters<LocalFilePickerDialog>
+        {
+            { d => d.StartPath, _path },
+            { d => d.ImagesOnly, false },
+        };
+        var dialog = await Dialogs.ShowAsync<LocalFilePickerDialog>(L["plugins.browse"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string picked } && picked.Length > 0)
+        {
+            _path = picked;
+            await SaveAsync();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.SetPluginPathAsync(Code, _path, L.Lang, Soft);
+            Snackbar.Add(L["common.saved"], Severity.Success);
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

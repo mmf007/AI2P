@@ -1,0 +1,95 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Переспрос при запуске импорта (ТЗ v1.28, todo30): откуда импорт (активные источники
+   справочника импортов) + чекбоксы «добавлять новые» / «обновить существующие».
+   Импорт всегда идёт в переданный проект (текущий на закладке). *@
+<MudDialog>
+    <DialogContent>
+        @if (!_loaded)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_sources.Count == 0)
+        {
+            <MudText Typo="Typo.body2">@L["imports.run.noSources"]</MudText>
+        }
+        else
+        {
+            <MudStack Spacing="2">
+                <MudSelect T="string" @bind-Value="_sourceId" Label="@L["imports.run.source"]">
+                    @foreach (var source in _sources)
+                    {
+                        <MudSelectItem T="string" Value="@source.Id">@source.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudCheckBox T="bool" @bind-Value="_addNew" Label="@L["imports.run.addNew"]" Dense="true" />
+                <MudCheckBox T="bool" @bind-Value="_updateExisting" Label="@L["imports.run.updateExisting"]" Dense="true" />
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_sourceId is null || (!_addNew && !_updateExisting) || _running)"
+                   OnClick="RunAsync">@L["imports.run.start"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    private List<ImportSource> _sources = [];
+    private string? _sourceId;
+    private bool _addNew = true;
+    private bool _updateExisting;
+    private bool _loaded;
+    private bool _running;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _sources = (await Api.GetImportSourcesAsync()).Where(s => s.IsActive).ToList();
+            _sourceId = _sources.FirstOrDefault()?.Id;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        _running = true;
+        try
+        {
+            var result = await Api.RunImportAsync(ProjectId, new ImportRunDto
+            {
+                SourceId = _sourceId!,
+                AddNew = _addNew,
+                UpdateExisting = _updateExisting,
+            });
+            // в итоге импорта — и обсуждение: сколько сообщений уехало в чаты задач (T-152)
+            Snackbar.Add(string.Format(L["imports.run.done"], result.Added, result.Updated,
+                    result.Skipped, result.Comments),
+                Severity.Success);
+            Dialog.Close(DialogResult.Ok(result));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+}

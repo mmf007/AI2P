@@ -1,0 +1,16 @@
+AI2P — build：构建整个解决方案
+
+C# 项目，外加（将来的）基于 CMake 的 C/C++ 原生子项目（技术规格 4.2 章）。
+这是**开发者**脚本：它在构建机器上、从代码仓库中运行，它自己的输出只做了英文
+（T-64-S0 分析中的 B 层）。
+
+用法
+  build.cmd [Debug|Release]        Windows，默认 Debug
+  build.ps1 -Configuration Release 同上，不经 .cmd 封装
+  ./build.sh [Debug|Release]       Linux / macOS
+  build.cmd --help                 本帮助
+  build.cmd --help -Lang ru        本帮助的语言
+
+接下来
+  dotnet run --project src/AI2P.Server        启动开发用服务器
+  buildRelease.cmd                            从源码制作发布部署包

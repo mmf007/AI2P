@@ -1,0 +1,59 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* СПРАВОЧНИК МАКРОПОДСТАНОВОК (T-272). Задание просит у редактора текстов уведомления
+   кнопку «с выдачей справочника макро подстановок»: человек не обязан помнить, как
+   пишется ${performer.nik}. Выбранный макрос возвращается строкой и встаёт в позицию
+   курсора того поля, из которого окно открыли.
+
+   Список приходит с сервера (GET /api/notifications/macros), а не вписан в разметку:
+   коды живут в ядре (NotificationMacros), пояснения — в словаре языка, и расходиться
+   этим двум спискам нельзя. *@
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mb-2">@L["notify.macro.hint"]</MudText>
+        @if (_macros.Count == 0)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudSimpleTable Dense="true" Hover="true" data-macro-list="1">
+                <tbody>
+                    @foreach (var macro in _macros)
+                    {
+                        <tr style="cursor: pointer;" data-macro-row="@macro.Code"
+                            @onclick="@(() => Pick(macro))">
+                            <td style="white-space: nowrap;"><code>@macro.Marker</code></td>
+                            <td>@macro.Description</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    private List<NotificationMacroDto> _macros = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _macros = await Api.GetNotificationMacrosAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private void Pick(NotificationMacroDto macro) => Dialog.Close(DialogResult.Ok(macro.Marker));
+}

@@ -1,0 +1,773 @@
+@using AI2P.Core.Api
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* ДИАГРАММА ПОДЗАДАЧ (T-132-S0) — третье представление вкладки «Подзадачи», сделанное по
+   образцу диаграммы BPMN: по оси X время, по оси Y дорожки исполнителей, задачи — квадраты.
+
+   Всё, что нарисовано, приходит одним вызовом /api/tasks/{id}/diagram: порядок задач — тот,
+   которым их будет выполнять запуск иерархии (T-159), ширина квадрата — длительность задачи
+   (плановая, умолчание проекта либо реально затраченное время), дорожка — тот, кто задачу
+   РЕАЛЬНО делает или делал.
+
+   Стрелок два рода: СИНИЕ — иерархия (подзадача → родитель), КРАСНЫЕ — блокирующие задачи.
+   Выход стрелки всегда справа либо снизу, вход — всегда слева либо сверху (T-135-S0).
+
+   Перенос по иерархии — той же механикой, что в дереве (ai2p.initTreeDnd): у квадрата есть
+   ручка [data-tree-grip] и приметы data-tree-task / data-tree-drop. Вытащить задачу В КОРЕНЬ
+   отсюда нельзя намеренно (по заданию): полос «в корень» на диаграмме нет.
+
+   ДОРАБОТКА T-135-S0, пять вещей:
+   * КОРЕНЬ иерархии рисуется тоже — последним квадратом, рамкой пожирнее; сам он не
+     перетаскивается (иерархию он и задаёт), но бросать на него другие задачи можно;
+   * та же ручка переноса работает и НА ДОРОЖКУ: задачу, которая ещё не выполнена, бросают
+     на дорожку другого исполнителя — меняется исполнитель задачи (POST /tasks/{id}/executor).
+     Целей две — подпись дорожки слева и её полоса на поле;
+   * ОБЩИЙ РЕЖИМ ПРОЗРАЧНОСТИ — кнопка рядом с «обновить»: все квадраты становятся
+     полупрозрачными, и стрелки под ними видно разом. Прежняя прозрачность «по наведению
+     мыши» показывала только один квадрат и потому убрана: под мышью квадрат теперь,
+     наоборот, становится непрозрачным — чтобы прочитать то, что в нём написано;
+   * УЗКИЙ КВАДРАТ (уже кнопок) не пишет подписей вовсе, а значок меню уезжает ПОД ручку
+     переноса — иначе они наезжают друг на друга. Подсказка (title) остаётся всегда;
+   * БЛОКИРУЮЩАЯ ВНЕ ИЕРАРХИИ рисуется сама, красной, вместе со своим исполнителем и своими
+     подзадачами (их считает сервер). Рамка задачи, которую она держит, больше не красная.
+
+   ДОРАБОТКА T-140-S0, три вещи:
+   * КОРОТКАЯ ЗАДАЧА рисовалась не квадратом, а кружком (отменено в T-159-S0, см. ниже);
+   * ПОДСКАЗКА квадрата называет ещё и состояние задачи (и состояние работы агента, если она
+     идёт) — у узкого квадрата это единственное место, где их видно словами;
+   * СТУПЕНЬКА ПО ГЛУБИНЕ: каждый уровень иерархии опускает квадрат на четверть его высоты,
+     так что вложенность видно на глаз. Высота дорожки считается от самой глубокой ветки —
+     иначе нижние ступеньки вылезали бы на соседнюю дорожку.
+
+   ДОРАБОТКА T-306: РАСКЛАДКА СЧИТАЕТСЯ ПОД МАСШТАБ. Задача занимает на картинке не меньше
+   MinNodeWidth пикселей, тогда как её сосед по дорожке начинался по НАСТОЯЩЕМУ времени:
+   двухминутную задачу следующая накрывала наполовину (пример заказчика — T-141-S0 и
+   T-142-S0). Поэтому после подбора масштаба раскладка пересчитывается ещё раз, с наименьшей
+   длительностью «нарисованная ширина плюс зазор».
+
+   ДОРАБОТКА T-159-S0, две вещи:
+   * КРУЖКА У КОРОТКОЙ ЗАДАЧИ БОЛЬШЕ НЕТ (заказчик: «я не это имел в виду»). Любая задача —
+     ПРЯМОУГОЛЬНИК, а у короткой он рисуется НАИМЕНЬШЕЙ ШИРИНЫ, и наименьшая эта ширина —
+     ширина значка контекстного меню (MinNodeWidth): уже него прямоугольнику быть незачем,
+     всё равно ничего не поместится. В такой прямоугольник три значка ставятся ПО ВЕРТИКАЛИ,
+     друг под другом: маркер переноса, контекстное меню, круг состояния (он заменяет
+     подписи состояний, которые в эту ширину не влезают);
+   * ЗАЗОР МЕЖДУ СОСЕДНИМИ ПРЯМОУГОЛЬНИКАМИ — NodeGap, две с половиной толщины рамки. Он
+     делается не отступом, а ВЫЧИТАНИЕМ из ширины самого прямоугольника, а к наименьшей
+     ширине при переводе в время шкалы время зазора ПРИБАВЛЯЕТСЯ — иначе следующая задача
+     начиналась бы вплотную к нарисованному краю предыдущей.
+
+   ДОРАБОТКА T-221-S0: СТОЛБИК ДЛЯ НАЛОЖИВШИХСЯ КВАДРАТОВ. У задачи БЕЗ ИСПОЛНИТЕЛЯ дорожки
+   нет, и раскладка (TaskDiagram.Layout) намеренно не выстраивает такие задачи в очередь друг
+   за другом: они не занимают ничьё время. Поэтому все ещё не запускавшиеся задачи без
+   исполнителя с ОДИНАКОВЫМ числовым приоритетом получали одно и то же время начала и один и
+   тот же уровень вложенности — то есть рисовались ровно один поверх другого, и человек видел
+   только последний квадрат. Теперь такие квадраты ставятся ВЕРТИКАЛЬНОЙ КОЛОНКОЙ, друг под
+   другом, с просветом в шестую часть высоты квадрата (StackGap), а высота дорожки растёт на
+   самый высокий столбик — иначе колонка вылезла бы на соседнего исполнителя. Правило общее и
+   считается по факту наложения: столбик получают только квадраты ОДНОЙ дорожки и ОДНОГО
+   уровня вложенности, чьи отрезки времени перекрываются, — ступенька по глубине (T-140-S0)
+   ими не трогается.
+
+   ДОРАБОТКА T-225-S0: ВЫСОТА ДОРОЖКИ У КАЖДОГО ИСПОЛНИТЕЛЯ СВОЯ. Место под ступеньки
+   вложенности (T-140-S0) и под вертикальную колонку (T-221-S0) считалось по САМОЙ ГЛУБОКОЙ
+   ветке и САМОЙ ВЫСОКОЙ колонке всей диаграммы, а полученная высота ставилась ВСЕМ дорожкам
+   сразу: одна колонка из десятка неназначенных задач делала одинаково толстыми полосы всех
+   исполнителей, хотя у большинства на дорожке по одному ряду квадратов (жалоба заказчика).
+   Теперь высота каждой полосы считается по ЕЁ СОБСТВЕННЫМ задачам — насколько низко на этой
+   дорожке опускается самый нижний квадрат, — а верх дорожек идёт накопленной суммой высот
+   предыдущих (RowHeight/RowTop). *@
+
+@if (_diagram is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="ai2p-view-busy" />
+}
+else if (_diagram.Nodes.Count == 0)
+{
+    <MudText Typo="Typo.body2">@L["common.empty"]</MudText>
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="mb-1">
+        <MudText Typo="Typo.caption" Style="opacity:.7;">
+            @L["task.diagram.hint", Hours(_diagram.DefaultHours)]
+        </MudText>
+        <MudSpacer />
+        @* общий режим прозрачности (T-135-S0): под квадратами видно все стрелки разом *@
+        <MudTooltip Text="@L["task.diagram.ghost"]">
+            <MudIconButton Icon="@(_ghost ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
+                           Color="@(_ghost ? Color.Primary : Color.Default)" Size="Size.Small"
+                           OnClick="@(() => _ghost = !_ghost)"
+                           data-diagram-ghost="@(_ghost ? "1" : "0")" />
+        </MudTooltip>
+        <MudTooltip Text="@L["common.refresh"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small"
+                           OnClick="ReloadAsync" data-diagram-refresh="1" />
+        </MudTooltip>
+    </MudStack>
+
+    <div class="@("ai2p-diagram" + (_ghost ? " ai2p-diagram-ghosted" : ""))"
+         id="@_containerId" data-subtasks-view="diagram">
+        <div class="ai2p-diagram-lanes" style="@($"padding-top: {HeadHeight}px;")">
+            @* высота подписи — высота ЕЁ дорожки (T-225-S0), поэтому нужен номер строки *@
+            @for (var row = 0; row < _diagram.Lanes.Count; row++)
+            {
+                var lane = _diagram.Lanes[row];
+                @* подпись дорожки — цель переноса: бросили задачу сюда, сменили исполнителя *@
+                <div class="ai2p-diagram-lane" style="@($"height: {RowHeight(row)}px;")"
+                     data-diagram-lane="@lane.ExecutorId"
+                     data-tree-drop="@(ExecDrop + lane.ExecutorId)">
+                    <MudIcon Icon="@(lane.Kind == "ai" ? Icons.Material.Filled.SmartToy : Icons.Material.Filled.Person)"
+                             Size="Size.Small" />
+                    <span style="@(lane.IsLead ? "font-weight:600;" : null)">@lane.Nick</span>
+                </div>
+            }
+            @if (HasFreeLane)
+            {
+                @* задачи без исполнителя: своя дорожка внизу — «незанятых не выводим»
+                   относится к людям и агентам, а не к задачам, которым исполнителя ещё
+                   не назначили: без этой дорожки они просто пропали бы с диаграммы *@
+                <div class="ai2p-diagram-lane" style="@($"height: {RowHeight(_diagram.Lanes.Count)}px;")"
+                     data-diagram-lane="" data-tree-drop="@ExecDrop">
+                    <MudIcon Icon="@Icons.Material.Filled.PersonOff" Size="Size.Small" />
+                    <span style="opacity:.7;">@L["task.diagram.noExecutor"]</span>
+                </div>
+            }
+        </div>
+        <div class="ai2p-diagram-field">
+            <div class="ai2p-diagram-canvas"
+                 style="@($"width: {Width}px; height: {Height}px;")">
+                @* сетка: часовые отметки и полосы дорожек *@
+                @foreach (var tick in Ticks())
+                {
+                    <div class="ai2p-diagram-tick" style="@($"left: {tick.X}px;")">@tick.Label</div>
+                }
+                @for (var row = 0; row < LaneCount; row++)
+                {
+                    <div class="ai2p-diagram-row"
+                         style="@($"top: {HeadHeight + RowTop(row + 1)}px;")"></div>
+                    @* полоса дорожки — вторая цель переноса исполнителя (T-135-S0): бросать
+                       задачу на пустое место дорожки естественнее, чем целить в подпись *@
+                    <div class="ai2p-diagram-drop"
+                         style="@($"top: {HeadHeight + RowTop(row)}px; height: {RowHeight(row)}px;")"
+                         data-diagram-lanedrop="@LaneId(row)"
+                         data-tree-drop="@(ExecDrop + LaneId(row))"></div>
+                }
+
+                @* стрелки связей рисуются ПОД квадратами: они справочные, а мышь нужна
+                   квадратам (pointer-events у слоя выключены) *@
+                <svg class="ai2p-diagram-links" width="@Width" height="@Height">
+                    <defs>
+                        <marker id="@_arrowBlue" markerWidth="7" markerHeight="7" refX="6" refY="3"
+                                orient="auto">
+                            <path d="M0,0 L6,3 L0,6 z" fill="var(--mud-palette-primary)" />
+                        </marker>
+                        <marker id="@_arrowRed" markerWidth="7" markerHeight="7" refX="6" refY="3"
+                                orient="auto">
+                            <path d="M0,0 L6,3 L0,6 z" fill="var(--mud-palette-error)" />
+                        </marker>
+                    </defs>
+                    @foreach (var link in Links())
+                    {
+                        <path d="@link.Path" fill="none" stroke-width="1.5"
+                              stroke="@(link.Blocker ? "var(--mud-palette-error)" : "var(--mud-palette-primary)")"
+                              marker-end="@($"url(#{(link.Blocker ? _arrowRed : _arrowBlue)})")"
+                              data-diagram-link="@(link.Blocker ? "blocker" : "parent")" />
+                    }
+                </svg>
+
+                @foreach (var node in _diagram.Nodes)
+                {
+                    var box = Box(node);
+                    var tiny = box.W < TinyWidth;
+                    <div class="@NodeClass(node, tiny)"
+                         style="@NodeStyle(box)"
+                         draggable="@(CanMove(node) ? "true" : "false")"
+                         data-tree-move="@(CanMove(node) ? "1" : "0")"
+                         data-tree-task="@node.Id" data-tree-drop="@node.Id"
+                         data-diagram-node="@node.DisplayId"
+                         data-diagram-root="@(node.IsRoot ? "1" : "0")"
+                         data-diagram-outside="@(node.Outside ? "1" : "0")"
+                         data-diagram-tiny="@(tiny ? "1" : "0")"
+                         data-diagram-level="@Level(node)"
+                         title="@Hint(node)"
+                         @onclick="@(() => Open(node))">
+                        @if (CanMove(node))
+                        {
+                            @* ручка переноса в ЛЕВОМ ВЕРХНЕМ углу квадрата (по заданию):
+                               работает точно так же, как перенос в дереве *@
+                            <span class="ai2p-diagram-grip" data-tree-grip="1"
+                                  title="@L["tasks.tree.dnd.grip"]" @onclick:stopPropagation="true">
+                                <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Size="Size.Small" />
+                            </span>
+                        }
+                        @* контекстное меню в ПРАВОМ ВЕРХНЕМ углу, а у узкого квадрата — ПОД
+                           ручкой переноса (T-135-S0, T-159-S0): рядом они не помещаются, и
+                           три значка ставятся друг под другом столбиком *@
+                        <span class="ai2p-diagram-menu" @onclick:stopPropagation="true">
+                            <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
+                                     data-diagram-menu="@node.DisplayId">
+                                <MudMenuItem Icon="@Icons.Material.Filled.OpenInNew"
+                                             OnClick="@(() => Open(node))">@L["task.open"]</MudMenuItem>
+                                @if (!node.Settled && !node.HasActiveJob)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Filled.PlayArrow"
+                                                 Disabled="@(!CanAct(node))"
+                                                 OnClick="@(() => ActAsync("start", node))">@L["task.start"]</MudMenuItem>
+                                }
+                                @if (node.HasActiveJob)
+                                {
+                                    <MudMenuItem Icon="@Icons.Material.Filled.Stop"
+                                                 Disabled="@(!CanAct(node))"
+                                                 OnClick="@(() => ActAsync("stop", node))">@L["task.stop.job"]</MudMenuItem>
+                                }
+                                <MudMenuItem Icon="@Icons.Material.Filled.SwapHoriz"
+                                             Disabled="@(!CanAct(node))"
+                                             OnClick="@(() => ActAsync("status", node))">@L["task.changeStatus"]</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Filled.Edit"
+                                             Disabled="@(!CanAct(node))"
+                                             OnClick="@(() => ActAsync("edit", node))">@L["common.edit"]</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Filled.Link"
+                                             OnClick="@(() => ActAsync("link", node))">@L["task.link"]</MudMenuItem>
+                                <MudMenuItem Icon="@Icons.Material.Filled.Delete"
+                                             Disabled="@(!CanAct(node))"
+                                             OnClick="@(() => ActAsync("delete", node))">@L["common.delete"]</MudMenuItem>
+                            </MudMenu>
+                        </span>
+                        @* внутри квадрата: код, заголовок и два поля состояния внизу. Код
+                           отодвинут от ручки переноса и от значка меню, чтобы на них не
+                           наезжать (T-135-S0); у узкого квадрата подписей нет вовсе — там
+                           помещаются только две кнопки, а что за задача, говорит подсказка *@
+                        @if (box.W >= CodeWidth)
+                        {
+                            <div class="@("ai2p-diagram-code" + (CanMove(node) ? " ai2p-diagram-code-gap" : ""))">
+                                @node.DisplayId
+                            </div>
+                            @if (box.W >= WideWidth)
+                            {
+                                <div class="ai2p-diagram-title">@node.Title</div>
+                            }
+                        }
+                        @if (tiny)
+                        {
+                            @* ТРЕТИЙ ЗНАЧОК СТОЛБИКА (T-159-S0): круг цвета состояния —
+                               подписи состояний в наименьшую ширину не помещаются, а
+                               словами их называет подсказка квадрата *@
+                            <span class="ai2p-diagram-statedot" data-diagram-statedot="@node.Status"
+                                  style="@($"width: {StateDotSize}px; height: {StateDotSize}px; "
+                                           + $"background: {StatusColor(node.Status)};")"></span>
+                        }
+                        else
+                        {
+                            <div class="ai2p-diagram-state">
+                                <span class="ai2p-status" style="@State.StatusStyle(node.Status)">
+                                    @State.StatusName(node.Status)
+                                </span>
+                                @if (node.WorkStatus.Length > 0)
+                                {
+                                    <span class="ai2p-status" data-diagram-work="@node.WorkStatus"
+                                          style="@State.StatusStyle(node.WorkStatus)">
+                                        @State.StatusName(node.WorkStatus)
+                                    </span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт представление (todo22): задача открывается в нём.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    /// <summary>Задача, подзадачи которой рисуются.</summary>
+    [Parameter] public string TaskId { get; set; } = "";
+
+    /// <summary>Действие над задачей квадрата: карточка делает его теми же руками, что и
+    /// в таблице подзадач (правка, статус, удаление, ссылка, запуск, остановка).</summary>
+    [Parameter] public EventCallback<(string Action, string TaskId)> OnAction { get; set; }
+
+    /// <summary>Перечитать подзадачи у карточки после переноса по иерархии.</summary>
+    [Parameter] public EventCallback OnReload { get; set; }
+
+    // геометрия: высота дорожки, квадрата и шапки со шкалой времени
+    private const int BaseRowHeight = 84;
+    private const int NodeHeight = 62;
+    private const int HeadHeight = 18;
+    private const int WideWidth = 110;
+
+    /// <summary>Толщина рамки квадрата (CSS .ai2p-diagram-node): от неё считается зазор.</summary>
+    private const int BorderWidth = 2;
+
+    /// <summary>НАИМЕНЬШАЯ ШИРИНА ПРЯМОУГОЛЬНИКА (T-159-S0) — ширина значка контекстного
+    /// меню: значок МудБлазора Size.Small это 20 px плюс по 5 px отступа кнопки. Уже этого
+    /// прямоугольник не рисуется никогда, как бы коротка ни была задача: в него ставятся
+    /// три значка друг под другом, и меньшая ширина ничего не даст.</summary>
+    private const int MinNodeWidth = 30;
+
+    /// <summary>Зазор между соседними по времени квадратами (T-306, T-159-S0): две с
+    /// половиной толщины рамки. Делается ВЫЧИТАНИЕМ из ширины самого квадрата, а к
+    /// наименьшей ширине при переводе в время шкалы прибавляется — иначе следующая задача
+    /// начиналась бы вплотную к нарисованному краю предыдущей (двухминутную задачу сосед
+    /// по дорожке накрывал наполовину).</summary>
+    private const int NodeGap = (int)(BorderWidth * 2.5);
+    private const int FieldWidth = 2400; // во столько пикселей укладывается вся шкала
+
+    /// <summary>Квадрат, в который не помещаются ручка переноса и значок меню РЯДОМ
+    /// (T-135-S0): подписей у него нет вовсе, а три значка ставятся друг под другом
+    /// (T-159-S0). Мерка пиксельная, а не «пять минут задачи»: наезжают кнопки друг на
+    /// друга от ширины, а сколько минут в пикселе — зависит от масштаба всей шкалы.</summary>
+    private const int TinyWidth = 48;
+
+    /// <summary>Ширина, начиная с которой между ручкой и меню помещается ещё и код задачи.</summary>
+    private const int CodeWidth = 72;
+
+    /// <summary>Поперечник круга состояния в узком квадрате (T-159-S0): подписи состояний
+    /// в такую ширину не помещаются, а цвет читается.</summary>
+    private const int StateDotSize = 12;
+
+    /// <summary>Ступенька уровня иерархии — четверть высоты квадрата (T-140-S0).</summary>
+    private const int LevelStep = NodeHeight / 4;
+
+    /// <summary>Просвет между квадратами ВЕРТИКАЛЬНОЙ КОЛОНКИ (T-221-S0) — шестая часть
+    /// высоты квадрата (по заданию).</summary>
+    private const int StackGap = NodeHeight / 6;
+
+    /// <summary>Шаг колонки: сам квадрат плюс просвет между соседями по колонке.</summary>
+    private const int StackStep = NodeHeight + StackGap;
+
+    /// <summary>Отступ квадрата от края дорожки сверху и снизу.</summary>
+    private const int LanePad = (BaseRowHeight - NodeHeight) / 2;
+
+    /// <summary>Приставка цели переноса «дорожка исполнителя» (T-135-S0): по ней сброс на
+    /// дорожку отличается от сброса на квадрат — там id задачи, а тут id исполнителя.</summary>
+    private const string ExecDrop = "exec:";
+
+    /// <summary>Пока идёт работа, диаграмма перестраивается сама (по заданию).</summary>
+    private static readonly TimeSpan Refresh = TimeSpan.FromSeconds(20);
+
+    private TaskDiagramDto? _diagram;
+    /// <summary>Общий режим прозрачности квадратов (T-135-S0): кнопкой рядом с «обновить».</summary>
+    private bool _ghost;
+    /// <summary>Глубина каждой задачи в иерархии диаграммы (T-140-S0): считается один раз
+    /// при загрузке, по цепочке родителей ВНУТРИ набора узлов — корень и задача, родителя
+    /// которой на диаграмме нет (блокирующая из чужой ветки), лежат на нулевом уровне.</summary>
+    private Dictionary<string, int> _levels = new(StringComparer.Ordinal);
+    /// <summary>Номер места в ВЕРТИКАЛЬНОЙ КОЛОНКЕ (T-221-S0): 0 — квадрат стоит на своём
+    /// обычном месте, 1 и дальше — он опущен под тот, с которым наложился. Считается один
+    /// раз при загрузке, уже после раскладки и подбора масштаба: наложение видно только в
+    /// пикселях.</summary>
+    private Dictionary<string, int> _stacks = new(StringComparer.Ordinal);
+    /// <summary>Высота каждой дорожки и верх каждой дорожки (T-225-S0): у исполнителя с
+    /// колонкой наложившихся задач полоса толще, у остальных остаётся обычной.</summary>
+    private int[] _rowHeights = [];
+    private int[] _rowTops = [];
+    private Timer? _timer;
+    private double _pxPerHour = 120;
+    private readonly string _containerId = "ai2p-diagram-" + Guid.NewGuid().ToString("N")[..8];
+    private readonly string _arrowBlue = "ai2p-arr-b-" + Guid.NewGuid().ToString("N")[..6];
+    private readonly string _arrowRed = "ai2p-arr-r-" + Guid.NewGuid().ToString("N")[..6];
+    private DotNetObjectReference<TaskDiagramView>? _selfRef;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _timer = new Timer(async _ =>
+        {
+            // перестраивать без работы незачем: диаграмма меняется только от заданий
+            if (_diagram is { Running: true })
+            {
+                await ReloadAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }, null, Refresh, Refresh);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_diagram is null || _diagram.Nodes.Count == 0)
+        {
+            return;
+        }
+        _selfRef ??= DotNetObjectReference.Create(this);
+        // тот же перенос, что в дереве задач: повторный вызов на живом контейнере
+        // ничего не делает (флаг в data-атрибуте)
+        await Js.InvokeVoidAsync("ai2p.initTreeDnd", _containerId, _selfRef);
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _selfRef?.Dispose();
+    }
+
+    public async Task ReloadAsync()
+    {
+        try
+        {
+            _diagram = await Api.GetTaskDiagramAsync(TaskId);
+            _levels = Levels(_diagram);
+            var total = Total;
+            // масштаб подбирается под ширину поля: длительности бывают и минутные, и
+            // многодневные, а шкала одна на всю диаграмму
+            _pxPerHour = total > 0 ? Math.Clamp(FieldWidth / total, 6, 240) : 120;
+            // РАСКЛАДКА ПЕРЕСЧИТЫВАЕТСЯ ПОД МАСШТАБ (T-306): двухминутная задача рисуется
+            // прямоугольником наименьшей ширины, а её сосед по дорожке начинался через две
+            // минуты, то есть накрывал её наполовину. Наименьшее место задачи на картинке —
+            // её нарисованная ширина ПЛЮС ЗАЗОР (T-159-S0: зазор вычитается из ширины
+            // самого прямоугольника, а ко времени наименьшей ширины прибавляется); в часы
+            // это переводится здесь, потому что масштаб знает только клиент. Повторно
+            // масштаб не подбираем: поле просто становится шире
+            TaskDiagram.Layout(_diagram.Nodes, (MinNodeWidth + NodeGap) / _pxPerHour);
+            // КОЛОНКА ДЛЯ НАЛОЖИВШИХСЯ (T-221-S0) — считается последней: наложение видно
+            // только в пикселях, то есть после раскладки и после подбора масштаба
+            _stacks = Stacks(_diagram);
+            // ВЫСОТА ДОРОЖЕК (T-225-S0) — после колонок: у каждого исполнителя она своя и
+            // считается по его собственным квадратам
+            Rows();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _diagram ??= new TaskDiagramDto();
+        }
+    }
+
+    private double Total => _diagram is null || _diagram.Nodes.Count == 0
+        ? 0
+        : _diagram.Nodes.Max(n => n.StartHours + n.DurationHours);
+
+    /// <summary>
+    /// Глубина каждой задачи: длина цепочки родителей, пока они есть в самом наборе узлов.
+    /// Считается разом, а не рекурсией на каждую отрисовку: порядок узлов приходит с сервера
+    /// «потомки раньше родителя», то есть на родителя ссылаются и снизу вверх тоже, и обход
+    /// с памятью посчитанного дешевле любого другого.
+    /// </summary>
+    private static Dictionary<string, int> Levels(TaskDiagramDto diagram)
+    {
+        var byId = diagram.Nodes.ToDictionary(n => n.Id, StringComparer.Ordinal);
+        var levels = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var node in diagram.Nodes)
+        {
+            var level = 0;
+            var at = node;
+            // защита от кольца в данных: глубже числа узлов цепочка быть не может
+            while (level <= byId.Count && at.ParentId is { } parentId
+                   && byId.TryGetValue(parentId, out var parent))
+            {
+                if (levels.TryGetValue(parent.Id, out var known))
+                {
+                    level += known + 1;
+                    break;
+                }
+                level++;
+                at = parent;
+            }
+            levels[node.Id] = level;
+        }
+        return levels;
+    }
+
+    /// <summary>Глубина задачи в иерархии (0 — корень): ступенька квадрата по высоте.</summary>
+    private int Level(TaskDiagramNodeDto node) =>
+        _levels.TryGetValue(node.Id, out var level) ? level : 0;
+
+    /// <summary>
+    /// ВЕРТИКАЛЬНАЯ КОЛОНКА ДЛЯ НАЛОЖИВШИХСЯ КВАДРАТОВ (T-221-S0). Задача без исполнителя не
+    /// занимает ничьей дорожки, поэтому раскладка не разводит такие задачи по времени: ещё не
+    /// запускавшиеся задачи без исполнителя с одинаковым числовым приоритетом получают одно и
+    /// то же время начала и рисуются одна поверх другой — видно только последнюю.
+    ///
+    /// Наложение считается по ФАКТУ, в пикселях: две задачи ОДНОЙ дорожки и ОДНОГО уровня
+    /// вложенности мешают друг другу, когда их отрезки времени перекрываются. Ступенька по
+    /// глубине (T-140-S0) наложением не считается намеренно — там квадраты накрывают друг
+    /// друга специально, чтобы показать вложенность.
+    ///
+    /// Порядок обхода — порядок узлов диаграммы, то есть очередь иерархии: первая по очереди
+    /// задача остаётся на своём месте, следующие уходят под неё.
+    /// </summary>
+    private Dictionary<string, int> Stacks(TaskDiagramDto diagram)
+    {
+        var stacks = new Dictionary<string, int>(StringComparer.Ordinal);
+        var placed = new List<(int Lane, int Level, int Stack, int X, int W)>();
+        foreach (var node in diagram.Nodes)
+        {
+            var span = Span(node);
+            var lane = LaneIndex(node);
+            var level = Level(node);
+            var stack = 0;
+            while (placed.Any(p => p.Lane == lane && p.Level == level && p.Stack == stack
+                                   && span.X < p.X + p.W && p.X < span.X + span.W))
+            {
+                stack++;
+            }
+            stacks[node.Id] = stack;
+            placed.Add((lane, level, stack, span.X, span.W));
+        }
+        return stacks;
+    }
+
+    /// <summary>Место квадрата в вертикальной колонке (T-221-S0): 0 — обычное место.</summary>
+    private int Stack(TaskDiagramNodeDto node) =>
+        _stacks.TryGetValue(node.Id, out var stack) ? stack : 0;
+
+    /// <summary>
+    /// ВЫСОТА КАЖДОЙ ДОРОЖКИ ОТДЕЛЬНО (T-225-S0). Раньше высота была ОДНА на всю диаграмму —
+    /// обычная плюс место под самую глубокую ветку (T-140-S0) и под самую высокую колонку
+    /// наложившихся квадратов (T-221-S0), — и от этого полосы ВСЕХ исполнителей становились
+    /// одинаково толстыми: столбик неназначенных задач на нижней дорожке раздувал дорожки, на
+    /// которых квадраты стоят в один ряд. Теперь у дорожки своя высота: настолько низко, куда
+    /// опускается самый нижний из ЕЁ квадратов (ступенька вложенности плюс место в колонке),
+    /// то есть по сумме высот наложившихся задач этого исполнителя. Дорожка без задач
+    /// остаётся обычной высоты.
+    ///
+    /// Считается разом, после раскладки, подбора масштаба и колонок: и ступенька, и колонка к
+    /// этому времени уже известны. Рядом копятся ВЕРХА дорожек (накопленная сумма высот) —
+    /// при разной высоте номер дорожки на её верх больше не умножается.
+    /// </summary>
+    private void Rows()
+    {
+        var heights = new int[Math.Max(LaneCount, 1)];
+        Array.Fill(heights, BaseRowHeight);
+        foreach (var node in _diagram?.Nodes ?? [])
+        {
+            var lane = LaneIndex(node);
+            if (lane < heights.Length)
+            {
+                heights[lane] = Math.Max(heights[lane],
+                    BaseRowHeight + Level(node) * LevelStep + Stack(node) * StackStep);
+            }
+        }
+        var tops = new int[heights.Length + 1];
+        for (var row = 0; row < heights.Length; row++)
+        {
+            tops[row + 1] = tops[row] + heights[row];
+        }
+        _rowHeights = heights;
+        _rowTops = tops;
+    }
+
+    /// <summary>Высота дорожки по её номеру (T-225-S0).</summary>
+    private int RowHeight(int row) =>
+        row >= 0 && row < _rowHeights.Length ? _rowHeights[row] : BaseRowHeight;
+
+    /// <summary>Верх дорожки по её номеру — сумма высот всех предыдущих (T-225-S0); номер,
+    /// равный числу дорожек, даёт низ последней, то есть всю высоту поля.</summary>
+    private int RowTop(int row) => _rowTops.Length == 0
+        ? 0
+        : _rowTops[Math.Clamp(row, 0, _rowTops.Length - 1)];
+
+    private int LaneCount => (_diagram?.Lanes.Count ?? 0) + (HasFreeLane ? 1 : 0);
+
+    private bool HasFreeLane => _diagram?.Nodes.Any(n => n.ExecutorId.Length == 0) ?? false;
+
+    private int Width => (int)Math.Max(Total * _pxPerHour + 40, 240);
+
+    private int Height => HeadHeight + RowTop(Math.Max(LaneCount, 1));
+
+    /// <summary>Исполнитель дорожки по её номеру; пусто — нижняя дорожка «без исполнителя».</summary>
+    private string LaneId(int row)
+    {
+        var lanes = _diagram?.Lanes ?? [];
+        return row < lanes.Count ? lanes[row].ExecutorId : "";
+    }
+
+    /// <summary>Наряд квадрата: своя рамка у корня иерархии и у задачи вне её (T-135-S0),
+    /// столбик значков — у узкого (T-159-S0).</summary>
+    private static string NodeClass(TaskDiagramNodeDto node, bool tiny) =>
+        "ai2p-diagram-node"
+        + (node.Outside ? " ai2p-diagram-outside" : "")
+        + (node.IsRoot ? " ai2p-diagram-root" : "")
+        + (tiny ? " ai2p-diagram-tiny" : "");
+
+    /// <summary>Место и размер квадрата (кружка у короткой задачи больше нет, T-159-S0).</summary>
+    private static string NodeStyle((int X, int Y, int W) box) =>
+        $"left: {box.X}px; top: {box.Y}px; width: {box.W}px; height: {NodeHeight}px;";
+
+    /// <summary>Цвет состояния из справочника (ТЗ v1.37); нет такого — серый.</summary>
+    private string StatusColor(string status) => State.StatusOf(status)?.Color ?? "#9e9e9e";
+
+    /// <summary>Подсказка квадрата: код, заголовок, длительность и СОСТОЯНИЕ (T-140-S0) —
+    /// у узкого квадрата состояние показано только цветом круга (T-159-S0).</summary>
+    private string Hint(TaskDiagramNodeDto node)
+    {
+        var state = State.StatusName(node.Status);
+        if (node.WorkStatus.Length > 0)
+        {
+            state += " · " + State.StatusName(node.WorkStatus);
+        }
+        return $"{node.DisplayId} {node.Title} · {Hours(node.DurationHours)}\n{state}";
+    }
+
+    private int LaneIndex(TaskDiagramNodeDto node)
+    {
+        var lanes = _diagram?.Lanes ?? [];
+        var index = lanes.FindIndex(l => l.ExecutorId == node.ExecutorId);
+        return index >= 0 ? index : lanes.Count; // без исполнителя — нижняя дорожка
+    }
+
+    /// <summary>Отрезок квадрата по горизонтали: X — время начала, W — длительность БЕЗ
+    /// ЗАЗОРА (T-159-S0: зазор между соседями делается вычитанием из ширины) и не меньше
+    /// наименьшей ширины прямоугольника. Считается отдельно от <see cref="Box"/>, потому что
+    /// по нему ищется наложение квадратов ДО того, как известна их высота (T-221-S0).</summary>
+    private (int X, int W) Span(TaskDiagramNodeDto node) => (
+        (int)Math.Round(node.StartHours * _pxPerHour) + 4,
+        (int)Math.Max(Math.Round(node.DurationHours * _pxPerHour) - NodeGap, MinNodeWidth));
+
+    /// <summary>Место квадрата: X — время начала, Y — дорожка ПЛЮС ступенька уровня
+    /// иерархии (T-140-S0) ПЛЮС место в вертикальной колонке наложившихся (T-221-S0),
+    /// W — длительность.</summary>
+    private (int X, int Y, int W) Box(TaskDiagramNodeDto node)
+    {
+        var span = Span(node);
+        return (span.X,
+            HeadHeight + RowTop(LaneIndex(node)) + LanePad
+                + Level(node) * LevelStep + Stack(node) * StackStep,
+            span.W);
+    }
+
+    /// <summary>Часовые отметки шкалы: шаг подбирается так, чтобы их было не больше двух
+    /// десятков — иначе подписи сливаются в полосу.</summary>
+    private IEnumerable<(int X, string Label)> Ticks()
+    {
+        var total = Total;
+        if (total <= 0)
+        {
+            yield break;
+        }
+        double[] steps = [0.25, 0.5, 1, 2, 4, 8, 24, 48, 168];
+        var step = steps.FirstOrDefault(s => total / s <= 20, total / 20);
+        for (var at = 0.0; at <= total + 0.001; at += step)
+        {
+            yield return ((int)Math.Round(at * _pxPerHour) + 4, Hours(at));
+        }
+    }
+
+    /// <summary>Стрелки: синие — иерархия (подзадача → родитель), красные — блокирующие.</summary>
+    private IEnumerable<(string Path, bool Blocker)> Links()
+    {
+        if (_diagram is null)
+        {
+            yield break;
+        }
+        var byId = _diagram.Nodes.ToDictionary(n => n.Id, StringComparer.Ordinal);
+        foreach (var node in _diagram.Nodes)
+        {
+            if (node.ParentId is { } parentId && byId.TryGetValue(parentId, out var parent))
+            {
+                yield return (Curve(node, parent), false);
+            }
+            foreach (var blockerId in node.BlockerIds)
+            {
+                if (byId.TryGetValue(blockerId, out var blocker))
+                {
+                    yield return (Curve(blocker, node), true);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Дуга между квадратами. Правило T-135-S0: ВЫХОД всегда справа либо снизу, ВХОД всегда
+    /// слева либо сверху. Пока цель правее источника, связь горизонтальная (правый край →
+    /// левый край); если цель начинается раньше, чем источник кончился (соседняя дорожка,
+    /// одно и то же время), горизонтальная стрелка шла бы назад сквозь квадраты — такая
+    /// связь ведётся из НИЗА источника в ВЕРХ цели.
+    /// </summary>
+    private string Curve(TaskDiagramNodeDto from, TaskDiagramNodeDto to)
+    {
+        var a = Box(from);
+        var b = Box(to);
+        if (b.X >= a.X + a.W)
+        {
+            var x1 = a.X + a.W;
+            var y1 = a.Y + NodeHeight / 2;
+            var x2 = b.X;
+            var y2 = b.Y + NodeHeight / 2;
+            var bend = Math.Max(24, (x2 - x1) / 2);
+            return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"M{x1},{y1} C{x1 + bend},{y1} {x2 - bend},{y2} {x2},{y2}");
+        }
+        // выход снизу и вход сверху берутся не из середины, а с отступа от левого края:
+        // у узких квадратов середина и край — это одно и то же место
+        var sx = a.X + Math.Min(a.W / 2, 24);
+        var sy = a.Y + NodeHeight;
+        var tx = b.X + Math.Min(b.W / 2, 24);
+        var ty = b.Y;
+        var drop = Math.Max(24, Math.Abs(ty - sy) / 2);
+        return string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"M{sx},{sy} C{sx},{sy + drop} {tx},{ty - drop} {tx},{ty}");
+    }
+
+    /// <summary>Длительность словами: минуты у коротких, часы у остальных.</summary>
+    private string Hours(double hours) => hours < 1
+        ? L["task.diagram.minutes", Math.Round(hours * 60)]
+        : L["task.diagram.hours", Math.Round(hours, 1)];
+
+    /// <summary>Перетаскивать задачу может тот же, кто может её править (как в дереве):
+    /// чужую — только дирижёр. КОРЕНЬ иерархии и задачи ВНЕ её (блокирующие) не таскаются
+    /// вовсе (T-135-S0): корень задаёт саму иерархию, а чужая ветка тут только показана.</summary>
+    private bool CanMove(TaskDiagramNodeDto node) =>
+        State.CanEdit && !node.IsRoot && !node.Outside && (!node.IsReadOnly || State.IsConductor);
+
+    private bool CanAct(TaskDiagramNodeDto node) => State.CanEdit && !node.IsReadOnly;
+
+    private void Open(TaskDiagramNodeDto node) =>
+        State.OpenTask(node.Id, node.DisplayId, node.Title, FrameIndex);
+
+    private async Task ActAsync(string action, TaskDiagramNodeDto node)
+    {
+        await OnAction.InvokeAsync((action, node.Id));
+        await ReloadAsync();
+    }
+
+    /// <summary>
+    /// Сброс перетаскиваемой задачи. Целей на диаграмме ДВЕ, и различает их приставка
+    /// <see cref="ExecDrop"/> у цели: квадрат другой задачи — смена родителя (todo37),
+    /// дорожка — смена исполнителя (T-135-S0). В КОРЕНЬ отсюда вынести нельзя (по заданию)
+    /// — полос «в корень» на диаграмме нет, а пустая цель, если она всё-таки придёт,
+    /// отбрасывается здесь.
+    /// </summary>
+    [JSInvokable]
+    public async Task OnTreeDropAsync(string taskId, string? parentId)
+    {
+        if (string.IsNullOrEmpty(parentId))
+        {
+            return;
+        }
+        if (!State.CanEdit)
+        {
+            Snackbar.Add(L["common.readonly"], Severity.Warning);
+            return;
+        }
+        try
+        {
+            if (parentId.StartsWith(ExecDrop, StringComparison.Ordinal))
+            {
+                await Api.ChangeTaskExecutorAsync(taskId, parentId[ExecDrop.Length..]);
+                Snackbar.Add(L["task.diagram.assigned"], Severity.Success);
+            }
+            else
+            {
+                await Api.MoveTaskAsync(taskId, parentId);
+                Snackbar.Add(L["tasks.tree.dnd.moved"], Severity.Success);
+            }
+            await OnReload.InvokeAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await ReloadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+}

@@ -1,0 +1,54 @@
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+@* КОПИРОВАНИЕ И ЭКСПОРТ (T-67-S0): меню у карточки задачи и у каждого поля .md.
+   Два действия — простой текст (как выделение мышью и Ctrl+C) и текст с форматированием
+   (исходный Markdown). Разметку из поля, доступного только для чтения, иначе не достать
+   вовсе: редактор с ней человеку не открывается.
+   Сюда же дальше встанет экспорт в другие системы (Trello, GitHub, GitLab) — отдельными
+   пунктами того же меню.
+   Активатор — ВСТРОЕННАЯ иконка MudMenu: свой активатор с MudTooltip внутри
+   ActivatorContent не пробрасывает клик, меню не открывается (todo21). *@
+@* У ПУСТОГО ПОЛЯ КНОПКИ НЕТ ВОВСЕ (T-108-S0): копировать нечего, а нажатие давало
+   только сообщение «пусто». Проверяется на каждой перерисовке — набрал текст, кнопка
+   появилась. *@
+@if (CopyText.HasText(Parts()))
+{
+    <MudMenu Icon="@Icons.Material.Filled.ContentCopy" Size="@Size" Dense="true"
+             AriaLabel="@L["copy.title"]" @attributes="Attrs">
+        <MudMenuItem Icon="@Icons.Material.Filled.Subject" OnClick="@(() => CopyAsync(false))"
+                     data-copy-plain="1">
+            @L["copy.plain"]
+        </MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Code" OnClick="@(() => CopyAsync(true))"
+                     data-copy-md="1">
+            @L["copy.markdown"]
+        </MudMenuItem>
+    </MudMenu>
+}
+
+@code {
+    /// <summary>Что копируем: закладки карточки либо одно поле (<see cref="CopyText.One"/>).
+    /// Функцией, а не готовым списком: чат и результат карточки собираются на лету.</summary>
+    [Parameter] public Func<IReadOnlyList<CopyPart>> Parts { get; set; } = () => [];
+
+    /// <summary>Размер иконки: в тулбаре карточки обычный, у поля — мелкий.</summary>
+    [Parameter] public Size Size { get; set; } = Size.Medium;
+
+    /// <summary>Прочие атрибуты (data-* — опора живых проверок в браузере).</summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? Attrs { get; set; }
+
+    private async Task CopyAsync(bool markdown)
+    {
+        var text = CopyText.Build(Parts(), markdown);
+        if (text.Length == 0)
+        {
+            Snackbar.Add(L["common.empty"], Severity.Info);
+            return;
+        }
+        await Js.InvokeVoidAsync("ai2p.copyText", text);
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+}

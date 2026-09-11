@@ -1,0 +1,521 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject UiState State
+
+@* ФОРМА ЗАПИСИ ПЛАГИНА (T-114-S0) — ровно четыре блока задания заказчика:
+
+   1. СОФТ — «найден там-то, версия такая-то» либо кнопка «Установить» (пакет справочника
+      models/packages.json), либо поле «указать, где он уже стоит». Путь к программе — это
+      «моя машина»: он уходит в config.json ЭТОГО сервера и не реплицируется никогда
+      (наука T-164 про чужой путь, который «уже не уходит»).
+   2. ДЕЙСТВИЯ — только чтение: они приходят манифестом плагина. Правится их состав вместе
+      с манифестом, а закрываются они правилами безопасности — на них и ведёт ссылка.
+   3. ОПЫТ — записи, которые плагин положил в ОБЩИЙ опыт организации (T-11-S0).
+   4. ДОКУМЕНТ — страница doc/<язык>/plugins/<код>.md окном поверх формы (тот же
+      DocPageDialog, что у редактора LoRA).
+
+   Правка чего бы то ни было требует роли admin (b26391b3): плагин заводит записи справочника
+   действий и общего опыта — то есть меняет то, чем работают агенты ВСЕЙ организации, — а путь
+   к программе принадлежит хозяину этого компьютера. *@
+@* ПЕРЕСПРОС СНЯТИЯ — ОТДЕЛЬНЫМ ОКНОМ (T-161-S0), а не разметкой внутри формы. Раньше здесь
+   стоял <c>MudMessageBox</c>, а MudBlazor рисует вложенный диалог СОДЕРЖИМЫМ внешнего: сверху
+   формы висела вторая пара кнопок «СНЯТЬ»/«ОТМЕНА» — та же беда, что была у списка файлов
+   задачи (T-136). Сама справка о снятии стоит теперь последним блоком формы. *@
+<MudDialog>
+    <DialogContent>
+        @if (_details is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudStack Spacing="4" Style="min-width: 620px;" data-plugin-form="@Code">
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.h6" data-plugin-form-name="1">@_details.Plugin.Name</MudText>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             data-plugin-form-kind="@_details.Plugin.Kind">
+                        @L["plugin.kind." + _details.Plugin.Kind]
+                    </MudChip>
+                    <MudChip T="string" Size="Size.Small" Color="@StateColor"
+                             data-plugin-form-state="@_details.Plugin.ShownState">
+                        @L["plugin.state." + _details.Plugin.ShownState]
+                    </MudChip>
+                    <MudSpacer />
+                    <MudText Typo="Typo.caption" Style="opacity:.7;">@_details.Plugin.Code</MudText>
+                </MudStack>
+                @if (_details.Plugin.Description.Length > 0)
+                {
+                    <MudText Typo="Typo.body2">@_details.Plugin.Description</MudText>
+                }
+                @if (!_details.Plugin.HasManifest)
+                {
+                    @* запись приехала репликацией, а файла манифеста здесь нет: ни
+                       инициализировать, ни снять на этом сервере нечем *@
+                    <MudAlert Severity="Severity.Warning" Dense="true" data-pluginf-nomanifest="1">
+                        @L["plugins.noManifest"]
+                    </MudAlert>
+                }
+
+                @* --- 1. СОФТ --- *@
+                <div data-pluginf-block="software">
+                    <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.software"]</MudText>
+                    @if (_details.Plugin.Software == PluginSoftwareCodes.NotNeeded)
+                    {
+                        <MudText Typo="Typo.body2" data-pluginf-soft="notNeeded">@L["plugins.notNeeded"]</MudText>
+                    }
+                    else if (_details.Plugin.Software == PluginSoftwareCodes.Found)
+                    {
+                        <MudText Typo="Typo.body2" data-pluginf-soft="found"
+                                 Style="word-break: break-all;">
+                            @_details.Plugin.SoftwarePath@(_details.Plugin.SoftwareVersion.Length > 0
+                                ? $" ({L["plugins.version"]} {_details.Plugin.SoftwareVersion})" : "")
+                        </MudText>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Info" Dense="true"
+                                  data-pluginf-soft="@_details.Plugin.Software">
+                            @L["plugins.notFound"]@(_details.SoftwareRequired ? ". " + L["plugins.required"] : "")
+                        </MudAlert>
+                    }
+                    @if (_details.SoftwareHint.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity:.75;">
+                            @_details.SoftwareHint
+                        </MudText>
+                    }
+                    @* УСТАНОВКА И НАСТРОЙКА — ОТДЕЛЬНЫМ ОКНОМ (T-136-S0): и путь к уже
+                       стоящей программе, и установка пакета с прогрессом живут там, как у
+                       модели. Здесь остаётся ответ на вопрос «что сейчас с программой» *@
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2">
+                        @if (_details.Package.Length > 0)
+                        {
+                            <MudText Typo="Typo.caption">@L["plugins.package"]: @_details.Package</MudText>
+                        }
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Settings" Disabled="@_busy"
+                                   data-pluginf-setup="1" OnClick="OpenSetupAsync">
+                            @L["plugins.setup"]
+                        </MudButton>
+                    </MudStack>
+                    @if (_details.ManualPath.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity:.6; word-break: break-all;"
+                                 data-pluginf-path="1">
+                            @L["plugins.path"]: @_details.ManualPath
+                        </MudText>
+                    }
+                </div>
+
+                @* --- 1а. ПОДКЛЮЧЕНИЕ MCP (T-119-S0): только у записи вида mcp --- *@
+                @if (_details.Plugin.Kind == PluginKinds.Mcp)
+                {
+                    <div data-pluginf-block="connection">
+                        <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.connection"]</MudText>
+                        @* правило раздела дословно: MCP подключается ТОЛЬКО записью плагина *@
+                        <MudAlert Severity="Severity.Info" Dense="true" data-pluginf-mcp-rule="1">
+                            @L["plugins.mcp.rule"]
+                        </MudAlert>
+                        <MudText Typo="Typo.body2" Class="mt-2" Style="word-break: break-all;"
+                                 data-pluginf-mcp-endpoint="@_details.Transport">
+                            @L["plugins.mcp.transport"]: @_details.Transport — @_details.Endpoint
+                        </MudText>
+                        @if (_details.SecretHeader.Length > 0)
+                        {
+                            @* СЕКРЕТ живёт в secrets/ этого сервера: ни в config.json, ни в
+                               базе организации, ни в журнале его нет — наружу отдаётся только
+                               признак «задан» и путь файла, куда его можно положить руками *@
+                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2">
+                                <MudTextField @bind-Value="_secret" Label="@L["plugins.mcp.secret"]"
+                                              InputType="InputType.Password" ReadOnly="@(!CanEdit)"
+                                              HelperText="@(_details.HasSecret ? L["plugins.mcp.secretSet"] : L["plugins.mcp.secretHint"])"
+                                              data-pluginf-mcp-secret="1" Style="min-width: 380px;" />
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                           Disabled="@(!CanEdit || _busy)" data-pluginf-mcp-secret-save="1"
+                                           OnClick="SaveSecretAsync">
+                                    @L["common.save"]
+                                </MudButton>
+                            </MudStack>
+                            <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity:.6;">
+                                @_details.SecretFile
+                            </MudText>
+                        }
+                        @* ОБНОВЛЕНИЕ СПИСКА ИНСТРУМЕНТОВ — ЯВНОЕ действие человека: список у
+                           сервера MCP динамический, и дозаводить действия молча нельзя *@
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Disabled="@(!CanEdit || _busy || _details.Plugin.Id.Length == 0)"
+                                       data-pluginf-mcp-refresh="1" OnClick="RefreshToolsAsync">
+                                @L["plugins.mcp.refresh"]
+                            </MudButton>
+                            <MudText Typo="Typo.caption" Style="opacity:.7;" data-pluginf-mcp-at="1">
+                                @(_details.ToolsAt is null
+                                    ? L["plugins.mcp.never"]
+                                    : L["plugins.mcp.at"] + " " + _details.ToolsAt.Value.ToLocalTime().ToString("g"))
+                            </MudText>
+                        </MudStack>
+                        @if (_diff is not null)
+                        {
+                            <MudAlert Severity="@(_diff.Added.Count + _diff.Removed.Count > 0 ? Severity.Warning : Severity.Success)"
+                                      Dense="true" Class="mt-2" data-pluginf-mcp-diff="1">
+                                @if (_diff.Added.Count == 0 && _diff.Removed.Count == 0)
+                                {
+                                    @L["plugins.mcp.same"]
+                                }
+                                else
+                                {
+                                    @if (_diff.Added.Count > 0)
+                                    {
+                                        <div data-pluginf-mcp-added="1">
+                                            @L["plugins.mcp.added"]: @string.Join(", ", _diff.Added)
+                                        </div>
+                                    }
+                                    @if (_diff.Removed.Count > 0)
+                                    {
+                                        <div data-pluginf-mcp-removed="1">
+                                            @L["plugins.mcp.removed"]: @string.Join(", ", _diff.Removed)
+                                        </div>
+                                    }
+                                }
+                            </MudAlert>
+                        }
+                    </div>
+                }
+
+                @* --- 2. ДЕЙСТВИЯ --- *@
+                <div data-pluginf-block="actions">
+                    <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.actions"]</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity:.75;">
+                        @L["plugins.actionsHint"]
+                    </MudText>
+                    @if (_details.Actions.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Style="opacity:.7;" data-pluginf-actions-empty="1">—</MudText>
+                    }
+                    else
+                    {
+                        <MudSimpleTable Dense="true" Hover="true">
+                            <thead>
+                                <tr>
+                                    <th>@L["plugins.actionCode"]</th>
+                                    <th>@L["plugins.actionTool"]</th>
+                                    <th>@L["actions.titleField"]</th>
+                                    @* ДОЛГИЙ ЗАПУСК (T-155-S0): «один экземпляр» и тайм-ауты
+                                       объявлены манифестом — человеку важно видеть, что второй
+                                       такой запуск будет ЖДАТЬ, а не идти рядом *@
+                                    <th>@L["plugins.actionSingle"]</th>
+                                    <th>@L["plugins.actionRegistered"]</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var action in _details.Actions)
+                                {
+                                    <tr data-pluginf-action="@action.Tool">
+                                        <td style="white-space: nowrap;">@action.Code</td>
+                                        <td>@action.Tool</td>
+                                        <td>@action.Title</td>
+                                        <td data-pluginf-single="@(action.SingleInstance ? "1" : "0")">
+                                            @if (action.SingleInstance)
+                                            {
+                                                <MudTooltip Text="@SingleHint(action)">
+                                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">
+                                                        @L["plugins.actionSingle"]
+                                                    </MudChip>
+                                                </MudTooltip>
+                                            }
+                                            else if (action.RunOp.Length > 0)
+                                            {
+                                                <MudText Typo="Typo.caption" Style="opacity:.7;">@action.RunOp</MudText>
+                                            }
+                                        </td>
+                                        <td>
+                                            <MudIcon Size="Size.Small"
+                                                     Color="@(action.Registered ? Color.Success : Color.Default)"
+                                                     Icon="@(action.Registered
+                                                         ? Icons.Material.Filled.CheckCircle
+                                                         : Icons.Material.Filled.RadioButtonUnchecked)" />
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                    @* ССЫЛКА НА ПРАВИЛА БЕЗОПАСНОСТИ. Уводить человека из формы на другую
+                       закладку нельзя — он потеряет форму, — поэтому глобальные правила
+                       показываются прямо здесь тем же компонентом, что на вкладке
+                       «Безопасность»: правило, закрывающее действие плагина, заводится
+                       ровно там же, где все остальные *@
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Class="mt-1"
+                               StartIcon="@Icons.Material.Filled.Security"
+                               data-pluginf-rules="1" OnClick="@(() => _rulesShown = !_rulesShown)">
+                        @L["plugins.rules"]
+                    </MudButton>
+                    @if (_rulesShown)
+                    {
+                        <div class="mt-2" data-pluginf-rules-panel="1">
+                            <SecurityRulesPanel Scope="@SecurityScope.Global" />
+                        </div>
+                    }
+                </div>
+
+                @* --- 3. ОПЫТ --- *@
+                <div data-pluginf-block="experience">
+                    <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.experience"]</MudText>
+                    <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity:.75;">
+                        @L["plugins.expHint"]
+                    </MudText>
+                    @if (_details.Experience.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Style="opacity:.7;" data-pluginf-exp-empty="1">—</MudText>
+                    }
+                    else
+                    {
+                        <MudSimpleTable Dense="true" Hover="true">
+                            <tbody>
+                                @foreach (var record in _details.Experience)
+                                {
+                                    <tr data-pluginf-exp="@record.Id">
+                                        <td style="white-space: nowrap;">@record.SkillName</td>
+                                        <td>@Short(record.Text)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </MudSimpleTable>
+                    }
+                </div>
+
+                @* --- 4. ДОКУМЕНТ --- *@
+                <div data-pluginf-block="doc">
+                    <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.doc"]</MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                               StartIcon="@Icons.Material.Filled.MenuBook"
+                               data-pluginf-doc="1" OnClick="OpenDocAsync">
+                        @L["plugins.doc"]
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity:.6;">
+                        @_details.Plugin.Doc
+                    </MudText>
+                </div>
+
+                @* --- 5. СНЯТИЕ — ПОСЛЕДНИМ БЛОКОМ (T-161-S0): справка о том, что снятие
+                   уносит записи у ВСЕЙ организации, стоит рядом с кнопкой «Снять» внизу
+                   формы, а не первым, что человек видит, открыв запись *@
+                @if (CanEdit && _details.Plugin.Id.Length > 0
+                     && _details.Plugin.State != PluginStates.Removed && _details.Plugin.HasManifest)
+                {
+                    <div data-pluginf-block="remove">
+                        <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.remove"]</MudText>
+                        <MudText Typo="Typo.caption" Style="opacity:.75;" data-pluginf-remove-info="1">
+                            @L["plugins.removeInfo"]
+                        </MudText>
+                    </div>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_details is not null && CanEdit)
+        {
+            @* набор кнопок зависит от состояния записи: заводить действия заново у
+               выключенного плагина незачем — они на месте, его надо просто включить *@
+            @if (_details.Plugin.State == PluginStates.Disabled)
+            {
+                <MudButton Color="Color.Success" Disabled="@_busy" data-pluginf-enable="1"
+                           OnClick="@(() => RunAsync("enable"))">@L["plugins.enable"]</MudButton>
+            }
+            else if (_details.Plugin.HasManifest)
+            {
+                <MudButton Color="Color.Primary" Disabled="@_busy" data-pluginf-init="1"
+                           OnClick="@(() => RunAsync("initialize"))">@L["plugins.init"]</MudButton>
+            }
+            @if (_details.Plugin.State == PluginStates.Initialized)
+            {
+                <MudButton Disabled="@_busy" data-pluginf-disable="1"
+                           OnClick="@(() => RunAsync("disable"))">@L["plugins.disable"]</MudButton>
+            }
+            @if (_details.Plugin.Id.Length > 0 && _details.Plugin.State != PluginStates.Removed
+                 && _details.Plugin.HasManifest)
+            {
+                <MudButton Color="Color.Error" Disabled="@_busy" data-pluginf-remove="1"
+                           OnClick="RemoveAsync">@L["plugins.remove"]</MudButton>
+            }
+        }
+        <MudSpacer />
+        <MudButton data-pluginf-close="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_changed)))">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Код плагина (<c>editor.shotcut</c>) — им плагин зовут отовсюду.</summary>
+    [Parameter, EditorRequired] public string Code { get; set; } = "";
+
+    private PluginDetailsDto? _details;
+    private bool _busy;
+
+    /// <summary>Секрет подключения MCP: НАБИРАЕТСЯ здесь и уходит на сервер, обратно не
+    /// приходит никогда — поле всегда начинается пустым.</summary>
+    private string _secret = "";
+
+    /// <summary>Итог последнего обновления списка инструментов: что добавилось, что исчезло.
+    /// Показывается человеку — молча дозаводить действия нельзя.</summary>
+    private McpToolsDto? _diff;
+
+    /// <summary>Что-то поменялось — список за окном надо перечитать.</summary>
+    private bool _changed;
+
+    /// <summary>Раздел настроек организации: правка — админу (b26391b3), owner проходит по рангу.</summary>
+    private bool CanEdit => State.CanAdmin;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _details = await Api.GetPluginAsync(Code, L.Lang);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Подсказка у пометки «один экземпляр» (T-155-S0): что это значит и какие у
+    /// операции тайм-ауты — иначе двенадцатичасовое обучение выглядит как зависшая задача.</summary>
+    private string SingleHint(PluginActionDto action)
+    {
+        var text = L["plugins.actionSingleHint"];
+        if (action.IdleTimeoutSec > 0 || action.TimeoutSec > 0)
+        {
+            text += " " + L["plugins.actionTimeouts"] + ": "
+                    + (action.IdleTimeoutSec > 0 ? action.IdleTimeoutSec / 60 + " " + L["schedule.min"] : "—")
+                    + " / "
+                    + (action.TimeoutSec > 0 ? action.TimeoutSec / 60 + " " + L["schedule.min"] : "—");
+        }
+        return text;
+    }
+
+    /// <summary>Действие жизненного цикла: initialize / disable / enable / remove / probe.</summary>
+    private async Task RunAsync(string action)
+    {
+        _busy = true;
+        try
+        {
+            await Api.PluginActionAsync(Code, action, L.Lang);
+            _changed = true;
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Снятие удаляет записи У ВСЕЙ ОРГАНИЗАЦИИ — переспрос обязателен. Окном
+    /// поверх формы (T-161-S0), а не разметкой внутри неё: вложенный MudMessageBox
+    /// рисуется содержимым внешнего диалога и даёт вторую пару кнопок наверху.</summary>
+    private async Task RemoveAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["plugins.remove"],
+            L["plugins.removeConfirm"],
+            yesText: L["plugins.remove"], cancelText: L["common.cancel"]);
+        if (confirmed == true)
+        {
+            await RunAsync("remove");
+        }
+    }
+
+    /// <summary>ОКНО УСТАНОВКИ И НАСТРОЙКИ (T-136-S0): путь к уже стоящей программе и
+    /// установка пакета с прогрессом — там же, куда ведёт кнопка из списка плагинов.</summary>
+    private async Task OpenSetupAsync()
+    {
+        var parameters = new DialogParameters<PluginInstallDialog> { { d => d.Code, Code } };
+        var dialog = await Dialogs.ShowAsync<PluginInstallDialog>(
+            L["plugins.setup"] + " — " + (_details?.Plugin.Name ?? Code), parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        _changed = true;
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// ОБНОВИТЬ СПИСОК ИНСТРУМЕНТОВ СЕРВЕРА MCP. Ответ показывает добавленное и исчезнувшее:
+    /// новый инструмент сервера обязан пройти через это действие человека, а не просочиться
+    /// молча — список у MCP динамический, и «тихо появившаяся» возможность никем не разрешена.
+    /// </summary>
+    private async Task RefreshToolsAsync()
+    {
+        _busy = true;
+        try
+        {
+            _diff = await Api.RefreshMcpToolsAsync(Code, L.Lang);
+            _changed = true;
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Секрет уходит в secrets/ этого сервера; поле после записи очищается —
+    /// показывать значение обратно нам нечем и не нужно.</summary>
+    private async Task SaveSecretAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.SetPluginSecretAsync(Code, _secret, L.Lang);
+            _secret = "";
+            Snackbar.Add(L["common.saved"], Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task OpenDocAsync()
+    {
+        var parameters = new DialogParameters<DocPageDialog>
+        {
+            { d => d.Path, _details?.Plugin.Doc ?? "" },
+        };
+        await Dialogs.ShowAsync<DocPageDialog>(L["plugins.doc"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    /// <summary>Глобальные правила безопасности показаны прямо в форме (не отдельным окном).</summary>
+    private bool _rulesShown;
+
+    private Color StateColor => _details?.Plugin.ShownState switch
+    {
+        PluginStates.Initialized => Color.Success,
+        PluginStates.Disabled => Color.Default,
+        PluginStates.Removed => Color.Default,
+        PluginLifecycle.ProbingSoftware => Color.Warning,
+        _ => Color.Info,
+    };
+
+    private static string Short(string text) =>
+        text.Length <= 160 ? text : text[..160] + "…";
+}

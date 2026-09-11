@@ -1,0 +1,26 @@
+@inject UiState State
+@inject I18nService L
+
+@* Кнопка вертикального экшен-бара (ТЗ гл. 11, панель 2).
+   ПОКА СЕРВЕР НЕ ПОДКЛЮЧЁН К ОРГАНИЗАЦИИ (T-148) кликабельны только настройки: остальных
+   данных на сервере попросту нет — они приедут репликацией. Кнопка не прячется, а гаснет,
+   и подсказка объясняет причину. *@
+<MudTooltip Text="@(Disabled ? L["ui.noOrg.disabled"] : Title)" Placement="Placement.Right">
+    <span>
+        @* data-view — какое представление открывает кнопка: опора живой проверки (T-157) *@
+        <MudIconButton Icon="@Icon" Disabled="@Disabled" data-view="@Kind"
+                       Color="@(State.ExplorerSection == Kind ? Color.Primary : Color.Default)"
+                       OnClick="@(() => State.OpenView(Kind))" />
+    </span>
+</MudTooltip>
+
+@code {
+    [Parameter] public string Kind { get; set; } = "";
+    [Parameter] public string Icon { get; set; } = "";
+    [Parameter] public string Title { get; set; } = "";
+
+    /// <summary>Погашена: организации ещё нет, а это представление живёт в ней (T-148).
+    /// Документация (T-17-S1) — исключение вместе с настройками: она лежит файлами рядом
+    /// с приложением, и как раз на сервере, ждущем решения по заявке, она и нужна.</summary>
+    private bool Disabled => State.NoOrg && Kind is not (UiState.ViewSettings or UiState.ViewDocs);
+}

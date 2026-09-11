@@ -1,0 +1,48 @@
+AI2P - buildRelease: A RELEASE OF THE SERVER INTO A SEPARATE FOLDER
+
+A self-sufficient set of files that starts without the sources and without
+dotnet run (spec ch. 4.2). It is a DEVELOPER script: it is run on the build machine,
+out of the repository, and its own output is in Russian and English mixed - it is
+tier B of the T-64-S0 analysis and is not localized through i18n yet.
+[until T-285 it was called publish.*]
+
+USAGE (Windows)
+  buildRelease.cmd                       into builds\windows\release
+  buildRelease.cmd D:\AI2P_v1.45         into the given folder
+  buildRelease.cmd D:\out Release        the folder and the configuration
+  buildRelease.cmd full                  WITH THE RUNTIME INSIDE, into releasefull
+  buildRelease.ps1 -Output D:\out -Clean clean the folder (except the data) and redo
+  buildRelease.cmd --help                this help
+  buildRelease.cmd --help -Lang ru       the language of this help
+
+USAGE (Linux / macOS)
+  ./buildRelease.sh                      into builds/<os>/release
+  ./buildRelease.sh --self-contained     WITH THE RUNTIME INSIDE
+  ./buildRelease.sh --help               this help
+  ./buildRelease.sh --help --lang ru     the language of this help
+
+TWO RELEASES
+  ordinary       - without the runtime: small, but needs ASP.NET Core 8.x installed
+                   on the machine (install.* checks that and offers to install it);
+  -SelfContained - the runtime lies inside the release itself, nothing to install,
+                   but the release is bound to the platform (-Runtime, win-x64 by
+                   default) and is an order of magnitude bigger.
+The folders are different and are NEVER mixed.
+
+THE FOLDER OF THE OPERATING SYSTEM. Between builds and release/releasefull there is
+the subfolder of the OS the release is built for - windows, linux or macos:
+  builds/windows/release      - without the runtime
+  builds/windows/releasefull  - with the runtime
+  builds/linux/releasefull    - the same, built for Linux (-Runtime linux-x64)
+  builds/macos/releasefull    - for macOS (-Runtime osx-x64 / osx-arm64)
+Releases of different systems no longer overwrite each other in one folder: they
+have different installation scripts, a different runtime inside and different
+executables.
+
+THE INSTALLATION PACKAGE is built by a SEPARATE step and out of a ready release:
+MakePackage.ps1/.cmd (for Linux/macOS - MakePackage.sh) is put into the release, it
+has to be run FROM the release folder, and the result goes to ../../packages.
+
+The data folder is NOT copied here: data, logs, config.json, secrets.json and
+secrets (the model keys, one json per key) are moved by hand and are not touched by
+a repeated release.

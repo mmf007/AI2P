@@ -1,0 +1,257 @@
+@inject ApiClient Api
+@inject I18nService L
+
+@* Форма правила безопасности (ТЗ гл. 12, todo25): на что распространяется (действие AI2P /
+   команда OS / доступ до каталогов), разрешение (разрешено / переспросить / запрещено),
+   действия над файлами (для каталогов, соединение по И), паттерн. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudSelect T="string" Value="@_target" ValueChanged="OnTargetChangedAsync"
+                       Label="@L["security.target"]">
+                <MudSelectItem T="string" Value="@(SecurityTarget.Action)">@L["security.target.ai2p_action"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@(SecurityTarget.OsCommand)">@L["security.target.os_command"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@(SecurityTarget.Directory)">@L["security.target.dir_access"]</MudSelectItem>
+                @* ПЛАГИНЫ И MCP (T-155-S0): образец — код плагина, можно с именем операции *@
+                <MudSelectItem T="string" Value="@(SecurityTarget.Plugin)">@L["security.target.plugin_access"]</MudSelectItem>
+            </MudSelect>
+
+            <MudSelect T="string" @bind-Value="_permission" Label="@L["security.permission"]">
+                <MudSelectItem T="string" Value="@(SecurityPermission.Allow)">@L["security.permission.allow"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@(SecurityPermission.Confirm)">@L["security.permission.confirm"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@(SecurityPermission.Deny)">@L["security.permission.deny"]</MudSelectItem>
+            </MudSelect>
+
+            @if (_target == SecurityTarget.Directory)
+            {
+                @* действия над файлами — соединение по И (todo25) *@
+                <div>
+                    <MudText Typo="Typo.caption">@L["security.ops"]</MudText>
+                    <MudStack Row="true" Spacing="4">
+                        <MudCheckBox T="bool" @bind-Value="_opRead" Label="@L["security.op.read"]" Dense="true" />
+                        <MudCheckBox T="bool" @bind-Value="_opWrite" Label="@L["security.op.write"]" Dense="true" />
+                        <MudCheckBox T="bool" @bind-Value="_opDelete" Label="@L["security.op.delete"]" Dense="true" />
+                    </MudStack>
+                </div>
+            }
+
+            @if (_target == SecurityTarget.Plugin)
+            {
+                @* операции правила плагина: использовать (агент зовёт инструмент) и
+                   запускать (задача «авто ПО» запускает программу) — T-155-S0 *@
+                <div>
+                    <MudText Typo="Typo.caption">@L["security.opsPlugin"]</MudText>
+                    <MudStack Row="true" Spacing="4">
+                        <MudCheckBox T="bool" @bind-Value="_opUse" Label="@L["security.op.use"]" Dense="true" />
+                        <MudCheckBox T="bool" @bind-Value="_opRun" Label="@L["security.op.run"]" Dense="true" />
+                    </MudStack>
+                </div>
+            }
+
+            @if (_target == SecurityTarget.Action)
+            {
+                @* паттерн действия AI2P — код из справочника действий (todo24/25) *@
+                <MudSelect T="string" @bind-Value="_pattern" Label="@L["security.pattern"]"
+                           HelperText="@L["security.pattern.hint.action"]">
+                    @* имя переменной не «code»: @ перед ним Razor читает как директиву @code *@
+                    @foreach (var actionCode in _actionCodes)
+                    {
+                        <MudSelectItem T="string" Value="@actionCode">@actionCode</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else if (_target == SecurityTarget.Plugin)
+            {
+                @* ПЛАГИНЫ И MCP (T-165-S0): образец выбирается из списка плагинов этого сервера —
+                   код плагина (весь плагин) либо «код:операция» (одна его операция). Поле
+                   остаётся вводимым (CoerceValue): правило допускает и маску (trainer.*, re:…),
+                   и код плагина, которого на этом сервере нет *@
+                <MudAutocomplete T="string" @bind-Value="_pattern" Label="@L["security.pattern"]"
+                                 SearchFunc="SearchPluginPatternsAsync" CoerceValue="true"
+                                 MaxItems="100" Clearable="true" Immediate="true"
+                                 HelperText="@PatternHint" data-security-pattern="plugin" />
+            }
+            else
+            {
+                <MudTextField @bind-Value="_pattern" Label="@L["security.pattern"]" Immediate="true"
+                              HelperText="@PatternHint" />
+            }
+
+            @if (Error is { } error)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">@error</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_pattern.Trim().Length == 0 || Error is not null)"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Уровень правила: global / project / task (SecurityScope).</summary>
+    [Parameter, EditorRequired] public string Scope { get; set; } = SecurityScope.Global;
+
+    /// <summary>Id проекта/задачи; null — глобальное.</summary>
+    [Parameter] public string? ScopeId { get; set; }
+
+    /// <summary>null — создание нового правила.</summary>
+    [Parameter] public SecurityRule? Source { get; set; }
+
+    private string _target = SecurityTarget.Action;
+    private string _permission = SecurityPermission.Deny;
+    private string _pattern = "";
+    private bool _opRead;
+    private bool _opWrite;
+    private bool _opDelete;
+    private bool _opUse = true;
+    private bool _opRun = true;
+    private List<string> _actionCodes = [];
+
+    /// <summary>Образцы для правила плагина (T-165-S0): код плагина и «код:операция».
+    /// Список ЭТОГО сервера — плагины ставятся на конкретный компьютер.</summary>
+    private List<string> _pluginPatterns = [];
+
+    private string PatternHint => _target switch
+    {
+        SecurityTarget.OsCommand => L["security.pattern.hint.os"],
+        SecurityTarget.Plugin => L["security.pattern.hint.plugin"],
+        _ => Scope == SecurityScope.Global
+            ? L["security.pattern.hint.dir.global"]
+            : L["security.pattern.hint.dir"],
+    };
+
+    /// <summary>Проверки формы (сервер проверяет ещё раз): для каталогов нужно хотя бы одно
+    /// действие; глобальный паттерн каталога — только полный путь, причём независимо от ОС
+    /// (X:\…, /…, \\… — SecurityRulePaths); буква диска кириллицей — отдельная понятная
+    /// ошибка (частая опечатка раскладки, todo25-фикс).</summary>
+    private string? Error
+    {
+        get
+        {
+            if (_target == SecurityTarget.Plugin)
+            {
+                // правило без единой операции не значит ничего и молча не сработает (T-155-S0)
+                return !_opUse && !_opRun ? L["security.error.noOpsPlugin"] : null;
+            }
+            if (_target != SecurityTarget.Directory || _pattern.Trim().Length == 0)
+            {
+                return null;
+            }
+            if (!_opRead && !_opWrite && !_opDelete)
+            {
+                return L["security.error.noOps"];
+            }
+            if (SecurityRulePaths.HasCyrillicDriveLetter(_pattern))
+            {
+                return L["security.error.cyrillicDrive"];
+            }
+            if (Scope == SecurityScope.Global && !SecurityRulePaths.IsFullPath(_pattern))
+            {
+                return L["security.error.globalRelative"];
+            }
+            return null;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Source is not null)
+        {
+            _target = Source.Target;
+            _permission = Source.Permission;
+            _pattern = Source.Pattern;
+            _opRead = Source.OpRead;
+            _opWrite = Source.OpWrite;
+            _opDelete = Source.OpDelete;
+            _opUse = Source.OpUse;
+            _opRun = Source.OpRun;
+        }
+        try
+        {
+            _actionCodes = (await Api.GetActionsAsync(L.Lang)).Select(a => a.Code).ToList();
+        }
+        catch (ApiException)
+        {
+            _actionCodes = [];
+        }
+        if (_target == SecurityTarget.Plugin)
+        {
+            await LoadPluginPatternsAsync();
+        }
+    }
+
+    /// <summary>Список плагинов нужен только правилу плагина — грузим его при выборе вида
+    /// (и при открытии готового правила), а не всегда.</summary>
+    private async Task OnTargetChangedAsync(string target)
+    {
+        _target = target;
+        if (_target == SecurityTarget.Plugin)
+        {
+            await LoadPluginPatternsAsync();
+        }
+    }
+
+    /// <summary>Образцы правила плагина: код плагина закрывает его целиком, «код:операция» —
+    /// одну операцию (именем операции служит инструмент действия — с ним сравнивают и вызов
+    /// агента, и запуск программы исполнителем «авто ПО», SecurityEvaluator.ForPlugin).</summary>
+    private async Task LoadPluginPatternsAsync()
+    {
+        if (_pluginPatterns.Count > 0)
+        {
+            return;
+        }
+        var patterns = new List<string>();
+        try
+        {
+            foreach (var plugin in await Api.GetPluginsAsync(L.Lang))
+            {
+                patterns.Add(plugin.Code);
+                try
+                {
+                    var details = await Api.GetPluginAsync(plugin.Code, L.Lang);
+                    patterns.AddRange(details.Actions
+                        .Where(a => a.Tool.Length > 0)
+                        .Select(a => plugin.Code + ":" + a.Tool));
+                }
+                catch (ApiException)
+                {
+                    // у одного плагина не прочлись действия — остальные всё равно показываем
+                }
+            }
+        }
+        catch (ApiException)
+        {
+            // список недоступен — поле остаётся вводимым руками
+        }
+        _pluginPatterns = patterns;
+    }
+
+    private Task<IEnumerable<string>> SearchPluginPatternsAsync(string? value, CancellationToken token)
+    {
+        var needle = (value ?? "").Trim();
+        return Task.FromResult<IEnumerable<string>>(needle.Length == 0
+            ? _pluginPatterns
+            : _pluginPatterns.Where(p => p.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    private void Save() => Dialog.Close(DialogResult.Ok(new SecurityRule
+    {
+        Id = Source?.Id ?? Guid.NewGuid().ToString(),
+        Scope = Scope,
+        ScopeId = ScopeId,
+        Target = _target,
+        Permission = _permission,
+        Pattern = _pattern.Trim(),
+        OpRead = _target == SecurityTarget.Directory && _opRead,
+        OpWrite = _target == SecurityTarget.Directory && _opWrite,
+        OpDelete = _target == SecurityTarget.Directory && _opDelete,
+        OpUse = _target == SecurityTarget.Plugin && _opUse,
+        OpRun = _target == SecurityTarget.Plugin && _opRun,
+    }));
+}

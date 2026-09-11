@@ -1,0 +1,39 @@
+{
+  "ui": {
+    "protocol": "http",
+    "port": 5480,
+    "basePath": "/ai2p",
+    "hostname": "localhost",
+    "hostname2": "",
+    "port2": null,
+    "bindAddress": "0.0.0.0",
+    "https": {
+      "source": "file",
+      "certFile": "",
+      "keyFile": "",
+      "passwordRef": "https.certPassword",
+      "storeLocation": "CurrentUser",
+      "storeName": "My",
+      "subject": "",
+      "thumbprint": "",
+      "trustAnyPeer": true
+    },
+    "openBrowserOnStart": true
+  },
+  "storage": {
+    "dataDir": "./data",
+    "dbFile": "ai2p.db",
+    "distDir": "./distribs",
+    "packagesDir": "./packages",
+    "docDir": "",
+    "modelsRepo": "./models",
+    "serverDbFile": "server.db"
+  },
+  "logging": {
+    "level": "Warning",
+    "dir": "./logs",
+    "rotation": "day"
+  },
+  "language": "ru",
+  "serviceMode": false
+}

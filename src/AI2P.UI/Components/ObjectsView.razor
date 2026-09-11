@@ -1,0 +1,546 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+@* СПИСОК ОБЪЕКТОВ ПРОЕКТА (ТЗ пп. 2.5–2.6; T-259, версия 1.91) — вкладка карточки проекта.
+
+   Объект это то, на что задача ССЫЛАЕТСЯ: персонаж ролика, локация, реквизит, стиль,
+   эталонный кадр, адаптер LoRA. Список СВОЙ У КАЖДОГО ПРОЕКТА — общего списка объектов
+   у организации нет вовсе, поэтому представление всегда живёт внутри проекта.
+
+   ПРЕДСТАВЛЕНИЙ ЧЕТЫРЕ: «таблица» (с превью картинок, T-276), «таблица краткая», «иерархия»
+   (T-266) и «тэги».
+   * обе таблицы показывают и ИЕРАРХИЮ: дети идут сразу за родителем, с отступом (ObjectRows);
+     различаются они ровно колонкой превью — краткая вмещает заметно больше строк на экран;
+   * превью грузит САМ БРАУЗЕР (ObjectPic, loading="lazy"): список рисуется сразу, картинки
+     появляются по мере загрузки и ни одной строки не задерживают;
+   * «тэги» устроено ровно как у задач (T-222): категория — тэг, ВСЕ КАТЕГОРИИ ПРИ ЗАГРУЗКЕ
+     ЗАКРЫТЫ, поэтому набор открытых живёт только в компоненте и в сохраняемое состояние
+     не кладётся (иначе «при загрузке закрыты» стало бы «как оставил в прошлый раз», T-217).
+
+   Тэги объектов — ОТДЕЛЬНАЯ ГРУППА от тэгов задач: свой список, свой фильтр, своя таблица
+   в базе. «Персонаж» и «локация» среди тэгов задач были бы мусором, и наоборот. *@
+<div data-objects-frame="1">
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["objects.title"]</MudText>
+    <MudTextField T="string" @bind-Value="_search" Label="@L["common.search"]"
+                  Immediate="true" OnKeyDown="OnSearchKeyDown" Margin="Margin.Dense"
+                  Clearable="true" Style="max-width: 220px;"
+                  Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search"
+                  OnAdornmentClick="ReloadAsync" />
+    @* фильтр по тэгам — множественный выбор, несколько тэгов соединяются по ИЛИ (как у задач) *@
+    <MudSelect T="string" SelectedValues="@_tags" SelectedValuesChanged="OnTagsChanged"
+               Label="@L["objects.filter.tags"]" MultiSelection="true" Clearable="true"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 220px;"
+               data-objects-filter-tags="1"
+               MultiSelectionTextFunc="@(list => string.Join(", ", list))">
+        @foreach (var tag in _allTags)
+        {
+            <MudSelectItem T="string" Value="@tag">@tag</MudSelectItem>
+        }
+    </MudSelect>
+    @* фильтр по ВИДАМ объекта (T-276) — множественный выбор, виды соединяются по ИЛИ, как
+       тэги: «покажи персонажей И локации» это одно требование, а не два. Отбор идёт
+       ЗАПРОСОМ (o.type IN …), а не в памяти, — по той же причине, что и у тэгов: список
+       объектов проекта читается целиком, и отбирать его должен тот, кто его собирает *@
+    <MudSelect T="string" SelectedValues="@_kinds" SelectedValuesChanged="OnKindsChanged"
+               Label="@L["objects.filter.kinds"]" MultiSelection="true" Clearable="true"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 220px;"
+               data-objects-filter-kinds="1"
+               MultiSelectionTextFunc="@(list => string.Join(", ",
+                   list.Select(k => ObjectKinds.Title(k, L.Lang))))">
+        @foreach (var kind in ObjectKinds.All)
+        {
+            <MudSelectItem T="string" Value="@kind">@ObjectKinds.Title(kind, L.Lang)</MudSelectItem>
+        }
+    </MudSelect>
+    @* иерархия целиком: свернуть/развернуть все узлы — как у дерева задач (T-136) *@
+    @if (_view == "tree")
+    {
+        <MudTooltip Text="@L["objects.tree.collapseAll"]">
+            <MudIconButton Icon="@Icons.Material.Filled.UnfoldLess" Size="Size.Small"
+                           data-objects-collapse="1" OnClick="@(() => _tree?.CollapseAll())" />
+        </MudTooltip>
+        <MudTooltip Text="@L["objects.tree.expandAll"]">
+            <MudIconButton Icon="@Icons.Material.Filled.UnfoldMore" Size="Size.Small"
+                           data-objects-expand="1" OnClick="@(() => _tree?.ExpandAll())" />
+        </MudTooltip>
+    }
+    <MudSpacer />
+    <MudSelect T="string" Value="@_view" ValueChanged="OnViewChanged" Label="@L["common.view"]"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 160px;"
+               data-objects-viewpick="1">
+        @* «таблица» (T-276): та же таблица, но с ПРЕВЬЮ КАРТИНКИ слева. Прежняя таблица
+           осталась и называется теперь «таблица краткая»: строк на экран в ней помещается
+           заметно больше, и когда объекты перебирают списком, это важнее картинок *@
+        <MudSelectItem T="string" Value="@("tablefull")">@L["objects.view.table"]</MudSelectItem>
+        <MudSelectItem T="string" Value="@("table")">@L["objects.view.table.short"]</MudSelectItem>
+        @* «иерархия» (T-266): то же дерево, но со сворачиванием узлов и переносом
+           строки мышью или пальцем — как у задач *@
+        <MudSelectItem T="string" Value="@("tree")">@L["objects.view.tree"]</MudSelectItem>
+        <MudSelectItem T="string" Value="@("tags")">@L["objects.view.tags"]</MudSelectItem>
+    </MudSelect>
+    @* В АРХИВЕ ФУНКЦИЙ ПРАВКИ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат *@
+    @if (!State.InArchive)
+    {
+        <MudTooltip Text="@L["objects.new"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Add" data-objects-new="1"
+                           Disabled="@(!State.CanEdit)" OnClick="@(() => EditAsync(null))" />
+        </MudTooltip>
+    }
+    <MudTooltip Text="@L["common.refresh"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" />
+    </MudTooltip>
+</MudStack>
+
+@if (!_loaded)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_items.Count == 0)
+{
+    @* пустой список — не пустое место: здесь и сказано, зачем объекты нужны *@
+    <MudAlert Severity="Severity.Info" Dense="true" data-objects-empty="1">@L["objects.empty"]</MudAlert>
+}
+else if (_view == "tree")
+{
+    @* «иерархия» (T-266): та же раскладка, что в таблице (ObjectRows), но узлы
+       сворачиваются, а строку можно перетащить на другую — она станет её внутренним
+       объектом; на полосу «в корень» — родителя потеряет *@
+    <ObjectTreeView @ref="_tree" Items="_items" OnReload="ReloadAsync"
+                    OnEdit="@(item => OpenObject(item))" RowActions="@(item => RowButtons(item))" />
+}
+else if (_view == "tags")
+{
+    <div data-objects-view="tags">
+        <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+            <thead>
+                <tr>
+                    <th style="width: 1%; white-space: nowrap;">ID</th>
+                    <th style="width: 100%;">@L["objects.name"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.kind"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.path"]</th>
+                    <th style="width: 1%;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var group in ObjectTagGroups.Build(_items))
+                {
+                    var open = _open.Contains(group.Tag);
+                    <tr class="ai2p-tag-cat" style="cursor: pointer;"
+                        data-object-cat="@group.Tag" data-object-open="@(open ? "1" : "0")"
+                        @onclick="@(() => Toggle(group.Tag))">
+                        <td colspan="5">
+                            <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                     Size="Size.Small" Style="vertical-align: middle;" />
+                            <b>@TagTitle(group.Tag)</b>
+                            <MudText Typo="Typo.caption" Class="ml-2" Style="display: inline;">
+                                @group.Items.Count
+                            </MudText>
+                        </td>
+                    </tr>
+                    @if (open)
+                    {
+                        @foreach (var item in group.Items)
+                        {
+                            var current = item;
+                            <tr data-object-row="@current.DisplayId" style="cursor: pointer;"
+                                @onclick="@(() => OpenObject(current))">
+                                <td style="white-space: nowrap; padding-left: 32px;">@current.DisplayId</td>
+                                <td>@NameCell(current)</td>
+                                <td style="white-space: nowrap;">@ObjectKinds.Title(current.Type, L.Lang)</td>
+                                <td style="white-space: nowrap;">@current.PathOrUrl</td>
+                                <td style="white-space: nowrap;">@RowButtons(current)</td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+else if (_view == "table")
+{
+    <div data-objects-view="table">
+        <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+            <thead>
+                <tr>
+                    <th style="width: 1%; white-space: nowrap;">ID</th>
+                    <th style="width: 100%;">@L["objects.name"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.kind"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.tags"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.path"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.lora"]</th>
+                    <th style="width: 1%;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in ObjectRows.Build(_items))
+                {
+                    var current = row.Item;
+                    <tr data-object-row="@current.DisplayId" data-object-level="@row.Level"
+                        style="cursor: pointer;" @onclick="@(() => OpenObject(current))">
+                        <td style="white-space: nowrap;">@current.DisplayId</td>
+                        @* отступ показывает иерархию: эталонные кадры стоят под своим
+                           персонажем, а не рассыпаны по таблице по номерам *@
+                        <td style="@($"padding-left: {8 + row.Level * 24}px;")">@NameCell(current)</td>
+                        <td style="white-space: nowrap;">@ObjectKinds.Title(current.Type, L.Lang)</td>
+                        <td>@TagsCell(current)</td>
+                        <td style="white-space: nowrap;">@current.PathOrUrl</td>
+                        <td style="white-space: nowrap;">@LoraCell(current)</td>
+                        <td style="white-space: nowrap;">@RowButtons(current)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+else
+{
+    @* ТАБЛИЦА С ПРЕВЬЮ (T-276) — вид по умолчанию. Отличие от краткой ровно одно: слева
+       у каждой строки квадрат с картинкой объекта. Порядок строк тот же (ObjectRows) —
+       иерархия видна отступом, эталонные кадры стоят под своим персонажем.
+
+       Картинки НЕ ЖДЁМ: адреса посчитаны при чтении списка (ObjectPics), а сами файлы
+       тянет браузер по мере показа строк. *@
+    <div data-objects-view="tablefull">
+        <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+            <thead>
+                <tr>
+                    <th style="width: 1%;"></th>
+                    <th style="width: 1%; white-space: nowrap;">ID</th>
+                    <th style="width: 100%;">@L["objects.name"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.kind"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.tags"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.path"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["objects.lora"]</th>
+                    <th style="width: 1%;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in ObjectRows.Build(_items))
+                {
+                    var current = row.Item;
+                    <tr data-object-row="@current.DisplayId" data-object-level="@row.Level"
+                        style="cursor: pointer;" @onclick="@(() => OpenObject(current))">
+                        <td style="white-space: nowrap; padding: 2px 4px;">
+                            <ObjectPic Url="@PicOf(current)" Alt="@current.Name"
+                                       Code="@current.DisplayId" SizePx="48" />
+                        </td>
+                        <td style="white-space: nowrap;">@current.DisplayId</td>
+                        <td style="@($"padding-left: {8 + row.Level * 24}px;")">@NameCell(current)</td>
+                        <td style="white-space: nowrap;">@ObjectKinds.Title(current.Type, L.Lang)</td>
+                        <td>@TagsCell(current)</td>
+                        <td style="white-space: nowrap;">@current.PathOrUrl</td>
+                        <td style="white-space: nowrap;">@LoraCell(current)</td>
+                        <td style="white-space: nowrap;">@RowButtons(current)</td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+</div>
+
+@code {
+    /// <summary>Фрейм, в котором живёт список (todo22): закладка объекта открывается в нём же.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    /// <summary>Проект списка (T-259): у каждого проекта свой список объектов, общего нет.</summary>
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    private List<ObjectItem> _items = [];
+    private List<string> _allTags = [];
+    private HashSet<string> _tags = [];
+
+    /// <summary>Выбранные виды объекта (T-276); пусто — все виды.</summary>
+    private HashSet<string> _kinds = [];
+
+    /// <summary>Адреса превью строк (T-276): считаются один раз на прочитанный список,
+    /// а не на каждую отрисовку.</summary>
+    private Dictionary<string, string> _pics = [];
+
+    private string _search = "";
+    private string _view = DefaultView;
+    private bool _loaded;
+
+    /// <summary>Дерево представления «иерархия» (T-266) — по ссылке работают кнопки
+    /// «свернуть/развернуть все» тулбара.</summary>
+    private ObjectTreeView? _tree;
+
+    /// <summary>Раскрытые категории представления «тэги». Пусто при каждом открытии —
+    /// «все категории при загрузке свёрнуты» (T-217, T-222); в состояние не сохраняется.</summary>
+    private readonly HashSet<string> _open = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Вид, с которого список открывается впервые (T-276): ТАБЛИЦА С ПРЕВЬЮ. Выбранный
+    /// человеком вид этим не трогается — он сохранён на проект и читается как раньше:
+    /// у того, кто оставил список краткой таблицей, она краткой и останется.
+    /// </summary>
+    private const string DefaultView = "tablefull";
+
+    /// <summary>Вид представления запоминается на проект (как у списка задач, todo23).</summary>
+    private sealed class ObjectsViewState
+    {
+        public string View { get; set; } = DefaultView;
+    }
+
+    private ObjectsViewState _saved = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _saved = State.ComponentState<ObjectsViewState>("objectsView:" + ProjectId);
+        _view = _saved.View;
+        await ReloadAsync();
+    }
+
+    /// <summary>Картинки строк рисует браузер, но слушатель «файла нет» вешает JS: без него
+    /// на месте пропавшего файла остался бы битый значок браузера. Повторный вызов на уже
+    /// подключённых картинках ничего не делает (пометка в data-атрибуте).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_loaded && _pics.Count > 0)
+        {
+            await Js.InvokeVoidAsync("ai2p.initPics");
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (ProjectId.Length == 0)
+        {
+            _loaded = true;
+            return;
+        }
+        try
+        {
+            var search = _search.Trim();
+            _items = await Api.GetObjectsAsync(ProjectId,
+                _tags.Count == 0 ? null : _tags,
+                search.Length == 0 ? null : search,
+                _kinds.Count == 0 ? null : _kinds);
+            // АДРЕСА ПРЕВЬЮ СЧИТАЮТСЯ ПО ПОЛНОМУ СПИСКУ ПРОЕКТА, а не по отобранному
+            // (T-276): картинка персонажа лежит у его детей-кадров, и отбор «только
+            // персонажи» оставил бы его без лица — фильтр выбирает СТРОКИ, а не то, что
+            // строка показывает. Пока отбора нет, второй запрос не нужен вовсе: список
+            // и так полный
+            var forPics = _tags.Count > 0 || _kinds.Count > 0 || search.Length > 0
+                ? await Api.GetObjectsAsync(ProjectId)
+                : _items;
+            // считаются один раз на прочитанный список: дальше отрисовка их только
+            // подставляет, и переключение вида картинки заново не считает
+            _pics = ObjectPics.Build(forPics, ProjectId);
+            // список тэгов читается вместе со списком объектов: тэг заводится правкой
+            // объекта, и отдельной кнопки «обновить тэги» быть не должно. Выбранные тэги
+            // остаются в списке, даже если их сняли с последнего объекта, — иначе фильтр
+            // показывал бы пустоту без единого способа её снять (наука T-222)
+            _allTags = (await Api.GetObjectTagsAsync(ProjectId)).Concat(_tags)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private Task OnSearchKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? ReloadAsync() : Task.CompletedTask;
+
+    private Task OnTagsChanged(IEnumerable<string> values)
+    {
+        _tags = values.ToHashSet(StringComparer.Ordinal);
+        return ReloadAsync();
+    }
+
+    /// <summary>Отбор по видам (T-276): выбор нескольких видов — это «или», как у тэгов.</summary>
+    private Task OnKindsChanged(IEnumerable<string> values)
+    {
+        _kinds = values.ToHashSet(StringComparer.Ordinal);
+        return ReloadAsync();
+    }
+
+    /// <summary>Адрес превью строки; пусто — картинки у объекта нет (ObjectPics).</summary>
+    private string? PicOf(ObjectItem item) =>
+        _pics.TryGetValue(item.Id, out var url) ? url : null;
+
+    private void OnViewChanged(string value)
+    {
+        _view = value;
+        _saved.View = value;
+        State.PersistComponentStates();
+    }
+
+    private void Toggle(string tag)
+    {
+        if (!_open.Remove(tag))
+        {
+            _open.Add(tag);
+        }
+    }
+
+    private string TagTitle(string tag) => tag.Length == 0 ? L["objects.tags.none"] : tag;
+
+    /// <summary>Название объекта, а рядом — размер внутреннего списка («+3») и приглушение
+    /// у выключенного: выключенный объект остаётся в списке, это не удаление.</summary>
+    private RenderFragment NameCell(ObjectItem item) =>
+        @<span>
+            <span style="@(item.IsActive ? "" : "opacity: .5;")">@item.Name</span>
+            @if (item.ChildCount > 0)
+            {
+                <span class="ml-2" style="opacity: .6; font-size: .78rem;"
+                      data-object-children="@item.ChildCount">+@item.ChildCount</span>
+            }
+        </span>;
+
+    private string TagsCell(ObjectItem item) => string.Join(", ", item.Tags);
+
+    /// <summary>Состояние адаптера LoRA словами; «нет» не пишем — пустая ячейка понятнее.</summary>
+    private string LoraCell(ObjectItem item) =>
+        item.LoraStatus == LoraStates.None ? "" : L["objects.lora." + item.LoraStatus];
+
+    /// <summary>
+    /// Кнопки строки: ссылка на объект (её вставляют в описание задачи), правка и удаление.
+    /// stopPropagation обязателен: строка целиком открывает ЗАКЛАДКУ объекта (T-99-S0), и без
+    /// него нажатие на «удалить» открывало бы ещё и закладку поверх переспроса.
+    /// Карандаш появился здесь тогда же: щелчок по строке больше не открывает оконную форму,
+    /// и без него из списка нельзя было бы поправить объект в одно движение.
+    /// </summary>
+    private RenderFragment RowButtons(ObjectItem item) =>
+        @<span @onclick="@(() => { })" @onclick:stopPropagation="true">
+            <MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small"
+                           title="@L["objects.link"]" data-object-link="@item.DisplayId"
+                           OnClick="@(() => ShowLinkAsync(item))" />
+            @if (!State.InArchive)
+            {
+                @* чужой объект здесь только читается (T-102-S0): правится он на своём
+                   сервере, а кнопка «сменить сервер» живёт на карточке объекта *@
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                               title="@L["common.edit"]"
+                               Disabled="@(!State.CanEdit || item.IsReadOnly)"
+                               data-object-edit="@item.DisplayId"
+                               OnClick="@(() => EditAsync(item))" />
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               title="@L["common.delete"]"
+                               Disabled="@(!State.CanEdit || item.IsReadOnly)"
+                               data-object-delete="@item.DisplayId"
+                               OnClick="@(() => DeleteAsync(item))" />
+            }
+        </span>;
+
+    /// <summary>
+    /// ЩЕЛЧОК ПО СТРОКЕ ОТКРЫВАЕТ ЗАКЛАДКУ (T-99-S0), а не оконную форму: паспорт персонажа
+    /// длинный, у объекта есть субобъекты и настройка LoRA, и держать всё это надо рядом
+    /// с задачей, а не поверх неё. Закладка открывается в ТОМ ЖЕ фрейме, где список, —
+    /// как у задач и проектов.
+    /// </summary>
+    private void OpenObject(ObjectItem item) =>
+        State.OpenObject(item.Id, item.DisplayId, item.Name, FrameIndex);
+
+    /// <summary>
+    /// ССЫЛКА НА ОБЪЕКТ (T-259) — то, что вставляют в описание задачи: <c>@obj:OBJ-3</c>.
+    /// Рядом показывается и текст, который встанет вместо неё при запуске задания: паспорт
+    /// проверяют ДО генерации, а не по непохожему кадру.
+    /// </summary>
+    private async Task ShowLinkAsync(ObjectItem item)
+    {
+        var marker = ObjectRefs.Marker(item.DisplayId);
+        var prompt = "";
+        try
+        {
+            prompt = (await Api.GetObjectPromptAsync(item.Id)).Prompt;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        // ссылок ДВЕ (T-99-S0): маркер для описания задачи и адрес закладки объекта
+        var parameters = new DialogParameters<ObjectLinkDialog>
+        {
+            { d => d.Marker, marker },
+            { d => d.Url, State.ObjectUrl(item.Id) },
+            { d => d.LocalUrl, State.HasExternalUrl ? State.ObjectLocalUrl(item.Id) : "" },
+            // относительная — от корня сайта (T-196-S0)
+            { d => d.RelativeUrl, LinkUrls.RelativeOf(State.ObjectUrl(item.Id)) },
+            { d => d.Prompt, prompt },
+        };
+        var dialog = await Dialogs.ShowAsync<ObjectLinkDialog>(L["objects.link"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+    }
+
+    private async Task EditAsync(ObjectItem? item)
+    {
+        if (!State.CanEdit)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ObjectDialog>
+        {
+            { d => d.ProjectId, ProjectId },
+            { d => d.Item, item },
+            { d => d.Existing, _items },
+            { d => d.KnownTags, _allTags },
+        };
+        var dialog = await Dialogs.ShowAsync<ObjectDialog>(
+            item is null ? L["objects.new"] : L["objects.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ObjectItem saved })
+        {
+            return;
+        }
+        try
+        {
+            if (item is null)
+            {
+                await Api.CreateObjectAsync(saved);
+            }
+            else
+            {
+                await Api.UpdateObjectAsync(saved);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Удаление объекта — с выбором «перенести в архив или удалить совсем»
+    /// (T-44-S0): объект верхнего уровня уносит с собой всех дочерних (эталонные кадры,
+    /// датасеты), и сколько их, форма показывает сама.</summary>
+    private async Task DeleteAsync(ObjectItem item)
+    {
+        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+            ArchiveMoveTargets.Object, item.Id, $"{item.DisplayId} {item.Name}");
+        if (choice is null)
+        {
+            return;
+        }
+        try
+        {
+            if (choice == ArchiveOrDeleteDialog.Archive)
+            {
+                await Api.MoveToArchiveAsync(ArchiveMoveTargets.Object, item.Id);
+            }
+            else
+            {
+                await Api.DeleteObjectAsync(item.Id);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,101 @@
+@inject UiState State
+@inject I18nService L
+
+@* Форма пользователя системы для владельца (ТЗ п. 2.14, вкладка «Пользователи» настроек).
+   При создании обязательно вводится почта (это логин) и первичный пароль; пароль можно
+   оставить пустым — тогда пользователь входит только с этого компьютера (ТЗ гл. 11).
+   Почта существующего аккаунта не меняется — это его идентификатор. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 340px;">
+            @* autocomplete="off": ниже есть поля пароля, и без запрета браузер подставляет
+               сюда сохранённый логин — это форма ЗАВЕДЕНИЯ пользователя, а не входа *@
+            <MudTextField @bind-Value="_dto.Email" Label="@L["login.email"]" Immediate="true"
+                          ReadOnly="@(!IsNew)" Disabled="@(!IsNew)"
+                          Error="@EmailTaken" ErrorText="@L["users.emailTaken"]"
+                          autocomplete="off" />
+            <MudTextField @bind-Value="_dto.Name" Label="@L["login.name"]" Immediate="true"
+                          autocomplete="off" />
+            <MudTextField @bind-Value="_dto.Phone" Label="@L["login.phone"]" autocomplete="off" />
+            <MudSelect T="SystemRole" @bind-Value="_dto.Role" Label="@L["executors.systemRole"]"
+                       Disabled="@IsSelf" HelperText="@(IsSelf ? L["users.selfRoleHint"] : null)">
+                @foreach (var role in Enum.GetValues<SystemRole>())
+                {
+                    <MudSelectItem T="SystemRole" Value="@role">@role.ToDb()</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSwitch T="bool" @bind-Value="_dto.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" Disabled="@IsSelf" />
+            @* пароль: при создании — первичный, при правке — сброс владельцем *@
+            <MudSwitch T="bool" @bind-Value="_setPassword" Color="Color.Primary"
+                       Label="@(IsNew ? L["users.primaryPassword"] : L["users.resetPassword"])"
+                       Disabled="@IsNew" />
+            @if (_setPassword)
+            {
+                <MudTextField @bind-Value="_password" Label="@L["login.password"]"
+                              InputType="InputType.Password" Immediate="true"
+                              autocomplete="new-password" />
+                <MudTextField @bind-Value="_repeat" Label="@L["login.password2"]"
+                              InputType="InputType.Password" Immediate="true"
+                              Error="@Mismatch" ErrorText="@L["login.error.mismatch"]"
+                              autocomplete="new-password" />
+                <MudText Typo="Typo.caption">@L["login.emptyPasswordNote"]</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — создание нового пользователя.</summary>
+    [Parameter] public Account? Source { get; set; }
+
+    /// <summary>Уже занятые почты — проверка уникальности прямо в форме.</summary>
+    [Parameter] public List<string> TakenEmails { get; set; } = [];
+
+    private readonly AccountSaveDto _dto = new();
+    private bool _setPassword = true;
+    private string _password = "";
+    private string _repeat = "";
+
+    private bool IsNew => Source is null;
+
+    /// <summary>Свой аккаунт: роль и активность владелец себе снять не может — иначе
+    /// система осталась бы без владельца.</summary>
+    private bool IsSelf => Source is not null && Source.Id == State.Account.Id;
+
+    private bool Mismatch => _setPassword && _password != _repeat;
+
+    private bool EmailTaken => IsNew && _dto.Email.Trim().Length > 0
+        && TakenEmails.Any(e => e.Equals(_dto.Email.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool SaveDisabled => _dto.Email.Trim().Length == 0 || !_dto.Email.Contains('@')
+                                 || EmailTaken || Mismatch;
+
+    protected override void OnInitialized()
+    {
+        if (Source is null)
+        {
+            _dto.Role = SystemRole.Editor;
+            return;
+        }
+        _dto.Email = Source.Email;
+        _dto.Name = Source.Name;
+        _dto.Phone = Source.Phone;
+        _dto.IsActive = Source.IsActive;
+        _dto.Role = Source.Role;
+        _setPassword = false; // при правке пароль по умолчанию не трогаем
+    }
+
+    private void Save()
+    {
+        _dto.Password = _setPassword ? _password : null;
+        Dialog.Close(DialogResult.Ok(_dto));
+    }
+}

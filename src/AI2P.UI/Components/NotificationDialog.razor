@@ -1,0 +1,248 @@
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject IJSRuntime Js
+
+@* ФОРМА ВВОДА УВЕДОМЛЕНИЯ (T-272) — состав полей прямо по заданию:
+   исполнители (множественный выбор), проекты (множественный выбор), флаг активности
+   (по умолчанию включён), событие с уточнением (состояние либо время до срока),
+   тип уведомления, заголовок и текст письма с макроподстановками.
+
+   ПУСТОЙ список исполнителей или проектов означает «все» — это не «правило ни о ком»:
+   иначе первое же заведённое правило пришлось бы переписывать при каждом новом проекте.
+   Так же читает эти списки и отправка (NotificationService).
+
+   У обоих текстовых полей — кнопка справочника макроподстановок. Вставка идёт в позицию
+   курсора через ai2p.insertAtCaret: поле ищется по своему data-атрибуту (MudBlazor вешает
+   произвольные атрибуты на сам input/textarea). *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @* --- СОБЫТИЕ --- *@
+            <MudSelect T="string" Value="@_rule.EventKind" ValueChanged="OnEventChanged"
+                       Label="@L["notify.event"]" data-notify-event="1">
+                @foreach (var kind in NotificationEvents.All)
+                {
+                    <MudSelectItem T="string" Value="@kind">@L["notify.event." + kind]</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_rule.EventKind == NotificationEvents.Status)
+            {
+                @* «задача переведена в состояние» — какое именно (справочник состояний) *@
+                <MudSelect T="string" @bind-Value="_rule.StatusCode" Label="@L["notify.status"]"
+                           data-notify-status="1">
+                    @foreach (var status in State.TaskStatuses)
+                    {
+                        <MudSelectItem T="string" Value="@status.Id">@status.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            @if (_rule.EventKind == NotificationEvents.Due)
+            {
+                @* «подходит срок» — за сколько до срока (часы:минуты по заданию) *@
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="int" Value="_leadHours" ValueChanged="OnLeadHoursChanged"
+                                     Min="0" Max="8760" Label="@L["notify.lead.hours"]"
+                                     data-notify-lead-hours="1" Style="max-width: 160px;" />
+                    <MudNumericField T="int" Value="_leadMinutes" ValueChanged="OnLeadMinutesChanged"
+                                     Min="0" Max="59" Label="@L["notify.lead.minutes"]"
+                                     data-notify-lead-minutes="1" Style="max-width: 160px;" />
+                </MudStack>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["notify.lead.hint"]</MudText>
+            }
+
+            @* --- КОГО И ЧЕГО КАСАЕТСЯ --- *@
+            <MudSelect T="string" MultiSelection="true" SelectedValues="_executors"
+                       SelectedValuesChanged="OnExecutorsChanged" Label="@L["notify.executors"]"
+                       HelperText="@L["notify.executors.hint"]" data-notify-executors="1"
+                       MultiSelectionTextFunc="@(_ => ExecutorsText)">
+                @foreach (var executor in State.Executors)
+                {
+                    <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" MultiSelection="true" SelectedValues="_projects"
+                       SelectedValuesChanged="OnProjectsChanged" Label="@L["notify.projects"]"
+                       HelperText="@L["notify.projects.hint"]" data-notify-projects="1"
+                       MultiSelectionTextFunc="@(_ => ProjectsText)">
+                @foreach (var project in State.Projects)
+                {
+                    <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                }
+            </MudSelect>
+
+            @* --- ЧЕМ УВЕДОМЛЯТЬ --- *@
+            <MudSelect T="string" @bind-Value="_rule.Channel" Label="@L["notify.channel"]"
+                       data-notify-channel="1">
+                @foreach (var channel in NotificationChannels.All)
+                {
+                    <MudSelectItem T="string" Value="@channel">@L["notify.channel." + channel]</MudSelectItem>
+                }
+            </MudSelect>
+
+            @* --- ТЕКСТЫ С МАКРОПОДСТАНОВКАМИ --- *@
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudTextField @bind-Value="_rule.Subject" Label="@L["notify.subject"]"
+                              Immediate="false" data-notify-subject="1" Class="flex-grow-1" />
+                <MudTooltip Text="@L["notify.macro.title"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.DataObject" Size="Size.Small"
+                                   data-notify-macro-subject="1"
+                                   OnClick="@(() => InsertMacroAsync("[data-notify-subject]", true))" />
+                </MudTooltip>
+            </MudStack>
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                <MudTextField @bind-Value="_rule.Body" Label="@L["notify.body"]" Lines="8"
+                              Immediate="false" data-notify-body="1" Class="flex-grow-1" />
+                <MudTooltip Text="@L["notify.macro.title"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.DataObject" Size="Size.Small"
+                                   data-notify-macro-body="1"
+                                   OnClick="@(() => InsertMacroAsync("[data-notify-body]", false))" />
+                </MudTooltip>
+            </MudStack>
+
+            <MudSwitch T="bool" @bind-Value="_rule.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" data-notify-active="1" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="Save" data-notify-save="1">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — новое правило.</summary>
+    [Parameter] public NotificationRule? Source { get; set; }
+
+    private NotificationRule _rule = new();
+    private IReadOnlyCollection<string> _executors = [];
+    private IReadOnlyCollection<string> _projects = [];
+    private int _leadHours;
+    private int _leadMinutes;
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            _rule = new NotificationRule
+            {
+                Id = Source.Id,
+                DisplayId = Source.DisplayId,
+                EventKind = Source.EventKind,
+                StatusCode = Source.StatusCode,
+                LeadMinutes = Source.LeadMinutes,
+                Channel = Source.Channel,
+                Subject = Source.Subject,
+                Body = Source.Body,
+                IsActive = Source.IsActive,
+                ExecutorIds = [.. Source.ExecutorIds],
+                ProjectIds = [.. Source.ProjectIds],
+                ServerId = Source.ServerId,
+            };
+        }
+        else
+        {
+            // умолчания нового правила: активно (по заданию), состояние — «проверка»
+            _rule.StatusCode = TaskStatuses.Review;
+            _rule.Subject = L["notify.subject.default"];
+            _rule.Body = L["notify.body.default"];
+        }
+        _executors = _rule.ExecutorIds.ToList();
+        _projects = _rule.ProjectIds.ToList();
+        _leadHours = _rule.LeadMinutes / 60;
+        _leadMinutes = _rule.LeadMinutes % 60;
+    }
+
+    private void OnEventChanged(string kind)
+    {
+        _rule.EventKind = kind;
+        // состояние спрашивается только у «переведена в состояние»; пустое значение
+        // формы отвергло бы хранилище, поэтому подставляем умолчание сразу
+        if (kind == NotificationEvents.Status && _rule.StatusCode.Length == 0)
+        {
+            _rule.StatusCode = TaskStatuses.Review;
+        }
+    }
+
+    private void OnExecutorsChanged(IReadOnlyCollection<string> values)
+    {
+        _executors = values;
+        _rule.ExecutorIds = values.ToList();
+    }
+
+    private void OnProjectsChanged(IReadOnlyCollection<string> values)
+    {
+        _projects = values;
+        _rule.ProjectIds = values.ToList();
+    }
+
+    private void OnLeadHoursChanged(int hours)
+    {
+        _leadHours = hours;
+        _rule.LeadMinutes = _leadHours * 60 + _leadMinutes;
+    }
+
+    private void OnLeadMinutesChanged(int minutes)
+    {
+        _leadMinutes = minutes;
+        _rule.LeadMinutes = _leadHours * 60 + _leadMinutes;
+    }
+
+    /// <summary>Подпись поля множественного выбора: «все» вместо пустого места — пустой
+    /// список тут значит именно «все», и молчащее поле читалось бы как «никто».</summary>
+    private string ExecutorsText =>
+        _rule.ExecutorIds.Count == 0
+            ? L["notify.all"]
+            : string.Join(", ", State.Executors
+                .Where(e => _rule.ExecutorIds.Contains(e.Id))
+                .Select(e => e.Nick));
+
+    private string ProjectsText =>
+        _rule.ProjectIds.Count == 0
+            ? L["notify.all"]
+            : string.Join(", ", State.Projects
+                .Where(p => _rule.ProjectIds.Contains(p.Id))
+                .Select(p => p.Name));
+
+    private bool SaveDisabled =>
+        _rule.Subject.Trim().Length == 0
+        || (_rule.EventKind == NotificationEvents.Status && _rule.StatusCode.Length == 0);
+
+    /// <summary>
+    /// Вставить макроподстановку в позицию курсора выбранного поля. Значение поля после
+    /// вставки читается из самого элемента: MudTextField без Immediate отдаёт введённое
+    /// только по потере фокуса, а фокус уходит в открывшееся окно справочника.
+    /// </summary>
+    private async Task InsertMacroAsync(string selector, bool subject)
+    {
+        var dialog = await Dialogs.ShowAsync<MacroPickerDialog>(L["notify.macro.title"],
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: string marker })
+        {
+            return;
+        }
+        var value = await Js.InvokeAsync<string?>("ai2p.insertAtCaret", selector, marker);
+        if (value is null)
+        {
+            return;
+        }
+        if (subject)
+        {
+            _rule.Subject = value;
+        }
+        else
+        {
+            _rule.Body = value;
+        }
+    }
+
+    private void Save()
+    {
+        _rule.Subject = _rule.Subject.Trim();
+        Dialog.Close(DialogResult.Ok(_rule));
+    }
+}

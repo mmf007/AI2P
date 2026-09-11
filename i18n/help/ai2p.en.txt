@@ -1,0 +1,30 @@
+AI2P - ai2p: THE COMMAND LINE CLIENT OF THE AI AGENT
+
+A thin wrapper around "AI2P.Server cli ...". It lies IN THE INSTALLATION FOLDER
+next to the program and starts it with the "cli" subcommand, so the release holds
+no second executable.
+
+Credentials come from the environment variables that AI2P itself sets for the agent
+process: AI2P_URL (the loopback address of the server) and AI2P_JOB_TOKEN (the job
+token, alive only while the job runs). Outside a job the client does not work, and
+that is on purpose.
+
+USAGE
+  ai2p help                     the commands and the actions of this job
+  ai2p --help                   the same
+  ai2p parent                   the parent task
+  ai2p siblings                 the sibling tasks
+  ai2p children T-22            the subtasks of a task
+  ai2p task T-15                a task by its code
+  ai2p chat T-15                the chat of a task
+  ai2p find "part of a title"   search for tasks
+  ai2p message --text "..."     write to the chat of the task
+  ai2p subtask --title "..." --description-file d.md   create a subtask
+  ai2p status T-15 --status pending --restart          put a task back to work
+  ai2p experience --text "..." --scope project         write down an experience
+  ai2p file <link>              fetch a file of the task onto the disk
+
+The list of the actions really allowed to this job is printed by "ai2p help": the
+answer comes from the server and takes the security rules of the task into account.
+The language of the answers is the language of the team of the job, not of this
+script.

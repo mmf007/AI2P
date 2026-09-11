@@ -1,0 +1,48 @@
+AI2P — buildRelease: РЕЛИЗНАЯ ВЫКЛАДКА СЕРВЕРА В ОТДЕЛЬНЫЙ КАТАЛОГ
+
+Самодостаточный комплект файлов, который запускается без исходников и без
+dotnet run (ТЗ гл. 4.2). Это скрипт РАЗРАБОТЧИКА: он запускается на машине сборки,
+из репозитория, и его собственный вывод пока смешанный (русский и английский) — это
+ярус B разбора T-64-S0, через i18n он ещё не переведён.
+[до T-285 назывался publish.*]
+
+ИСПОЛЬЗОВАНИЕ (Windows)
+  buildRelease.cmd                       в builds\windows\release
+  buildRelease.cmd D:\AI2P_v1.45         в указанный каталог
+  buildRelease.cmd D:\out Release        каталог и конфигурация
+  buildRelease.cmd full                  С РАНТАЙМОМ ВНУТРИ, в releasefull
+  buildRelease.ps1 -Output D:\out -Clean очистить каталог (кроме данных) и заново
+  buildRelease.cmd --help                эта справка
+  buildRelease.cmd --help -Lang ru       язык этой справки
+
+ИСПОЛЬЗОВАНИЕ (Linux / macOS)
+  ./buildRelease.sh                      в builds/<ОС>/release
+  ./buildRelease.sh --self-contained     С РАНТАЙМОМ ВНУТРИ
+  ./buildRelease.sh --help               эта справка
+  ./buildRelease.sh --help --lang ru     язык этой справки
+
+ДВЕ ВЫКЛАДКИ
+  обычная        — без рантайма: маленькая, но требует на машине установленный
+                   ASP.NET Core 8.x (её install.* это проверяет и предлагает
+                   поставить);
+  -SelfContained — рантайм лежит внутри самой выкладки, ставить на машину нечего,
+                   зато выкладка привязана к платформе (-Runtime, по умолчанию
+                   win-x64) и весит на порядок больше.
+Каталоги разные и НЕ смешиваются.
+
+КАТАЛОГ ОПЕРАЦИОННОЙ СИСТЕМЫ. Между builds и release/releasefull стоит подкаталог
+ОС, под которую собрана выкладка, — windows, linux или macos:
+  builds/windows/release      — без рантайма
+  builds/windows/releasefull  — с рантаймом
+  builds/linux/releasefull    — то же, собранное под Linux (-Runtime linux-x64)
+  builds/macos/releasefull    — под macOS (-Runtime osx-x64 / osx-arm64)
+Выкладки разных систем больше не затирают друг друга в одном каталоге: у них разные
+скрипты установки, разный рантайм внутри и разные исполняемые файлы.
+
+ПАКЕТ УСТАНОВКИ собирается ОТДЕЛЬНЫМ шагом и уже из готовой выкладки: в неё кладётся
+MakePackage.ps1/.cmd (для Linux/macOS — MakePackage.sh), запускать его надо ИЗ
+каталога выкладки, результат ложится в ../../packages.
+
+Каталог данных сюда НЕ копируется: data, logs, config.json, secrets.json и secrets
+(ключи моделей, по одному json на ключ) переносятся руками и при повторной выкладке
+не трогаются.

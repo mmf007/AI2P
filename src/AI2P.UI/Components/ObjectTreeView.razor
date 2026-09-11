@@ -1,0 +1,232 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Представление «ИЕРАРХИЯ» списка объектов проекта (T-266, версия 1.94).
+
+   Сделано ПО АНАЛОГИИ С ЗАДАЧАМИ (TaskTreeView): те же атрибуты разметки
+   (data-tree-task — что тащим, data-tree-drop — куда бросаем, data-tree-grip — ручка
+   переноса), тот же движок ai2p.initTreeDnd и тот же CSS. Поэтому у объектов сразу и
+   мышь, и перенос ПАЛЬЦЕМ (T-193/T-4-S1), и автопрокрутка у краёв, и липкая полоса
+   «в корень» вверху — всё то, что у дерева задач набиралось четырьмя заходами.
+
+   Отличия от дерева задач ровно два, и оба от сущности:
+   * у объекта нет сервера-владельца (строку правит дирижёр, ObjectService) — значит,
+     нет и проверки «чужая строка»: двигать можно всё, что можно править;
+   * щелчок по строке с T-99-S0 открывает ЗАКЛАДКУ объекта (карточка у него появилась);
+     правка и удаление остались кнопками в конце строки.
+
+   Свёрнутые узлы живут в компоненте и в сохраняемое состояние не кладутся — как у
+   дерева задач. *@
+@if (Items.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" data-objects-empty="1">@L["objects.empty"]</MudAlert>
+}
+else
+{
+    <div id="@_containerId" data-objects-view="tree">
+        @* липкая полоса «в корень» (T-176): зона сброса обязана оставаться на виду при
+           любой длине списка — иначе до неё нельзя доехать ни мышью, ни пальцем *@
+        <div class="ai2p-tree-root ai2p-tree-root-top" data-tree-drop="" data-tree-root="top">
+            <MudIcon Icon="@Icons.Material.Filled.VerticalAlignTop" Size="Size.Small" />
+            <b>@L["objects.tree.dnd.root"]</b>
+            <span class="ai2p-tree-hint">@L["objects.tree.dnd.hint"]</span>
+        </div>
+
+        @foreach (var row in ObjectRows.Build(Items, _collapsed))
+        {
+            var item = row.Item;
+            @* чужой объект не тащится (T-102-S0): перенос по иерархии — правка, а правит
+               объект только его сервер *@
+            var canMoveRow = CanMove && !item.IsReadOnly;
+            <div class="ai2p-tree-node" draggable="@(canMoveRow ? "true" : "false")"
+                 data-tree-move="@(canMoveRow ? "1" : "0")"
+                 data-tree-task="@item.Id" data-tree-drop="@item.Id"
+                 data-object-node="@item.DisplayId" data-object-level="@row.Level"
+                 style="@($"padding-left: {8 + row.Level * 24}px;")"
+                 @onclick="@(() => OnEdit.InvokeAsync(item))">
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    @if (canMoveRow)
+                    {
+                        @* ручка переноса (T-4-S1): за неё строка берётся СРАЗУ, без удержания,
+                           и она же подсказка «строку можно двигать». Тап по ручке не должен
+                           открывать форму — stopPropagation *@
+                        <span class="ai2p-tree-grip" data-tree-grip="1" title="@L["objects.tree.dnd.grip"]"
+                              @onclick:stopPropagation="true">
+                            <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Size="Size.Small" />
+                        </span>
+                    }
+                    else
+                    {
+                        <span style="display: inline-block; width: 20px;"></span>
+                    }
+                    @if (row.HasChildren)
+                    {
+                        @* стрелка сворачивания не должна открывать форму — stopPropagation *@
+                        <span @onclick:stopPropagation="true">
+                            <MudIconButton Icon="@(_collapsed.Contains(item.Id)
+                                                     ? Icons.Material.Filled.ChevronRight
+                                                     : Icons.Material.Filled.ExpandMore)"
+                                           Size="Size.Small" data-object-toggle="@item.DisplayId"
+                                           OnClick="@(() => Toggle(item.Id))" />
+                        </span>
+                    }
+                    else
+                    {
+                        <span style="display: inline-block; width: 30px;"></span>
+                    }
+                    <MudIcon Icon="@KindIcon(item.Type)" Size="Size.Small" />
+                    <MudText Typo="Typo.body2" Style="@(item.IsActive ? "" : "opacity: .5;")">
+                        <b>@item.DisplayId</b> @item.Name
+                    </MudText>
+                    @if (item.ChildCount > 0 && _collapsed.Contains(item.Id))
+                    {
+                        @* сколько объектов спрятано внутри свёрнутого узла: иначе свёрнутый
+                           персонаж выглядит как персонаж без единого эталонного кадра *@
+                        <span style="opacity: .6; font-size: .78rem;"
+                              data-object-children="@item.ChildCount">+@item.ChildCount</span>
+                    }
+                    <span style="opacity: .6; font-size: .78rem;">
+                        @ObjectKinds.Title(item.Type, L.Lang)
+                    </span>
+                    @if (item.LoraStatus != LoraStates.None)
+                    {
+                        <span class="ai2p-status" data-object-lora="@item.LoraStatus">
+                            @L["objects.lora." + item.LoraStatus]
+                        </span>
+                    }
+                    <MudSpacer />
+                    @if (RowActions is not null)
+                    {
+                        @RowActions(item)
+                    }
+                </MudStack>
+            </div>
+        }
+
+        @* та же зона в конце списка — привычное место (todo37) *@
+        <div class="ai2p-tree-root" data-tree-drop="" data-tree-root="bottom">
+            <MudIcon Icon="@Icons.Material.Filled.VerticalAlignTop" Size="Size.Small" />
+            <span>@L["objects.tree.dnd.root"]</span>
+        </div>
+    </div>
+}
+
+@code {
+    /// <summary>Объекты проекта — уже отобранные фильтром и поиском списка.</summary>
+    [Parameter] public List<ObjectItem> Items { get; set; } = [];
+
+    /// <summary>Щелчок по строке: открыть объект (что именно — решает список; с T-99-S0
+    /// это закладка объекта).</summary>
+    [Parameter] public EventCallback<ObjectItem> OnEdit { get; set; }
+
+    /// <summary>Перечитать список у родителя после переноса.</summary>
+    [Parameter] public EventCallback OnReload { get; set; }
+
+    /// <summary>Кнопки строки (ссылка на объект, удаление) — те же, что в таблице:
+    /// список рисует их сам, чтобы не заводить вторую копию тех же действий.</summary>
+    [Parameter] public RenderFragment<ObjectItem>? RowActions { get; set; }
+
+    private readonly HashSet<string> _collapsed = new(StringComparer.Ordinal);
+
+    /// <summary>Свой id контейнера: списков объектов на экране бывает несколько
+    /// (карточки разных проектов в разных закладках).</summary>
+    private readonly string _containerId = "ai2p-obj-tree-" + Guid.NewGuid().ToString("N")[..8];
+
+    private DotNetObjectReference<ObjectTreeView>? _selfRef;
+
+    /// <summary>Иерархию объектов меняет тот же, кто их правит: своего сервера-владельца
+    /// у объекта нет (ObjectService), поэтому правило одно на весь список.</summary>
+    private bool CanMove => State.CanEdit;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Items.Count == 0)
+        {
+            return;   // контейнера нет — вешать слушатели не на что
+        }
+        _selfRef ??= DotNetObjectReference.Create(this);
+        // повторный вызов на живом контейнере ничего не делает (флаг в data-атрибуте)
+        await Js.InvokeVoidAsync("ai2p.initTreeDnd", _containerId, _selfRef);
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+
+    /// <summary>
+    /// Объект перетащили на другой (или на полосу «в корень»): сменить родителя.
+    /// Имя метода то же, что у дерева задач, — движок ai2p.initTreeDnd общий.
+    /// </summary>
+    [JSInvokable]
+    public async Task OnTreeDropAsync(string objectId, string? parentId)
+    {
+        if (!State.CanEdit)
+        {
+            Snackbar.Add(L["common.readonly"], Severity.Warning);
+            await OnReload.InvokeAsync();
+            return;
+        }
+        try
+        {
+            await Api.MoveObjectAsync(objectId, string.IsNullOrEmpty(parentId) ? null : parentId);
+            Snackbar.Add(L["objects.tree.dnd.moved"], Severity.Success);
+            await OnReload.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            // отказ хранилища («объект не может быть предком сам себе») показывается словами,
+            // а список перечитывается: на экране должно остаться то, что есть в базе
+            Snackbar.Add(ex.Message, Severity.Error);
+            await OnReload.InvokeAsync();
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Toggle(string id)
+    {
+        if (!_collapsed.Remove(id))
+        {
+            _collapsed.Add(id);
+        }
+    }
+
+    /// <summary>«Свернуть все» (как у задач, T-136): свёрнутыми помечаются все узлы
+    /// с потомками — на экране остаются только корни выборки.</summary>
+    public void CollapseAll()
+    {
+        _collapsed.Clear();
+        foreach (var row in ObjectRows.Build(Items).Where(r => r.HasChildren))
+        {
+            _collapsed.Add(row.Item.Id);
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>«Развернуть все»: свёрнутых узлов не остаётся.</summary>
+    public void ExpandAll()
+    {
+        _collapsed.Clear();
+        StateHasChanged();
+    }
+
+    /// <summary>Значок вида объекта: персонажа от локации и эталонного кадра видно
+    /// с одного взгляда — в дереве название вида стоит мелко и справа.</summary>
+    private static string KindIcon(string kind) => kind switch
+    {
+        ObjectKinds.Character => Icons.Material.Filled.Person,
+        ObjectKinds.Location => Icons.Material.Filled.Place,
+        ObjectKinds.Prop => Icons.Material.Filled.Category,
+        ObjectKinds.Style => Icons.Material.Filled.Palette,
+        ObjectKinds.Image => Icons.Material.Filled.Image,
+        // датасет — папка кадров, и значок у него папочный (T-274): в дереве он стоит
+        // между адаптером и его картинками, и путать его с кадром нельзя
+        ObjectKinds.Dataset => Icons.Material.Filled.PhotoLibrary,
+        ObjectKinds.Lora => Icons.Material.Filled.Tune,
+        ObjectKinds.File => Icons.Material.Filled.InsertDriveFile,
+        ObjectKinds.Hardware => Icons.Material.Filled.Memory,
+        ObjectKinds.Media => Icons.Material.Filled.Movie,
+        _ => Icons.Material.Filled.Circle,
+    };
+}

@@ -1,0 +1,16 @@
+AI2P - build: BUILD THE WHOLE SOLUTION
+
+C# projects plus (later) the native C/C++ CMake subprojects (spec ch. 4.2).
+It is a DEVELOPER script: it is run on the build machine, out of the repository,
+and its own output is in English only (tier B of the T-64-S0 analysis).
+
+USAGE
+  build.cmd [Debug|Release]        Windows, Debug by default
+  build.ps1 -Configuration Release the same, without the .cmd wrapper
+  ./build.sh [Debug|Release]       Linux / macOS
+  build.cmd --help                 this help
+  build.cmd --help -Lang ru        the language of this help
+
+AFTERWARDS
+  dotnet run --project src/AI2P.Server        start the development server
+  buildRelease.cmd                            make a release out of the sources

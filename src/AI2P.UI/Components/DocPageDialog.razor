@@ -1,0 +1,162 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+@inject UiState State
+@inject IDialogService Dialogs
+@implements IDisposable
+
+@* СТРАНИЦА ПОСТАВЛЯЕМОЙ ДОКУМЕНТАЦИИ В ОКНЕ (T-273).
+
+   Закладка чтения (DocsView, T-17-S1) — это «сесть и читать»; здесь другое: человек стоит
+   в форме, ему нужна справка ИМЕННО ПО ЭТОЙ форме, и уходить из формы за ней нельзя —
+   переключение закладки оставило бы форму позади себя, а закрытие потеряло бы введённое.
+   Поэтому справка открывается окном ПОВЕРХ формы, а форма остаётся как была.
+
+   Внутри окна работает то же, что в закладке: внутренние ссылки документа помечает
+   DocLinks.Mark, клик перехватывает ai2p.initDocLinks, «назад» возвращает на прежнюю
+   страницу. История переходов у окна СВОЯ, а не общая с закладкой: читатель, вернувшись
+   в закладку, обязан застать там ту страницу, на которой её оставил. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 560px;">
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                @* «назад» погашено, пока переходов по ссылкам не было — как в закладке *@
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" Size="Size.Small"
+                               data-docdlg-back="1" title="@L["docs.back"]"
+                               Disabled="@(_history.Count == 0)" OnClick="BackAsync" />
+                <MudText Typo="Typo.caption" data-docdlg-path="@(_page?.RelPath ?? "")"
+                         Style="opacity:.7; word-break: break-all;">
+                    @(_page?.RelPath ?? "")
+                </MudText>
+                <MudSpacer />
+                @* ССЫЛКИ НА ЭТУ СТРАНИЦУ (T-207-S0) — правым верхним углом окна:
+                   краткая, внутренняя и внешняя, окно то же, что у ссылки на задачу *@
+                <MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small"
+                               data-docdlg-link="1" title="@L["docs.link"]"
+                               Disabled="@(_page is null)" OnClick="ShowLinkAsync" />
+            </MudStack>
+
+            @if (_page is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (!_page.Found)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" data-docdlg-missing="1">@L["docs.missing"]</MudAlert>
+                <MudText Typo="Typo.caption" Style="word-break: break-all;">@_page.Hint</MudText>
+            }
+            else
+            {
+                @if (!string.Equals(_page.Language, L.Lang, StringComparison.OrdinalIgnoreCase))
+                {
+                    @* перевода на язык интерфейса ещё нет — говорим об этом, как и везде *@
+                    <MudAlert Severity="Severity.Info" Dense="true" data-docdlg-otherlang="1">
+                        @L["docs.otherLang"]: @_page.Language
+                    </MudAlert>
+                }
+                @* прокручивается САМО тело: окно во весь экран не растягиваем, а «в начало»
+                   после перехода по ссылке отматывает ai2p.docScrollTop именно этот блок *@
+                <div class="ai2p-md-preview" id="@_id" data-docdlg-body="1"
+                     style="max-height: 62vh; overflow-y: auto;">@((MarkupString)Html)</div>
+                <MudText Typo="Typo.caption" Style="opacity:.6; word-break: break-all;">@_page.Path</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton data-docdlg-close="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(true)))">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Страница внутри языкового каталога документации: «man/LoRAEditor.md».</summary>
+    [Parameter, EditorRequired] public string Path { get; set; } = "";
+
+    private readonly string _id = "ai2p-docdlg-" + Guid.NewGuid().ToString("N");
+    private readonly List<string> _history = [];
+    private string _path = "";
+    private DocPageDto? _page;
+    private DotNetObjectReference<DocPageDialog>? _selfRef;
+    private bool _scrollPending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _path = Path;
+        await LoadAsync(_path);
+    }
+
+    private async Task LoadAsync(string relPath)
+    {
+        try
+        {
+            _page = await Api.GetDocPageAsync(relPath);
+            // страница могла найтись под другим именем (ссылка на каталог — его README.md):
+            // «назад» обязано вести именно на неё
+            _path = _page.RelPath.Length > 0 ? _page.RelPath : relPath;
+            _scrollPending = true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _page = new DocPageDto { Hint = ex.Message, RelPath = relPath };
+        }
+    }
+
+    /// <summary>Готовый HTML: внутренние ссылки помечены и станут переходами в этом же окне,
+    /// картинки идут через свой эндпойнт (T-97-S0).</summary>
+    private string Html => DocLinks.MarkImages(
+        DocLinks.Mark(Md.ToHtml(_page?.Text ?? ""), _path), _page?.Language ?? "", _path);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_page is null || !_page.Found)
+        {
+            return;
+        }
+        _selfRef ??= DotNetObjectReference.Create(this);
+        // повторный вызов — no-op (пометка в dataset), но звать надо после каждого рендера:
+        // тело появляется не сразу, а когда страница прочитана
+        await Js.InvokeVoidAsync("ai2p.initDocLinks", _id, _selfRef);
+        if (_scrollPending)
+        {
+            _scrollPending = false;
+            await Js.InvokeVoidAsync("ai2p.docScrollTop", _id);
+        }
+    }
+
+    /// <summary>Клик по внутренней ссылке документа: следующая страница показывается
+    /// НА МЕСТЕ прежней, второго окна не появляется.</summary>
+    [JSInvokable]
+    public async Task OnDocLinkAsync(string path)
+    {
+        var next = path ?? "";
+        if (_path.Length > 0 && !string.Equals(_path, next, StringComparison.Ordinal))
+        {
+            _history.Add(_path);
+        }
+        await LoadAsync(next);
+        StateHasChanged();
+    }
+
+    /// <summary>Ссылки на показанную страницу (T-207-S0): краткая, внутренняя и внешняя —
+    /// тем же окном, что ссылка на задачу. Путь берётся ТОТ, ПОД КОТОРЫМ страница нашлась:
+    /// ссылка на каталог приводит на его README.md, и пересылать надо именно его.</summary>
+    private Task ShowLinkAsync() =>
+        DocLink.ShowAsync(Dialogs, State, L, _page?.RelPath is { Length: > 0 } found ? found : _path);
+
+    private async Task BackAsync()
+    {
+        if (_history.Count == 0)
+        {
+            return;
+        }
+        var previous = _history[^1];
+        _history.RemoveAt(_history.Count - 1);
+        await LoadAsync(previous);
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+}

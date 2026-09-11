@@ -1,0 +1,47 @@
+@using AI2P.Core.Connectors
+@inject I18nService L
+
+@* Кнопки «запустить» / «остановить» ОДНОГО участника команды (T-129). Нужны, когда участника
+   добавили в уже работающую команду или он упал по ошибке: перезапускать всю команду ради него
+   незачем. Кнопки показываются только у ИИ-участников — человек не «подключается»,
+   его состояние вычисляется (офлайн/онлайн, ТЗ п. 12.4). Сам вызов API делает родитель. *@
+@if (Status is { Kind: ExecutorKind.Ai })
+{
+    <MudTooltip Text="@L["teams.startMember"]">
+        <span>
+            <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                           Color="Color.Success" Disabled="@(!CanEdit || !CanStart)"
+                           OnClick="@(() => OnStart.InvokeAsync(Status.ExecutorId))" />
+        </span>
+    </MudTooltip>
+    <MudTooltip Text="@L["teams.stopMember"]">
+        <span>
+            <MudIconButton Icon="@Icons.Material.Filled.Stop" Size="Size.Small"
+                           Color="Color.Warning" Disabled="@(!CanEdit || !CanStop)"
+                           OnClick="@(() => OnStop.InvokeAsync(Status.ExecutorId))" />
+        </span>
+    </MudTooltip>
+}
+
+@code {
+    /// <summary>Состояние участника из статуса работы команды; null — статус ещё не загружен.</summary>
+    [Parameter] public MemberWorkStatusDto? Status { get; set; }
+
+    /// <summary>Право менять данные (то же, что у кнопок команды).</summary>
+    [Parameter] public bool CanEdit { get; set; }
+
+    [Parameter] public EventCallback<string> OnStart { get; set; }
+
+    [Parameter] public EventCallback<string> OnStop { get; set; }
+
+    /// <summary>Поднять можно всё, кроме уже подключающегося и выключенного участника
+    /// (не активен глобально или в этой команде — включать надо в форме, а не кнопкой).
+    /// Упавший по ошибке и подключённый перезапускаются.</summary>
+    private bool CanStart => Status is not null
+        && Status.State is not (ExecutorWorkState.Connecting or ExecutorWorkState.Inactive);
+
+    /// <summary>Останавливать есть что, пока участник подключён, подключается или упал.</summary>
+    private bool CanStop => Status is not null
+        && Status.State is ExecutorWorkState.Connected or ExecutorWorkState.Connecting
+            or ExecutorWorkState.Error;
+}

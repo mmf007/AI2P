@@ -1,0 +1,63 @@
+#!/bin/sh
+# ============================================================
+#  AI2P - ai2p  (Linux / macOS)
+#  The command line client of the AI agent (T-34-S0): a thin wrapper around
+#  "AI2P.Server cli ...". It lives IN THE INSTALL FOLDER next to the program and
+#  starts it with the "cli" subcommand, so the release holds no second executable.
+#
+#  Credentials come from the environment variables that AI2P itself sets for the
+#  agent process: AI2P_URL and AI2P_JOB_TOKEN. Outside a job the client does not
+#  work, and that is on purpose.
+#
+#  "ai2p --help" prints i18n/help/ai2p.<lang>.txt, "ai2p help" asks the server for
+#  the actions really allowed to this job (T-65-S0).
+# ============================================================
+set -eu
+
+# /bin/sh на Ubuntu — dash, и подстановка НЕЗАДАННОЙ переменной под set -u обрывает
+# скрипт (T-294). Своих внешних переменных здесь нет, но правило соблюдаем явно
+DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+
+# СПРАВКА ПЕЧАТАЕТСЯ ИЗ ОТДЕЛЬНОГО ФАЙЛА (T-65-S0), а не из шапки скрипта: так её
+# переводят, не трогая код. Каталога нет — падаем обратно на "cli help" сервера
+ai2p_load_loc() {
+    if [ -f "$DIR/i18n/loc.sh" ]; then
+        AI2P_LOC_DIR="$DIR/i18n"
+        . "$DIR/i18n/loc.sh"
+        ai2p_set_lang "${1:-}"
+        return 0
+    fi
+    return 1
+}
+
+# ЯЗЫК СПРАВКИ БЕРЁТСЯ ИЗ ТОЙ ЖЕ КОМАНДНОЙ СТРОКИ (доработка T-65-S0): «--help --lang ru»
+# раньше терял хвост и печатал справку по-английски. Пусто — работает лесенка loc.sh:
+# переменная окружения AI2P_LANG, затем en
+ai2p_help_lang() {
+    _want=0
+    for _a in "$@"; do
+        if [ "$_want" -eq 1 ]; then printf '%s' "$_a"; return 0; fi
+        case "$_a" in
+            --lang|-lang|-Lang) _want=1 ;;
+            --lang=*)           printf '%s' "${_a#--lang=}"; return 0 ;;
+        esac
+    done
+    return 0
+}
+
+case "${1:-}" in
+    -h|--help)
+        if ai2p_load_loc "$(ai2p_help_lang "$@")"; then ai2p_help ai2p; exit 0; fi
+        exec "$DIR/AI2P.Server" cli help ;;
+esac
+
+if [ ! -x "$DIR/AI2P.Server" ] && [ ! -f "$DIR/AI2P.Server" ]; then
+    if ai2p_load_loc; then
+        L scr.cli.1 >&2
+    else
+        echo "AI2P.Server not found next to ai2p - run it from the AI2P install folder." >&2
+    fi
+    exit 1
+fi
+
+exec "$DIR/AI2P.Server" cli "$@"

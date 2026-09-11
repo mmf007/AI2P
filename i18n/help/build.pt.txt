@@ -1,0 +1,16 @@
+AI2P — build: COMPILAÇÃO DA SOLUÇÃO INTEIRA
+
+Os projetos C# mais (no futuro) os subprojetos nativos C/C++ em CMake (ET cap. 4.2).
+Este é um script do DESENVOLVEDOR: ele é executado na máquina de compilação, a partir
+do repositório, e a saída dele está apenas em inglês (nível B da análise T-64-S0).
+
+USO
+  build.cmd [Debug|Release]        Windows, Debug por padrão
+  build.ps1 -Configuration Release o mesmo, sem o invólucro .cmd
+  ./build.sh [Debug|Release]       Linux / macOS
+  build.cmd --help                 esta ajuda
+  build.cmd --help -Lang ru        idioma desta ajuda
+
+DEPOIS
+  dotnet run --project src/AI2P.Server        executar o servidor para desenvolvimento
+  buildRelease.cmd                            gerar a distribuição de release a partir dos fontes

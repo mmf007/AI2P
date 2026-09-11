@@ -1,0 +1,239 @@
+{
+  "seedVersion": 2,
+  "roles": [
+    {
+      "id": "rd710000-0000-4000-9000-000000000001",
+      "name": "gerente"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000002",
+      "name": "programador"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000003",
+      "name": "testador"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000004",
+      "name": "diretor de arte"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000005",
+      "name": "artista"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000006",
+      "name": "analista"
+    }
+  ],
+  "codeSkills": [
+    {
+      "name": "code-write",
+      "description": "escrita de código"
+    },
+    {
+      "name": "code-review",
+      "description": "revisão de código"
+    },
+    {
+      "name": "code-debug",
+      "description": "busca e correção de erros"
+    },
+    {
+      "name": "code-test",
+      "description": "escrita e execução de testes"
+    },
+    {
+      "name": "code-refactor",
+      "description": "refatoração"
+    }
+  ],
+  "skills": [
+    {
+      "name": "text-write",
+      "description": "escrita de textos"
+    },
+    {
+      "name": "text-docs",
+      "description": "documentação técnica"
+    },
+    {
+      "name": "text-edit",
+      "description": "edição e revisão de texto"
+    },
+    {
+      "name": "text-translate",
+      "description": "tradução"
+    },
+    {
+      "name": "text-summarize",
+      "description": "resumo e análise de texto"
+    },
+    {
+      "name": "analyze-requirements",
+      "description": "análise de requisitos"
+    },
+    {
+      "name": "analyze-plan",
+      "description": "planejamento e decomposição do trabalho"
+    },
+    {
+      "name": "analyze-data",
+      "description": "análise de dados"
+    },
+    {
+      "name": "image-generate",
+      "description": "geração de imagens a partir de texto (t2i)"
+    },
+    {
+      "name": "image-edit",
+      "description": "edição de imagens (i2i)"
+    },
+    {
+      "name": "image-inpaint",
+      "description": "edição de imagem por máscara (inpaint)"
+    },
+    {
+      "name": "image-concept",
+      "description": "concept art"
+    },
+    {
+      "name": "image-photo",
+      "description": "fotorrealismo"
+    },
+    {
+      "name": "image-text",
+      "description": "imagens com texto (tipografia, letreiros)"
+    },
+    {
+      "name": "video-generate",
+      "description": "vídeo a partir de texto (t2v)"
+    },
+    {
+      "name": "video-animate",
+      "description": "animação de imagem (i2v)"
+    },
+    {
+      "name": "video-edit",
+      "description": "edição de vídeo pronto (v2v)"
+    },
+    {
+      "name": "video-extend",
+      "description": "extensão de um vídeo pronto (v2v, extend)"
+    },
+    {
+      "name": "video-keyframes",
+      "description": "vídeo a partir do primeiro e do último quadro (flf2v)"
+    },
+    {
+      "name": "video-restyle",
+      "description": "estilização de vídeo por referência (v2v, restyle)"
+    },
+    {
+      "name": "video-lipsync",
+      "description": "sincronia labial com a trilha de áudio (a2v)"
+    },
+    {
+      "name": "audio-song",
+      "description": "canções com vocal (t2a)"
+    },
+    {
+      "name": "audio-music",
+      "description": "música instrumental (t2a)"
+    },
+    {
+      "name": "audio-speech",
+      "description": "narração de fala (t2s)"
+    },
+    {
+      "name": "3d-generate",
+      "description": "modelo 3D a partir de texto (t23d)"
+    },
+    {
+      "name": "3d-image",
+      "description": "modelo 3D a partir de imagem (i23d)"
+    },
+    {
+      "name": "3d-texture",
+      "description": "texturização e materiais"
+    },
+    {
+      "name": "3d-animation",
+      "description": "criação de animações"
+    },
+    {
+      "name": "3d-environment",
+      "description": "criação de ambiente 3D (cenário)"
+    }
+  ],
+  "ioFormats": [
+    {
+      "name": "text/plain",
+      "description": "texto simples"
+    },
+    {
+      "name": "text/markdown",
+      "description": "texto Markdown"
+    },
+    {
+      "name": "text/html",
+      "description": "HTML"
+    },
+    {
+      "name": "text/source-code",
+      "description": "código-fonte"
+    },
+    {
+      "name": "application/json",
+      "description": "dados JSON"
+    },
+    {
+      "name": "application/pdf",
+      "description": "documento PDF"
+    },
+    {
+      "name": "image/*",
+      "description": "imagens (quaisquer)"
+    },
+    {
+      "name": "image/png",
+      "description": "imagem PNG"
+    },
+    {
+      "name": "image/jpeg",
+      "description": "imagem JPEG"
+    },
+    {
+      "name": "image/webp",
+      "description": "imagem WebP"
+    },
+    {
+      "name": "audio/*",
+      "description": "áudio (qualquer)"
+    },
+    {
+      "name": "audio/wav",
+      "description": "som WAV"
+    },
+    {
+      "name": "audio/mpeg",
+      "description": "som MP3"
+    },
+    {
+      "name": "video/*",
+      "description": "vídeo (qualquer)"
+    },
+    {
+      "name": "video/mp4",
+      "description": "vídeo MP4"
+    },
+    {
+      "name": "model/3d",
+      "description": "modelo 3D"
+    },
+    {
+      "name": "model/glb",
+      "description": "modelo 3D glTF/GLB"
+    }
+  ]
+}

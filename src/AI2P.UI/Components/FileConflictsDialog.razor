@@ -1,0 +1,243 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+
+@* КОНФЛИКТЫ РЕПЛИКАЦИИ (ТЗ гл. 6, гл. 10; этапы 44–45).
+
+   Сюда попадает то, что изменили за интервал репликации СРАЗУ НА ДВУХ серверах: молча
+   затирать чужую работу нельзя. Пары показаны одинаково — ЛЕВАЯ версия всегда дирижёра,
+   ПРАВАЯ рядового сервера, — на каком бы из двух серверов список ни открыли.
+
+   Конфликтов три вида, и операции у них разные:
+   • ФАЙЛ (todo44) — четыре: принять левый, принять правый, переименовать левый,
+     переименовать правый. Решение применяется при СЛЕДУЮЩЕЙ репликации и только на один
+     сеанс: если файл снова изменят с обеих сторон, конфликт возникнет заново — содержимое
+     уже не то, по которому решали;
+   • КЛЮЧ API организации (todo45) — три: принять левый, принять правый, ввести новый ключ.
+     Переименовать ключ нельзя, зато можно набрать новый — и это применяется сразу: обычная
+     локальная запись доедет до партнёра ближайшим сеансом по правилу «выиграл последний».
+     Значения ключей здесь не показываются никогда — только отпечаток и время правки;
+   • ЗАПИСЬ СПРАВОЧНИКА ИИ-МОДЕЛЕЙ (T-227, v1.85) — две: принять левую и принять правую.
+     Вместо пути показано ИМЯ модели; спорят имя, активность, размещение и удаление записи.
+     Переименования тут быть не может, а решение, как и у ключа, применяется сразу и снимает
+     конфликт у партнёра ближайшим сеансом. *@
+<MudDialog>
+    <DialogContent>
+        @if (_rows.Count == 0)
+        {
+            <MudText Typo="Typo.body2">@L["repl.conflicts.none"]</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">@L["repl.conflicts.hint"]</MudText>
+            <MudSimpleTable Dense="true" Hover="true" Style="min-width: 720px;">
+                <thead>
+                    <tr>
+                        <th>@L["repl.conflicts.file"]</th>
+                        <th>@L["repl.conflicts.left"]</th>
+                        <th>@L["repl.conflicts.right"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr>
+                            <td style="word-break: break-all;">
+                                <MudText Typo="Typo.body2">@Title(row)</MudText>
+                                <MudText Typo="Typo.caption" Style="opacity:.7;">@ScopeText(row)</MudText>
+                            </td>
+                            <td style="white-space: nowrap;">@Side(row, row.LeftSize, row.LeftMtime, row.LeftHash)</td>
+                            <td style="white-space: nowrap;">@Side(row, row.RightSize, row.RightMtime, row.RightHash)</td>
+                            <td style="white-space: nowrap;">
+                                @if (row.Resolution.Length > 0)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Success"
+                                             Variant="Variant.Text">
+                                        @L["repl.resolve." + row.Resolution]
+                                    </MudChip>
+                                }
+                                else if (_newKeyFor == row.Id)
+                                {
+                                    @* «ввести новый ключ» (todo45): значение вводится здесь же
+                                       и в списке никогда не показывается *@
+                                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                        <MudTextField @bind-Value="_newKey" InputType="InputType.Password"
+                                                      Label="@L["repl.resolve.newKey"]" Immediate="true"
+                                                      autocomplete="new-password" Style="min-width: 200px;" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Check" Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       Disabled="@(_busy || _newKey.Trim().Length == 0)"
+                                                       OnClick="@(() => ResolveAsync(row, ReplFileResolutions.NewValue))" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                                       OnClick="@(() => _newKeyFor = "")" />
+                                    </MudStack>
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="@L["repl.resolve.left"]">
+                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowCircleRight"
+                                                       Size="Size.Small" Disabled="@_busy"
+                                                       OnClick="@(() => ResolveAsync(row, ReplFileResolutions.Left))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="@L["repl.resolve.right"]">
+                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowCircleLeft"
+                                                       Size="Size.Small" Disabled="@_busy"
+                                                       OnClick="@(() => ResolveAsync(row, ReplFileResolutions.Right))" />
+                                    </MudTooltip>
+                                    @if (IsKey(row))
+                                    {
+                                        @* у ключа переименования быть не может — вместо него
+                                           третья операция: набрать новый ключ (todo45) *@
+                                        <MudTooltip Text="@L["repl.resolve.new"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small"
+                                                           Color="Color.Warning" Disabled="@_busy"
+                                                           OnClick="@(() => StartNewKey(row))" />
+                                        </MudTooltip>
+                                    }
+                                    else if (!IsModel(row))
+                                    {
+                                        @* у записи справочника моделей (T-227) операций ровно
+                                           две — левая и правая: запись одна, а не две, и
+                                           переименовывать её незачем. Поэтому этих кнопок
+                                           у неё нет *@
+                                        <MudTooltip Text="@L["repl.resolve.rename_left"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.DriveFileRenameOutline"
+                                                           Size="Size.Small" Disabled="@_busy" Color="Color.Warning"
+                                                           OnClick="@(() => ResolveAsync(row, ReplFileResolutions.RenameLeft))" />
+                                        </MudTooltip>
+                                        <MudTooltip Text="@L["repl.resolve.rename_right"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.DriveFileMove"
+                                                           Size="Size.Small" Disabled="@_busy" Color="Color.Warning"
+                                                           OnClick="@(() => ResolveAsync(row, ReplFileResolutions.RenameRight))" />
+                                        </MudTooltip>
+                                    }
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close(DialogResult.Ok(true)))">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Сервер-партнёр, конфликты с которым показываются.</summary>
+    [Parameter] public string ServerId { get; set; } = "";
+
+    private List<ReplFileConflictDto> _rows = [];
+    private bool _busy;
+
+    /// <summary>Строка, в которой сейчас набирают НОВЫЙ ключ API (todo45); пусто — ни в какой.</summary>
+    private string _newKeyFor = "";
+
+    private string _newKey = "";
+
+    /// <summary>Конфликт КЛЮЧА API: операций три вместо четырёх, и значения не показываются.</summary>
+    private static bool IsKey(ReplFileConflictDto row) => row.Scope == "key";
+
+    /// <summary>Конфликт ЗАПИСИ СПРАВОЧНИКА МОДЕЛЕЙ (T-227): операций две — левая и правая.</summary>
+    private static bool IsModel(ReplFileConflictDto row) => row.Scope == "model";
+
+    /// <summary>Решение применяется сразу (ключ, запись справочника), а не ждёт сеанса.</summary>
+    private static bool IsInstant(ReplFileConflictDto row) => IsKey(row) || IsModel(row);
+
+    /// <summary>Чем строка названа: у файла — путь, у записи справочника — имя модели.</summary>
+    private static string Title(ReplFileConflictDto row) =>
+        IsModel(row) && row.ProjectName.Length > 0 ? row.ProjectName : row.Path;
+
+    private string ScopeText(ReplFileConflictDto row)
+    {
+        if (IsKey(row))
+        {
+            return row.ProjectName.Length > 0
+                ? row.ProjectName + " · " + L["repl.scope.key"]
+                : L["repl.scope.key"];
+        }
+        if (IsModel(row))
+        {
+            return L["repl.scope.model"];
+        }
+        return row.ProjectName.Length > 0
+            ? row.ProjectName + " · " + L["repl.scope.common"]
+            : L["repl.scope.orgdata"];
+    }
+
+    private void StartNewKey(ReplFileConflictDto row)
+    {
+        _newKeyFor = row.Id;
+        _newKey = "";
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = await Api.GetFileConflictsAsync(ServerId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Версия одной стороны. У файла — размер и время (пусто — файла там нет, удалён),
+    /// у ключа API — время правки и отпечаток: само значение не показывается никогда.
+    /// </summary>
+    private string Side(ReplFileConflictDto row, long size, string mtime, string hash)
+    {
+        if (mtime.Length == 0 && hash.Length == 0)
+        {
+            return L["repl.conflicts.missing"];
+        }
+        var when = DateTime.TryParse(mtime, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed.ToLocalTime().ToString("g")
+            : mtime;
+        return IsInstant(row) ? $"{when} · …{hash}" : $"{Human(size)} · {when}";
+    }
+
+    // единицы размера — из словарей (T-180)
+    private static string Human(long bytes) => AI2P.Core.Units.Bytes(bytes);
+
+    private async Task ResolveAsync(ReplFileConflictDto row, string resolution)
+    {
+        _busy = true;
+        try
+        {
+            await Api.ResolveFileConflictAsync(row.Id, resolution,
+                resolution == ReplFileResolutions.NewValue ? _newKey.Trim() : "");
+            _newKey = "";
+            _newKeyFor = "";
+            // у ключа и записи справочника решение применяется сразу и конфликт исчезает,
+            // у файла — ждёт сеанса
+            if (IsInstant(row))
+            {
+                Snackbar.Add(L["repl.resolve.applied"], Severity.Success);
+                await LoadAsync();
+            }
+            else
+            {
+                row.Resolution = resolution;
+                Snackbar.Add(L["repl.resolve.saved"], Severity.Success);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

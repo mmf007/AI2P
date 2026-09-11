@@ -1,0 +1,239 @@
+{
+  "seedVersion": 2,
+  "roles": [
+    {
+      "id": "rd710000-0000-4000-9000-000000000001",
+      "name": "经理"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000002",
+      "name": "程序员"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000003",
+      "name": "测试员"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000004",
+      "name": "艺术总监"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000005",
+      "name": "美术"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000006",
+      "name": "分析师"
+    }
+  ],
+  "codeSkills": [
+    {
+      "name": "code-write",
+      "description": "编写代码"
+    },
+    {
+      "name": "code-review",
+      "description": "代码评审"
+    },
+    {
+      "name": "code-debug",
+      "description": "查找并修复缺陷"
+    },
+    {
+      "name": "code-test",
+      "description": "编写并运行测试"
+    },
+    {
+      "name": "code-refactor",
+      "description": "重构"
+    }
+  ],
+  "skills": [
+    {
+      "name": "text-write",
+      "description": "撰写文本"
+    },
+    {
+      "name": "text-docs",
+      "description": "技术文档"
+    },
+    {
+      "name": "text-edit",
+      "description": "编辑与校对"
+    },
+    {
+      "name": "text-translate",
+      "description": "翻译"
+    },
+    {
+      "name": "text-summarize",
+      "description": "文本摘要与分析"
+    },
+    {
+      "name": "analyze-requirements",
+      "description": "需求分析"
+    },
+    {
+      "name": "analyze-plan",
+      "description": "工作规划与分解"
+    },
+    {
+      "name": "analyze-data",
+      "description": "数据分析"
+    },
+    {
+      "name": "image-generate",
+      "description": "按文本生成图像（t2i）"
+    },
+    {
+      "name": "image-edit",
+      "description": "图像编辑（i2i）"
+    },
+    {
+      "name": "image-inpaint",
+      "description": "按蒙版修改图像（inpaint）"
+    },
+    {
+      "name": "image-concept",
+      "description": "概念美术"
+    },
+    {
+      "name": "image-photo",
+      "description": "照片级写实"
+    },
+    {
+      "name": "image-text",
+      "description": "带文字的图像（排版、字样）"
+    },
+    {
+      "name": "video-generate",
+      "description": "按文本生成视频（t2v）"
+    },
+    {
+      "name": "video-animate",
+      "description": "让图像动起来（i2v）"
+    },
+    {
+      "name": "video-edit",
+      "description": "编辑已有视频（v2v）"
+    },
+    {
+      "name": "video-extend",
+      "description": "延长已有短片（v2v, extend）"
+    },
+    {
+      "name": "video-keyframes",
+      "description": "按首尾帧生成视频（flf2v）"
+    },
+    {
+      "name": "video-restyle",
+      "description": "按参考对视频进行风格化（v2v, restyle）"
+    },
+    {
+      "name": "video-lipsync",
+      "description": "按音轨做口型同步（a2v）"
+    },
+    {
+      "name": "audio-song",
+      "description": "带人声的歌曲（t2a）"
+    },
+    {
+      "name": "audio-music",
+      "description": "器乐音乐（t2a）"
+    },
+    {
+      "name": "audio-speech",
+      "description": "语音配音（t2s）"
+    },
+    {
+      "name": "3d-generate",
+      "description": "按文本生成 3D 模型（t23d）"
+    },
+    {
+      "name": "3d-image",
+      "description": "按图像生成 3D 模型（i23d）"
+    },
+    {
+      "name": "3d-texture",
+      "description": "贴图与材质"
+    },
+    {
+      "name": "3d-animation",
+      "description": "制作动画"
+    },
+    {
+      "name": "3d-environment",
+      "description": "制作 3D 场景（地形）"
+    }
+  ],
+  "ioFormats": [
+    {
+      "name": "text/plain",
+      "description": "纯文本"
+    },
+    {
+      "name": "text/markdown",
+      "description": "Markdown 文本"
+    },
+    {
+      "name": "text/html",
+      "description": "HTML"
+    },
+    {
+      "name": "text/source-code",
+      "description": "源代码"
+    },
+    {
+      "name": "application/json",
+      "description": "JSON 数据"
+    },
+    {
+      "name": "application/pdf",
+      "description": "PDF 文档"
+    },
+    {
+      "name": "image/*",
+      "description": "图像（任意）"
+    },
+    {
+      "name": "image/png",
+      "description": "PNG 图像"
+    },
+    {
+      "name": "image/jpeg",
+      "description": "JPEG 图像"
+    },
+    {
+      "name": "image/webp",
+      "description": "WebP 图像"
+    },
+    {
+      "name": "audio/*",
+      "description": "音频（任意）"
+    },
+    {
+      "name": "audio/wav",
+      "description": "WAV 音频"
+    },
+    {
+      "name": "audio/mpeg",
+      "description": "MP3 音频"
+    },
+    {
+      "name": "video/*",
+      "description": "视频（任意）"
+    },
+    {
+      "name": "video/mp4",
+      "description": "MP4 视频"
+    },
+    {
+      "name": "model/3d",
+      "description": "3D 模型"
+    },
+    {
+      "name": "model/glb",
+      "description": "glTF/GLB 3D 模型"
+    }
+  ]
+}

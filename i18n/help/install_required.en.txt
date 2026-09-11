@@ -1,0 +1,29 @@
+AI2P - install_required: CHECK AND INSTALL THE BUILD ENVIRONMENT (spec ch. 13.1)
+
+It is a DEVELOPER script: it is run on the build machine, out of the repository.
+Its own output is in English only (tier B of the T-64-S0 analysis).
+
+WHAT IT CHECKS AND INSTALLS (Windows, winget)
+  1. .NET SDK 8+                Microsoft.DotNet.SDK.8
+     + ASP.NET Core runtime 8.x Microsoft.DotNet.AspNetCore.8
+       the app targets net8.0 and must run on the 8.x runtime: Blazor
+       interactivity breaks silently on runtime 9/10
+  2. CMake                      Kitware.CMake
+  3. C/C++ compiler MSVC        VS 2022 Build Tools + the VC workload
+  4. git submodules             git submodule update --init
+  5. Inno Setup 6               JRSoftware.InnoSetup
+       needed by MakePackage to build the .exe installer out of a release
+       folder; the build itself does not need it
+
+WHAT IT CHECKS AND INSTALLS (Linux / macOS)
+  the .NET SDK, CMake, a C/C++ compiler, git submodules and makeself - the last
+  one is needed by MakePackage.sh to build the .run package.
+
+USAGE
+  install_required.bat        Windows
+  ./install_required.sh       Linux / macOS
+  install_required.bat --help this help
+
+NOTE. The installers may ask for an administrator confirmation (UAC on Windows,
+sudo elsewhere). After the installation open a NEW console so that the changes of
+PATH take effect, then re-run this script to verify.

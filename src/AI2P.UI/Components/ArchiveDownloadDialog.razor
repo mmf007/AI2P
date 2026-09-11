@@ -1,0 +1,79 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* СКАЧАТЬ АРХИВ С ДРУГОГО СЕРВЕРА (T-43-S0) — окно выбора источника.
+
+   Кнопка стоит у архива, УДАЛЁННОГО с этого сервера: запись реестра общая на весь кластер,
+   и архив, снесённый здесь, лежит у соседей. Список серверов берётся из самой записи
+   (Archive.Servers — те, у кого состояние архива не «удалён»). Саму передачу файла делает
+   репликация архивов (T-47-S0); здесь только выбор источника и вызов. *@
+<MudDialog>
+    <DialogContent>
+        <div data-arcget-dialog="@Archive.DisplayId" style="min-width: 320px;">
+            @if (Sources.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true" data-arcget-empty="1">
+                    @L["arc.get.empty"]
+                </MudAlert>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Class="mb-2">@L["arc.get.hint"]</MudText>
+                <MudStack Spacing="1">
+                    @foreach (var serverId in Sources)
+                    {
+                        <MudButton Variant="Variant.Outlined" Disabled="@_busy"
+                                   StartIcon="@Icons.Material.Filled.CloudDownload"
+                                   data-arcget-server="@serverId"
+                                   OnClick="@(() => DownloadAsync(serverId))">
+                            @NameOf(serverId)
+                        </MudButton>
+                    }
+                </MudStack>
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())" data-arcget-close="1">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Архив, которого здесь нет.</summary>
+    [Parameter] public Archive Archive { get; set; } = new();
+
+    private bool _busy;
+
+    /// <summary>Серверы, откуда архив можно скачать: все, у кого он есть, кроме нас самих.</summary>
+    private List<string> Sources =>
+        Archive.Servers.Where(id => id != State.ServerId).ToList();
+
+    private string NameOf(string serverId)
+    {
+        var code = State.ServerCodeOf(serverId);
+        return code.Length > 0 ? code : serverId;
+    }
+
+    private async Task DownloadAsync(string serverId)
+    {
+        _busy = true;
+        try
+        {
+            await Api.DownloadArchiveAsync(Archive.Id, serverId);
+            Snackbar.Add(L["arc.get.started", NameOf(serverId)], Severity.Success);
+            Dialog.Close(DialogResult.Ok(serverId));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

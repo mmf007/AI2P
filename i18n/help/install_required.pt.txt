@@ -1,0 +1,29 @@
+AI2P — install_required: VERIFICAÇÃO E INSTALAÇÃO DO AMBIENTE DE COMPILAÇÃO (ET cap. 13.1)
+
+Este é um script do DESENVOLVEDOR: ele é executado na máquina de compilação, a partir
+do repositório. A saída dele está apenas em inglês (nível B da análise T-64-S0).
+
+O QUE VERIFICA E INSTALA (Windows, winget)
+  1. .NET SDK 8+                Microsoft.DotNet.SDK.8
+     + ASP.NET Core runtime 8.x Microsoft.DotNet.AspNetCore.8
+       o aplicativo é compilado para net8.0 e precisa rodar no runtime 8.x:
+       no runtime 9/10 a interatividade do Blazor cai silenciosamente
+  2. CMake                      Kitware.CMake
+  3. Compilador C/C++ MSVC      VS 2022 Build Tools + carga de trabalho VC
+  4. Submódulos do git          git submodule update --init
+  5. Inno Setup 6               JRSoftware.InnoSetup
+       é necessário ao MakePackage, para montar o instalador .exe a partir da
+       distribuição pronta; para a compilação em si ele não é preciso
+
+O QUE VERIFICA E INSTALA (Linux / macOS)
+  .NET SDK, CMake, compilador C/C++, submódulos do git e makeself — este último é
+  necessário ao MakePackage.sh, para montar o pacote .run.
+
+USO
+  install_required.bat        Windows
+  ./install_required.sh       Linux / macOS
+  install_required.bat --help esta ajuda
+
+OBSERVAÇÃO. Os instaladores podem pedir confirmação de administrador (UAC no Windows,
+sudo nos demais). Depois da instalação, abra um NOVO console para que as alterações do
+PATH sejam lidas e execute o script mais uma vez para conferir.

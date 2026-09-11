@@ -1,0 +1,157 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* ФОРМА ДОБАВЛЕНИЯ АРХИВА (T-43-S0, выпуск 1.105).
+
+   Спрашивается ровно то, что задаёт человек: ИМЯ и КОД архива (идентификатор запись
+   получает сама при создании) и ОТКУДА взять правила архивации нового архива — общие
+   правила организации, копию правил прежнего текущего архива либо ничего.
+
+   Перед созданием проверяется ПРЕЖНИЙ ТЕКУЩИЙ архив: выполнены ли его автоматические
+   правила архивации (GET /api/archives/{id}/candidates — отбор T-41-S0). Если в рабочей
+   среде осталось то, что по правилам пора уносить, человеку это показывается и предлагается
+   запустить архивацию прямо отсюда; после неё проверка идёт заново. Запретом это не сделано
+   намеренно: правила — подсказка, а не преграда, завести новый архив человек вправе всегда. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" data-arcnew-form="1">
+            <MudTextField T="string" @bind-Value="_name" Label="@L["arc.name"]"
+                          Immediate="true" data-arcnew-name="1" />
+            <MudTextField T="string" @bind-Value="_code" Label="@L["arc.code"]"
+                          Immediate="true" data-arcnew-code="1"
+                          Error="@(_code.Length > 0 && !Archives.IsValidCode(_code))"
+                          ErrorText="@L["arc.code.bad"]" HelperText="@L["arc.code.hint"]" />
+
+            <MudSelect T="string" @bind-Value="_rulesMode" Label="@L["arc.rules.mode"]"
+                       data-arcnew-rules="1">
+                <MudSelectItem T="string" Value="@ArchiveRuleModes.Common">
+                    @L["arc.rules.mode.common"]
+                </MudSelectItem>
+                @if (Previous is not null)
+                {
+                    <MudSelectItem T="string" Value="@ArchiveRuleModes.Copy">
+                        @L["arc.rules.mode.copy"]
+                    </MudSelectItem>
+                }
+                <MudSelectItem T="string" Value="@ArchiveRuleModes.Empty">
+                    @L["arc.rules.mode.empty"]
+                </MudSelectItem>
+            </MudSelect>
+
+            @* СОСТОЯНИЕ ПРЕЖНЕГО ТЕКУЩЕГО АРХИВА — проверка правил архивации *@
+            @if (Previous is not null)
+            {
+                @if (_checking)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary"
+                                       data-arcnew-checking="1" />
+                }
+                else if (_pending.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="true" data-arcnew-ok="1">
+                        @L["arc.check.ok", Previous.Name]
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" data-arcnew-pending="@_pending.Count">
+                        @L["arc.check.pending", Previous.Name, _pending.Count]
+                    </MudAlert>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        @string.Join(", ", _pending.Take(10)
+                            .Select(c => (c.DisplayId.Length > 0 ? c.DisplayId + " " : "") + c.Title))
+                    </MudText>
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.Inventory2" Disabled="@_running"
+                               data-arcnew-run="1" OnClick="RunAsync">
+                        @L["arc.check.run"]
+                    </MudButton>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="Save" data-arcnew-save="1">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Прежний текущий архив; null — архивов ещё нет вовсе, проверять нечего
+    /// и копировать правила не с чего.</summary>
+    [Parameter] public Archive? Previous { get; set; }
+
+    /// <summary>Что человек задал в форме — этим создаётся архив.</summary>
+    public sealed record Result(string Code, string Name, string RulesMode);
+
+    private string _name = "";
+    private string _code = "";
+    private string _rulesMode = ArchiveRuleModes.Common;
+    private List<ArchiveCandidateDto> _pending = [];
+    private bool _checking;
+    private bool _running;
+
+    private bool SaveDisabled =>
+        _running || _name.Trim().Length == 0 || !Archives.IsValidCode(_code.Trim());
+
+    protected override async Task OnInitializedAsync() => await CheckAsync();
+
+    /// <summary>Выполнены ли правила прежнего текущего архива: пустой список кандидатов —
+    /// уносить нечего.</summary>
+    private async Task CheckAsync()
+    {
+        if (Previous is null)
+        {
+            return;
+        }
+        _checking = true;
+        try
+        {
+            _pending = await Api.GetArchiveCandidatesAsync(Previous.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    /// <summary>
+    /// Архивация прямо из формы — ОДНИМ вызовом автоматической архивации (T-46-S0,
+    /// POST /api/archives/auto): тем же действием, что ставится в расписание на дирижёре.
+    /// Отбор по правилам и перенос идут на сервере, оттуда же приходит готовая сводка —
+    /// сколько отобрано, перенесено, пропущено и не удалось. Прежде форма перебирала
+    /// кандидатов сама и считала итог на клиенте: правила успевали разойтись с состоянием
+    /// базы, а «пропущено» от «не удалось» было не отличить.
+    /// После прогона правила проверяются заново — человек видит, что осталось.
+    /// </summary>
+    private async Task RunAsync()
+    {
+        _running = true;
+        try
+        {
+            var result = await Api.RunAutoArchiveAsync();
+            Snackbar.Add(result.Summary,
+                !result.Ran || result.Failed > 0 ? Severity.Warning : Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+        }
+        await CheckAsync();
+    }
+
+    private void Save() =>
+        Dialog.Close(DialogResult.Ok(new Result(_code.Trim(), _name.Trim(), _rulesMode)));
+}

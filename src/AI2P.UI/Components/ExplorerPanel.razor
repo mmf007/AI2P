@@ -1,0 +1,517 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@implements IDisposable
+
+@* 3. Эксплорер (ТЗ гл. 11): ОДНО иерархическое представление (T-212).
+   Раньше содержимое панели менялось вместе с кнопкой экшен-бара: задачи, шаблоны, проекты,
+   команды и исполнители были ПЯТЬЮ разными представлениями одной панели, и добраться из
+   списка проектов до задач проекта было нельзя. Теперь панель одна и от выбранного
+   представления не зависит вовсе:
+
+       Проекты · Проекты/задачи · Проекты/шаблоны · Проекты/команда
+       Исполнители
+       Шаблоны · Шаблоны/проекты
+       Команды
+
+   Верхние уровни по умолчанию закрыты; содержимое ветки читается при первом раскрытии
+   (списки задач и шаблонов длинные — грузить их все сразу незачем). *@
+<MudText Typo="Typo.overline" Class="pa-2 d-block">@L["explorer.title"]</MudText>
+
+<div class="ai2p-explorer-tree" id="ai2p-explorer-tree">
+    @foreach (var node in Rows())
+    {
+        @* data-exp-* — опора живой проверки: вид узла и его путь в дереве *@
+        <div class="ai2p-tree-node" data-exp-key="@node.Key" data-exp-kind="@node.Kind"
+             style="@($"padding-left: {4 + node.Depth * 16}px;")"
+             @onclick="@(() => OnClickAsync(node))">
+            <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                @if (node.CanExpand)
+                {
+                    @* стрелка сворачивания не должна открывать карточку — stopPropagation *@
+                    <span @onclick:stopPropagation="true">
+                        <MudIconButton Icon="@(IsOpen(node) ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                       Size="Size.Small" data-exp-toggle="@node.Key"
+                                       OnClick="@(() => ToggleAsync(node))" />
+                    </span>
+                }
+                else
+                {
+                    <span style="display: inline-block; width: 30px;"></span>
+                }
+                <MudIcon Icon="@node.Icon" Size="Size.Small" Class="mr-1" />
+                <MudText Typo="Typo.body2" Class="ai2p-exp-text">
+                    @if (node.Current)
+                    {
+                        @* текущий проект/команда — как и раньше, отмечены галочкой *@
+                        <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="mr-1" />
+                    }
+                    @if (node.Code is { Length: > 0 })
+                    {
+                        <b>@node.Code</b>
+                    }
+                    @* название — отдельным элементом с отступом: пробел между кодом и
+                       названием Razor съедает, и на экране выходит «PRJ-1Доска» *@
+                    <span class="@(node.Code is { Length: > 0 } ? "ml-1" : null)">@node.Text</span>
+                </MudText>
+            </MudStack>
+        </div>
+    }
+</div>
+
+@code {
+    // виды узлов (они же значения data-exp-kind)
+    private const string KindGroup = "group";        // «Проекты», «Задачи», «Команда», …
+    private const string KindProject = "project";
+    private const string KindTask = "task";
+    private const string KindTemplate = "template";
+    private const string KindExecutor = "executor";
+    private const string KindTeam = "team";
+    private const string KindMember = "member";
+    private const string KindInfo = "info";          // «Загрузка…» / «Пока пусто»
+    private const string KindDocs = "docs";          // чтение документации (T-17-S1)
+
+    // ключи верхних уровней
+    private const string KeyProjects = "projects";
+    private const string KeyExecutors = "executors";
+    private const string KeyTemplates = "templates";
+    private const string KeyTeams = "teams";
+    private const string KeyDocs = "docs";
+
+    /// <summary>Ключ кэша всех общих шаблонов (шаблоны без проекта — ветка «Шаблоны»).</summary>
+    private const string CacheAllTemplates = "tpl:*";
+
+    private sealed class Node
+    {
+        public string Key { get; init; } = "";
+        public string Kind { get; init; } = KindGroup;
+        public string Text { get; init; } = "";
+        /// <summary>Короткий код (display_id) — показывается жирным перед названием.</summary>
+        public string? Code { get; init; }
+        public string Icon { get; init; } = "";
+        public int Depth { get; init; }
+        public bool CanExpand { get; init; }
+        public string? EntityId { get; init; }
+        /// <summary>Текущий проект/команда — отмечается галочкой.</summary>
+        public bool Current { get; init; }
+        /// <summary>Ключ кэша списка задач/шаблонов, который нужен раскрытому узлу.</summary>
+        public string? Cache { get; init; }
+    }
+
+    /// <summary>Раскрытые узлы (по ключам). Пусто — все верхние уровни закрыты.</summary>
+    private readonly HashSet<string> _expanded = [];
+
+    /// <summary>Прочитанные списки задач/шаблонов по ключу кэша (ленивая загрузка веток).</summary>
+    private readonly Dictionary<string, List<TaskItem>> _lists = [];
+
+    protected override void OnInitialized() => State.Changed += OnStateChanged;
+
+    public void Dispose() => State.Changed -= OnStateChanged;
+
+    private async void OnStateChanged()
+    {
+        // справочники и деревья могли поменяться (перенос задачи, новый проект): перечитываем
+        // ТОЛЬКО уже раскрытые ветки — закрытые прочитаются при раскрытии
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private bool IsOpen(Node node) => _expanded.Contains(node.Key);
+
+    private async Task ReloadAsync()
+    {
+        foreach (var cache in _lists.Keys.ToList())
+        {
+            _lists[cache] = await LoadAsync(cache);
+        }
+    }
+
+    /// <summary>Прочитать список ветки по ключу кэша: «tpl:*» — все общие шаблоны,
+    /// «tasks:&lt;projectId&gt;» — задачи проекта, «tpl:&lt;projectId&gt;» — его шаблоны.</summary>
+    private async Task<List<TaskItem>> LoadAsync(string cache)
+    {
+        try
+        {
+            if (cache == CacheAllTemplates)
+            {
+                return await Api.GetTasksAsync(templatesOnly: true);
+            }
+            if (cache.StartsWith("tasks:", StringComparison.Ordinal))
+            {
+                return await Api.GetTasksAsync(cache["tasks:".Length..]);
+            }
+            return await Api.GetTasksAsync(cache["tpl:".Length..], templatesOnly: true);
+        }
+        catch (ApiException)
+        {
+            return [];
+        }
+    }
+
+    private async Task ToggleAsync(Node node)
+    {
+        if (_expanded.Remove(node.Key))
+        {
+            return;
+        }
+        _expanded.Add(node.Key);
+        if (node.Cache is { } cache && !_lists.ContainsKey(cache))
+        {
+            _lists[cache] = await LoadAsync(cache);
+        }
+    }
+
+    /// <summary>Клик по строке: группа разворачивается, сущность открывается закладкой.</summary>
+    private async Task OnClickAsync(Node node)
+    {
+        switch (node.Kind)
+        {
+            case KindGroup:
+                await ToggleAsync(node);
+                break;
+            case KindProject:
+                State.OpenProject(node.EntityId!, node.Code ?? "", node.Text);
+                break;
+            case KindTask:
+            case KindTemplate:
+                State.OpenTask(node.EntityId!, node.Code ?? "", node.Text);
+                break;
+            case KindExecutor:
+                State.OpenView(UiState.ViewExecutors);
+                break;
+            case KindTeam:
+                // выбор текущей команды остался за эксплорером (она подставляется в новые задачи)
+                await State.SetCurrentTeamAsync(node.EntityId!);
+                break;
+            case KindDocs:
+                State.OpenView(UiState.ViewDocs);
+                break;
+        }
+    }
+
+    // ---------- построение видимых строк ----------
+
+    private List<Node> Rows()
+    {
+        var rows = new List<Node>();
+        AddProjects(rows);
+        Add(rows, Group(KeyExecutors, L["menu.executors"], Icons.Material.Filled.People, 0), AddExecutors);
+        AddTemplates(rows);
+        Add(rows, Group(KeyTeams, L["menu.teams"], Icons.Material.Filled.Groups, 0), AddTeams);
+        // ДОКУМЕНТАЦИЯ — ПОСЛЕДНЕЙ СТРОКОЙ (T-17-S1): не ветка данных организации, а чтение
+        // поставляемых с программой документов, поэтому стоит под всеми ветками и не
+        // раскрывается — клик открывает закладку чтения
+        rows.Add(new Node
+        {
+            Key = KeyDocs,
+            Kind = KindDocs,
+            Text = L["menu.docs"],
+            Icon = Icons.Material.Filled.MenuBook,
+            Depth = 0,
+        });
+        return rows;
+    }
+
+    /// <summary>Добавить узел и, если он раскрыт, его потомков.</summary>
+    private void Add(List<Node> rows, Node node, Action<List<Node>> children)
+    {
+        rows.Add(node);
+        if (_expanded.Contains(node.Key))
+        {
+            children(rows);
+        }
+    }
+
+    private static Node Group(string key, string text, string icon, int depth, string? cache = null) =>
+        new() { Key = key, Kind = KindGroup, Text = text, Icon = icon, Depth = depth, CanExpand = true, Cache = cache };
+
+    private Node Info(string key, string text, int depth) =>
+        new() { Key = key, Kind = KindInfo, Text = text, Icon = Icons.Material.Filled.Remove, Depth = depth };
+
+    private void AddProjects(List<Node> rows)
+    {
+        Add(rows, Group(KeyProjects, L["menu.projects"], Icons.Material.Filled.FolderOpen, 0), r =>
+        {
+            if (State.Projects.Count == 0)
+            {
+                r.Add(Info(KeyProjects + "/empty", L["common.empty"], 1));
+                return;
+            }
+            foreach (var project in State.Projects)
+            {
+                var key = KeyProjects + "/" + project.Id;
+                Add(r, new Node
+                {
+                    Key = key,
+                    Kind = KindProject,
+                    Text = project.Name,
+                    Code = project.DisplayId,
+                    Icon = Icons.Material.Filled.Folder,
+                    Depth = 1,
+                    CanExpand = true,
+                    EntityId = project.Id,
+                    Current = project.Id == State.CurrentProjectId,
+                }, r2 =>
+                {
+                    // задачи проекта; первым подузлом — «Тэги» (T-222): тэг, а под ним
+                    // список задач с этим тэгом
+                    Add(r2, Group(key + "/tasks", L["projects.tab.tasks"], Icons.Material.Filled.Task, 2,
+                        "tasks:" + project.Id),
+                        r3 =>
+                        {
+                            AddTags(r3, "tasks:" + project.Id, key + "/tasks/tags", 3, KindTask);
+                            AddTaskTree(r3, "tasks:" + project.Id, key + "/tasks", 3, KindTask);
+                        });
+                    // шаблоны проекта; так же с подузлом «Тэги» (T-222)
+                    Add(r2, Group(key + "/templates", L["projects.tab.templates"], Icons.Material.Filled.FileCopy, 2,
+                        "tpl:" + project.Id),
+                        r3 =>
+                        {
+                            AddTags(r3, "tpl:" + project.Id, key + "/templates/tags", 3, KindTemplate);
+                            AddTaskTree(r3, "tpl:" + project.Id, key + "/templates", 3, KindTemplate);
+                        });
+                    // команда проекта (defaultTeamId настроек проекта, ТЗ п. 2.7)
+                    Add(r2, Group(key + "/team", L["projects.tab.team"], Icons.Material.Filled.Groups, 2),
+                        r3 => AddProjectTeam(r3, project, key + "/team", 3));
+                });
+            }
+        });
+    }
+
+    private void AddExecutors(List<Node> rows)
+    {
+        if (State.Executors.Count == 0)
+        {
+            rows.Add(Info(KeyExecutors + "/empty", L["common.empty"], 1));
+            return;
+        }
+        foreach (var executor in State.Executors)
+        {
+            rows.Add(new Node
+            {
+                Key = KeyExecutors + "/" + executor.Id,
+                Kind = KindExecutor,
+                Text = executor.Nick,
+                Icon = ExecutorUi.Icon(executor.Kind),
+                Depth = 1,
+                EntityId = executor.Id,
+            });
+        }
+    }
+
+    /// <summary>Ветка «Шаблоны»: подузел «Проекты» (шаблоны по проектам) и общие шаблоны —
+    /// те, что не принадлежат ни одному проекту.</summary>
+    private void AddTemplates(List<Node> rows)
+    {
+        Add(rows, Group(KeyTemplates, L["menu.templates"], Icons.Material.Filled.FileCopy, 0, CacheAllTemplates), r =>
+        {
+            Add(r, Group(KeyTemplates + "/projects", L["menu.projects"], Icons.Material.Filled.FolderOpen, 1), r2 =>
+            {
+                if (State.Projects.Count == 0)
+                {
+                    r2.Add(Info(KeyTemplates + "/projects/empty", L["common.empty"], 2));
+                    return;
+                }
+                foreach (var project in State.Projects)
+                {
+                    var key = KeyTemplates + "/projects/" + project.Id;
+                    Add(r2, new Node
+                    {
+                        Key = key,
+                        Kind = KindGroup,
+                        Text = project.Name,
+                        Code = project.DisplayId,
+                        Icon = Icons.Material.Filled.Folder,
+                        Depth = 2,
+                        CanExpand = true,
+                        EntityId = project.Id,
+                        Cache = "tpl:" + project.Id,
+                    }, r3 => AddTaskTree(r3, "tpl:" + project.Id, key, 3, KindTemplate));
+                }
+            });
+            // общие шаблоны (без проекта) — сразу в ветке «Шаблоны»
+            AddTaskTree(r, CacheAllTemplates, KeyTemplates, 1, KindTemplate, t => t.ProjectId is null);
+        });
+    }
+
+    private void AddTeams(List<Node> rows)
+    {
+        if (State.Teams.Count == 0)
+        {
+            rows.Add(Info(KeyTeams + "/empty", L["common.empty"], 1));
+            return;
+        }
+        foreach (var team in State.Teams)
+        {
+            rows.Add(new Node
+            {
+                Key = KeyTeams + "/" + team.Id,
+                Kind = KindTeam,
+                Text = team.Name,
+                Icon = Icons.Material.Filled.Groups,
+                Depth = 1,
+                EntityId = team.Id,
+                Current = team.Id == State.CurrentTeamId,
+            });
+        }
+    }
+
+    private void AddProjectTeam(List<Node> rows, Project project, string keyPrefix, int depth)
+    {
+        var teamId = ReadDefaultTeam(project.SettingsJson);
+        var team = teamId is null ? null : State.Teams.FirstOrDefault(t => t.Id == teamId);
+        if (team is null)
+        {
+            rows.Add(Info(keyPrefix + "/none", L["projects.team.none"], depth));
+            return;
+        }
+        rows.Add(new Node
+        {
+            Key = keyPrefix + "/" + team.Id,
+            Kind = KindTeam,
+            Text = team.Name,
+            Icon = Icons.Material.Filled.Groups,
+            Depth = depth,
+            EntityId = team.Id,
+            Current = team.Id == State.CurrentTeamId,
+        });
+        foreach (var member in team.Members)
+        {
+            var executor = State.Executors.FirstOrDefault(e => e.Id == member.ExecutorId);
+            rows.Add(new Node
+            {
+                Key = keyPrefix + "/" + team.Id + "/" + member.ExecutorId,
+                Kind = KindMember,
+                Text = executor?.Nick ?? member.ExecutorId,
+                Icon = ExecutorUi.Icon(executor?.Kind ?? ExecutorKind.Human),
+                Depth = depth + 1,
+                EntityId = member.ExecutorId,
+            });
+        }
+    }
+
+    /// <summary>Команда проекта — defaultTeamId из настроек проекта (ТЗ п. 2.7).</summary>
+    private static string? ReadDefaultTeam(string settingsJson)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(settingsJson);
+            return doc.RootElement.TryGetProperty("defaultTeamId", out var value) ? value.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Ветка «Тэги» (T-222): узел «Тэги», под ним — по узлу на каждый тэг, а под тэгом
+    /// ПРОСТО СПИСОК задач (или шаблонов) с этим тэгом, без иерархии: тэг — это ключевое
+    /// слово, и «подзадача с тем же тэгом» ничем не ниже своего родителя.
+    ///
+    /// Категории «без тэгов» здесь нет намеренно: ветка называется «Тэги» и содержит тэги,
+    /// а задачи без тэгов и так лежат в соседней ветке целиком.
+    /// </summary>
+    private void AddTags(List<Node> rows, string cache, string key, int depth, string kind)
+    {
+        Add(rows, Group(key, L["explorer.tags"], Icons.Material.Filled.Label, depth, cache), r =>
+        {
+            if (!_lists.TryGetValue(cache, out var loaded))
+            {
+                r.Add(Info(key + "/loading", L["common.loading"], depth + 1));
+                return;
+            }
+            var groups = TaskTagGroups.Build(loaded)
+                .Where(g => g.Tag.Length != 0)
+                .ToList();
+            if (groups.Count == 0)
+            {
+                r.Add(Info(key + "/empty", L["common.empty"], depth + 1));
+                return;
+            }
+            foreach (var group in groups)
+            {
+                var tagKey = key + ":" + group.Tag;
+                Add(r, new Node
+                {
+                    Key = tagKey,
+                    Kind = KindGroup,
+                    Text = group.Tag,
+                    Icon = Icons.Material.Filled.Label,
+                    Depth = depth + 1,
+                    CanExpand = true,
+                }, r2 =>
+                {
+                    foreach (var task in group.Tasks)
+                    {
+                        r2.Add(new Node
+                        {
+                            Key = tagKey + "/" + task.Id,
+                            Kind = kind,
+                            Text = task.Title,
+                            Code = task.DisplayId,
+                            Icon = task.Kind == TaskKind.Process
+                                ? Icons.Material.Filled.AccountTree
+                                : Icons.Material.Filled.Task,
+                            Depth = depth + 2,
+                            EntityId = task.Id,
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    /// <summary>Дерево задач (или шаблонов) ветки: те же правила, что в представлении
+    /// «иерархия» — корни выборки, потомки по parent_id, свои узлы сворачиваются.</summary>
+    private void AddTaskTree(List<Node> rows, string cache, string keyPrefix, int depth, string kind,
+        Func<TaskItem, bool>? filter = null)
+    {
+        if (!_lists.TryGetValue(cache, out var loaded))
+        {
+            rows.Add(Info(keyPrefix + "/loading", L["common.loading"], depth));
+            return;
+        }
+        var tasks = filter is null ? loaded : loaded.Where(filter).ToList();
+        if (tasks.Count == 0)
+        {
+            rows.Add(Info(keyPrefix + "/empty", L["common.empty"], depth));
+            return;
+        }
+        var ids = tasks.Select(t => t.Id).ToHashSet();
+        var byParent = tasks
+            .Where(t => t.ParentId is not null && ids.Contains(t.ParentId))
+            .ToLookup(t => t.ParentId!);
+
+        void Walk(TaskItem task, int level)
+        {
+            var key = keyPrefix + ":" + task.Id;
+            var children = byParent[task.Id].ToList();
+            rows.Add(new Node
+            {
+                Key = key,
+                Kind = kind,
+                Text = task.Title,
+                Code = task.DisplayId,
+                Icon = task.Kind == TaskKind.Process
+                    ? Icons.Material.Filled.AccountTree
+                    : Icons.Material.Filled.Task,
+                Depth = level,
+                CanExpand = children.Count > 0,
+                EntityId = task.Id,
+            });
+            if (children.Count > 0 && _expanded.Contains(key))
+            {
+                foreach (var child in children)
+                {
+                    Walk(child, level + 1);
+                }
+            }
+        }
+
+        foreach (var root in tasks.Where(t => t.ParentId is null || !ids.Contains(t.ParentId)))
+        {
+            Walk(root, depth);
+        }
+    }
+}

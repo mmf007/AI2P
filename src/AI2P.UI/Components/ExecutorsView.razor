@@ -1,0 +1,222 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Полный список исполнителей (ТЗ гл. 11). Сортировка — клик по заголовку колонки:
+   по возрастанию, повторный — по убыванию (как в таблице задач); выбор запоминается. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["executors.title"]</MudText>
+    <MudSpacer />
+    @* кнопка-иконка с подсказкой (гл. 11, эргономика). Кнопка «+» есть на КАЖДОМ сервере
+       (T-177-S0): исполнителя с локальной моделью и «авто ПО» (плагин, MCP) заводят там,
+       где стоит модель или программа, — форма сама показывает только то, что можно здесь *@
+    <MudTooltip Text="@(State.IsConductor ? L["executors.add"] : L["executors.localOnly"])">
+        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                       Disabled="@(!State.CanAdmin)"
+                       OnClick="@(() => EditAsync(null))" />
+    </MudTooltip>
+</MudStack>
+
+<MudSimpleTable Dense="true" Hover="true">
+    <thead>
+        <tr>
+            @foreach (var column in VisibleColumns)
+            {
+                <th style="cursor: pointer; position: relative; padding-right: 16px; white-space: nowrap;"
+                    @onclick="@(() => SortBy(column.Key))">
+                    @(column.Key == "id" ? "ID" : L[column.Title])
+                    @if (_sort.Key == column.Key)
+                    {
+                        <span style="position: absolute; right: 4px; bottom: 2px; font-size: 0.55rem; line-height: 1;">
+                            @(_sort.Desc ? "▼" : "▲")
+                        </span>
+                    }
+                </th>
+            }
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var executor in Sorted)
+        {
+            <tr>
+                <td>@executor.DisplayId</td>
+                <td>
+                    <MudIcon Icon="@ExecutorUi.Icon(executor.Kind)" Size="Size.Small" Class="mr-1" />
+                    @executor.Nick
+                </td>
+                <td>@executor.InternalName</td>
+                <td>@L["executors.kind." + executor.Kind.ToDb()]</td>
+                <td>@executor.SystemRole.ToDb()</td>
+                <td>
+                    <MudIcon Icon="@(executor.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                             Color="@(executor.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                </td>
+                @* занятость (ТЗ v1.37): «занят до» день.час:минута (в прошлом — уже свободен)
+                   и % использования лимита провайдера, если ИИ его присылает *@
+                <td>@BusyText(executor)</td>
+                <td>@(executor.LimitPercent is { } pct ? $"{pct:0.#}%" : "")</td>
+                @* лимит окна (T-121): израсходовано из лимита и когда окно освободится;
+                   лимиты не указаны — колонка пуста, вычисление не делается *@
+                <td style="white-space: nowrap;">@WindowText(executor)</td>
+                @if (State.IsCluster)
+                {
+                    @* сервер ИИ с ЛОКАЛЬНОЙ моделью (ТЗ гл. 6, этап 42): такой исполнитель
+                       привязан к компьютеру и не назначается задачам других серверов *@
+                    <td style="white-space: nowrap;">@ServerTitle(executor)</td>
+                }
+                <td>
+                    @* исполнители правятся на дирижёре организации (ТЗ гл. 6, этап 42),
+                       а МЕСТНЫЕ (локальная модель, плагин/MCP) — на своём сервере (T-177-S0) *@
+                    <MudTooltip Text="@(CanEdit(executor) ? L["common.edit"] : L["executors.conductorOnly"])">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       Disabled="@(!State.CanAdmin || !CanEdit(executor))"
+                                       OnClick="@(() => EditAsync(executor))" />
+                    </MudTooltip>
+                </td>
+            </tr>
+        }
+    </tbody>
+</MudSimpleTable>
+
+@code {
+    /// <summary>Колонки к показу: сервер — только когда серверов в организации больше одного.</summary>
+    private IEnumerable<(string Key, string Title)> VisibleColumns =>
+        State.IsCluster ? Columns : Columns.Where(c => c.Key != "server");
+
+    /// <summary>
+    /// Запись правится ЗДЕСЬ (T-177-S0): на дирижёре — любая, на остальных серверах — только
+    /// своя местная (ИИ с локальной моделью либо «авто ПО»: у них проставлен сервер-владелец).
+    /// То же правило проверяет и сервис исполнителей — форма лишь не даёт нажать заведомо
+    /// отказную кнопку.
+    /// </summary>
+    private bool CanEdit(Executor executor) =>
+        State.IsConductor
+        || (executor.Kind != ExecutorKind.Human
+            && executor.ServerId is { Length: > 0 } server && server == State.ServerId);
+
+    /// <summary>Код сервера исполнителя; пусто — доступен с любого сервера (ТЗ гл. 6).</summary>
+    private string ServerTitle(Executor executor) =>
+        executor.ServerId is { Length: > 0 }
+            ? (executor.ServerCode.Length > 0 ? executor.ServerCode : State.ServerCodeOf(executor.ServerId))
+            : "";
+
+    private static readonly (string Key, string Title)[] Columns =
+    [
+        ("id", "ID"),
+        ("nick", "executors.nick"),
+        ("internalName", "executors.internalName"),
+        ("kind", "executors.kind"),
+        ("systemRole", "executors.systemRole"),
+        ("active", "common.active"),
+        ("busyUntil", "executors.busyUntil"),
+        ("limitPercent", "executors.limitPercent"),
+        // свой счёт лимита за окно (T-121): подписка остатка не сообщает, считаем сами
+        ("windowTokens", "executors.windowLimit"),
+        // сервер ИИ с локальной моделью (ТЗ гл. 6, этап 42): колонка есть только в кластере
+        ("server", "task.server"),
+    ];
+
+    /// <summary>Расход за окно лимита (T-121): «израсходовано/лимит · до HH:mm».
+    /// Пусто — лимиты у исполнителя не указаны, вычисление игнорируется.</summary>
+    private static string WindowText(Executor executor) =>
+        executor.TokenLimit is > 0
+            ? $"{executor.WindowTokens}/{executor.TokenLimit}" +
+              (executor.WindowResetAt is { } reset && reset > DateTime.UtcNow
+                  ? $" · {reset.ToLocalTime():HH:mm}"
+                  : "")
+            : "";
+
+    /// <summary>«Занят до» (ТЗ v1.37): день.час:минута; прошедшее время не показывается.</summary>
+    private static string BusyText(Executor executor) =>
+        executor.BusyUntil is { } busy && busy > DateTime.UtcNow
+            ? busy.ToLocalTime().ToString("dd.MM HH:mm")
+            : "";
+
+    private sealed class TableSortState
+    {
+        public string? Key { get; set; }
+        public bool Desc { get; set; }
+    }
+
+    private TableSortState _sort = new();
+
+    protected override void OnInitialized() =>
+        _sort = State.ComponentState<TableSortState>("executorsTable");
+
+    private void SortBy(string key)
+    {
+        // первый клик — по возрастанию, повторный — по убыванию (как в таблице задач)
+        if (_sort.Key == key)
+        {
+            _sort.Desc = !_sort.Desc;
+        }
+        else
+        {
+            _sort.Key = key;
+            _sort.Desc = false;
+        }
+        State.PersistComponentStates(); // сортировка переживает перезапуск (гл. 11)
+    }
+
+    private IEnumerable<Executor> Sorted
+    {
+        get
+        {
+            if (_sort.Key is null)
+            {
+                return State.Executors;
+            }
+            var ordered = _sort.Key switch
+            {
+                "id" => State.Executors.OrderBy(e => DisplayIds.Order(e.DisplayId)),
+                "nick" => State.Executors.OrderBy(e => e.Nick, StringComparer.CurrentCultureIgnoreCase),
+                "internalName" => State.Executors.OrderBy(e => e.InternalName, StringComparer.CurrentCultureIgnoreCase),
+                "kind" => State.Executors.OrderBy(e => L["executors.kind." + e.Kind.ToDb()], StringComparer.CurrentCultureIgnoreCase),
+                "systemRole" => State.Executors.OrderBy(e => e.SystemRole.ToDb(), StringComparer.OrdinalIgnoreCase),
+                "active" => State.Executors.OrderBy(e => e.IsActive ? 0 : 1),
+                "busyUntil" => State.Executors.OrderBy(e =>
+                    e.BusyUntil is { } busy && busy > DateTime.UtcNow ? busy : DateTime.MaxValue),
+                "limitPercent" => State.Executors.OrderBy(e => e.LimitPercent ?? double.MaxValue),
+                // по доле израсходованного за окно (T-121): без лимитов — в конец списка
+                "windowTokens" => State.Executors.OrderBy(e =>
+                    e.TokenLimit is > 0 ? (double)e.WindowTokens / e.TokenLimit.Value : double.MaxValue),
+                "server" => State.Executors.OrderBy(e => ServerTitle(e), StringComparer.CurrentCultureIgnoreCase),
+                _ => State.Executors.OrderBy(e => 0),
+            };
+            return _sort.Desc ? ordered.Reverse() : ordered;
+        }
+    }
+
+    private async Task EditAsync(Executor? executor)
+    {
+        var parameters = new DialogParameters<ExecutorDialog> { { d => d.Source, executor } };
+        // форма ввода исполнителя шире стандартной в 1,5 раза (ТЗ гл. 11)
+        var dialog = await Dialogs.ShowAsync<ExecutorDialog>(
+            executor is null ? L["executors.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Executor edited })
+        {
+            try
+            {
+                if (executor is null)
+                {
+                    await Api.CreateExecutorAsync(edited);
+                }
+                else
+                {
+                    await Api.UpdateExecutorAsync(edited);
+                }
+                await State.RefreshReferenceDataAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+}

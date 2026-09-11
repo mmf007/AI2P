@@ -1,0 +1,2821 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@inject NavigationManager Nav
+@implements IDisposable
+
+@* Настройки (ТЗ гл. 5, экран 8; гл. 10) — вкладки:
+   «Основное» — параметры приложения (пишутся обратно в config.json);
+   «Пользователи» — аккаунты входа (п. 2.14); «Организации» — контейнеры данных (п. 2.15);
+   «Серверы» — кластер (гл. 6, этап 41); «Справочники» — ИИ-модели (п. 2.9), навыки и
+   форматы (п. 7.3); «Действия» — справочник действий агентов с промптами (todo24).
+
+   Всё, что относится к САМОМУ серверу (адрес, порт, каталоги этого компьютера, пароль
+   администратора сервера), с этапа 41 живёт не здесь, а в форме локального сервера на
+   вкладке «Серверы»: это правка config.json, от которой зависит запуск приложения, и
+   исправлять её нужно уметь снаружи системы (todo41 п. 3). *@
+@* заявка на подключение сервера отличается по виду от остальных записей списка (п. 8) *@
+<style>
+    .ai2p-server-request td { background: var(--mud-palette-warning-hover); border-top: 2px dashed var(--mud-palette-warning); }
+</style>
+
+@* переспрос удаления кастомной модели (ТЗ v1.43, todo36_6) *@
+<MudMessageBox @ref="_takeoverBox" Title="@L["servers.takeover"]" Message="@L["servers.takeover.confirm"]"
+               YesText="@L["servers.takeover"]" CancelText="@L["common.cancel"]" />
+<MudMessageBox @ref="_modelDeleteBox" Title="@L["common.delete"]" Message="@L["models.deleteConfirm"]"
+               YesText="@L["common.delete"]" CancelText="@L["common.cancel"]" />
+@* переспрос удаления пользователя (T-140): удаление необратимо, вопрос обязателен *@
+<MudMessageBox @ref="_accountDeleteBox" Title="@L["users.delete"]" Message="@L["users.deleteConfirm"]"
+               YesText="@L["common.delete"]" CancelText="@L["common.cancel"]" />
+@* переспрос удаления сервера (T-141): запись вычёркивается целиком, вместе с кодом *@
+<MudMessageBox @ref="_serverDeleteBox" Title="@L["servers.delete"]" Message="@L["servers.deleteConfirm"]"
+               YesText="@L["common.delete"]" CancelText="@L["common.cancel"]" />
+@* переспрос снятия плагина (T-114-S0): снятие убирает его действия и записи опыта
+   у ВСЕЙ организации — записи реплицируются, и сделано это будет всюду *@
+<MudMessageBox @ref="_pluginRemoveBox" Title="@L["plugins.remove"]" Message="@L["plugins.removeConfirm"]"
+               YesText="@L["plugins.remove"]" CancelText="@L["common.cancel"]" />
+
+@* код локального сервера в организации — только для чтения (todo41, замечание 2) *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["settings.title"]</MudText>
+    <MudSpacer />
+    <MudTooltip Text="@L["servers.codeHint"]">
+        <MudText Typo="Typo.subtitle2" Class="mr-2">
+            @L["servers.one"] — @(LocalCode.Length > 0 ? LocalCode : "—")@(_localServer?.IsConductor == true ? " ★" : "")
+        </MudText>
+    </MudTooltip>
+</MudStack>
+
+@if (_settings is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <MudTabs Elevation="1" Rounded="true">
+        <MudTabPanel Text="@L["settings.tab.main"]">
+            <MudStack Spacing="3" Class="pa-4" Style="max-width: 480px;">
+                @* РЕЖИМ РЕДАКТИРОВАНИЯ (T-123-S0): форма открывается в режиме чтения, карандаш
+                   включает правку, «сохранить» и «отменить» стоят рядом.
+                   КНОПКИ — В ПРАВОМ ВЕРХНЕМ УГЛУ ФОРМЫ (T-141-S0), как у «Проект → Основное»:
+                   у длинной вкладки низ уезжает за край экрана, и кнопку приходилось искать
+                   прокруткой *@
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudSpacer />
+                    @if (_editingMain)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   data-settings-save="1" OnClick="SaveMainAsync">
+                            @L["common.save"]
+                        </MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                   data-settings-cancel="1" OnClick="CancelMain">
+                            @L["common.cancel"]
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudTooltip Text="@L["common.edit"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
+                                           data-settings-edit="1" OnClick="StartEditMain" />
+                        </MudTooltip>
+                    }
+                </MudStack>
+                @* ЯЗЫК ИНТЕРФЕЙСА (T-70-S0): название каждого языка написано на нём самом —
+                   человек, открывший чужую установку, обязан найти свой язык в списке *@
+                <MudSelect T="string" @bind-Value="_settings.Language" Label="@L["settings.language"]"
+                           ReadOnly="@(!_editingMain)"
+                           data-settings-language="1">
+                    @foreach (var lang in L.LanguagesByName)
+                    {
+                        <MudSelectItem T="string" Value="@lang">@L.Name(lang)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSwitch T="bool" @bind-Value="_settings.OpenBrowserOnStart" Label="@L["settings.openBrowser"]"
+                           Disabled="@(!_editingMain)" Color="Color.Primary" />
+                @* вторая строка заголовка закладок «Задача»/«Проект» (ТЗ v1.18, todo21) *@
+                <MudSelect T="string" @bind-Value="_settings.TabTitleMode" Label="@L["settings.tabTitleMode"]"
+                           ReadOnly="@(!_editingMain)">
+                    <MudSelectItem T="string" Value="@("name")">@L["settings.tabTitleMode.name"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("code")">@L["settings.tabTitleMode.code"]</MudSelectItem>
+                </MudSelect>
+                @* ячейка календаря расписаний (ТЗ v1.37, todo34_3): время + код или заголовок шаблона *@
+                <MudSelect T="string" @bind-Value="_settings.ScheduleCellMode" Label="@L["settings.scheduleCellMode"]"
+                           ReadOnly="@(!_editingMain)">
+                    <MudSelectItem T="string" Value="@("code")">@L["settings.scheduleCellMode.code"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("name")">@L["settings.scheduleCellMode.name"]</MudSelectItem>
+                </MudSelect>
+                @* уровень вывода в лог (T-136): один параметр на технический лог приложения
+                   и на журнал работ (ТЗ п. 6.3); применяется сразу, без перезапуска *@
+                <MudSelect T="string" @bind-Value="_settings.LogLevel" Label="@L["settings.logLevel"]"
+                           ReadOnly="@(!_editingMain)"
+                           HelperText="@L["settings.logLevel.hint"]">
+                    <MudSelectItem T="string" Value="@("Debug")">@L["settings.logLevel.debug"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Info")">@L["settings.logLevel.info"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Warning")">@L["settings.logLevel.warning"]</MudSelectItem>
+                </MudSelect>
+                @* КАДР ДАТАСЕТА LoRA (T-12-S1): до какого размера кадр ужимается при
+                   добавлении и в каком формате хранится. Правильного значения тут нет —
+                   обучающие скрипты разных моделей ждут разного, — поэтому по заданию это
+                   настройка, а не число в коде. Соотношение сторон при ужимании не меняется:
+                   коэффициент один на обе стороны, берётся меньший из двух *@
+                <MudDivider />
+                <MudText Typo="Typo.subtitle2" data-settings-lora="1">@L["settings.lora"]</MudText>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudNumericField T="int" @bind-Value="_settings.LoraImage.MaxWidth" Min="16" Max="8192"
+                                     Label="@L["settings.lora.maxWidth"]" Style="max-width: 160px;"
+                                     ReadOnly="@(!_editingMain)"
+                                     data-settings-lora-width="1" />
+                    <MudNumericField T="int" @bind-Value="_settings.LoraImage.MaxHeight" Min="16" Max="8192"
+                                     Label="@L["settings.lora.maxHeight"]" Style="max-width: 160px;"
+                                     ReadOnly="@(!_editingMain)"
+                                     data-settings-lora-height="1" />
+                    <MudNumericField T="int" @bind-Value="_settings.LoraImage.MaxKb" Min="16" Max="102400"
+                                     Label="@L["settings.lora.maxKb"]" Style="max-width: 160px;"
+                                     ReadOnly="@(!_editingMain)"
+                                     data-settings-lora-kb="1" />
+                    <MudSelect T="string" @bind-Value="_settings.LoraImage.Format"
+                               Label="@L["settings.lora.format"]" Style="max-width: 160px;"
+                               ReadOnly="@(!_editingMain)"
+                               data-settings-lora-format="1">
+                        <MudSelectItem T="string" Value="@("png")">PNG</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("jpeg")">JPEG</MudSelectItem>
+                    </MudSelect>
+                    @* ЦВЕТ ПОЛЕЙ при автоматическом пережатии (T-57-S0): картинку нельзя ни
+                       обрезать, ни растянуть — вокруг неё остаются поля. Пишется «#RRGGBBAA»,
+                       альфа значима: у PNG «#FFFFFF00» даёт прозрачные поля, у JPEG альфы
+                       нет вовсе и поля выходят белыми *@
+                    <MudTextField T="string" @bind-Value="_settings.LoraImage.PadColor"
+                                  Label="@L["settings.lora.padColor"]" Style="max-width: 160px;"
+                                  ReadOnly="@(!_editingMain)"
+                                  data-settings-lora-pad="1" />
+                </MudStack>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["settings.lora.hint"]</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["settings.lora.padColor.hint"]</MudText>
+                <MudDivider />
+                <MudText Typo="Typo.caption">@L["settings.serverMoved"]</MudText>
+                @* ВЕРСИЯ ПРИЛОЖЕНИЯ (ТЗ гл. 4.3, этап 46): формат 1.<номер билда>, где номер
+                   билда — номер задания todo<xx>.md, по которому собрана эта версия. По ней
+                   скрипт установки решает, обновлять ли выкладку, а приложение — доводить ли
+                   данные до нового билда *@
+                <MudDivider />
+                @* пояснение про формат версии — подсказкой по наведению на иконку (T-130):
+                   постоянный абзац занимал место, а читают его один раз *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudTooltip Text="@L["settings.versionHint"]">
+                        <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                    </MudTooltip>
+                    <MudText Typo="Typo.body2">@L["settings.version"]: <b>@State.Version</b></MudText>
+                    @if (State.Debug)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                                 Variant="Variant.Text">Debug</MudChip>
+                    }
+                </MudStack>
+                @* РЕЖИМ ЗАПУСКА (T-271): консоль или сервис ОС. Человеку, открывшему UI,
+                   иначе неоткуда узнать, чем поднят сервер, — а от этого зависит и то, как
+                   его останавливать, и то, почему при старте не открылся браузер *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudTooltip Text="@L["settings.runMode.hint"]">
+                        <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" />
+                    </MudTooltip>
+                    <MudText Typo="Typo.body2" data-settings-runmode="@(State.IsService ? "service" : "console")">
+                        @L["settings.runMode"]:
+                        <b>@(State.IsService ? L["settings.runMode.service"] : L["settings.runMode.console"])</b>
+                    </MudText>
+                    @* записка makeAsServise без сервисного запуска: службу остановили или сняли
+                       руками. Молчать об этом нельзя — человек ждёт, что сервер поднимается сам *@
+                    @if (State.ServiceMode && !State.IsService)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text"
+                                 data-settings-runmode-mark="1">@L["settings.runMode.markOnly"]</MudChip>
+                    }
+                </MudStack>
+            </MudStack>
+        </MudTabPanel>
+
+        @* --- СЕРВЕРЫ (ТЗ гл. 6, этап 41): кластер; вкладка у владельца организации И
+             у администратора этого сервера (T-148) — список серверов своей машины и ручной
+             пуск репликации нужны её хозяину, какая бы роль ни была у него в организации --- *@
+        @if (State.CanManageServers)
+        {
+            <MudTabPanel Text="@L["settings.tab.servers"]">
+                <div class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 1100px;">
+                        <MudText Typo="Typo.h6">@L["servers.title"]</MudText>
+                        <MudSpacer />
+                        @* вход администратора сервера — НАД списком серверов (todo41 п. 4).
+                           Href у MudButton — обычная ссылка (полный переход), это и нужно:
+                           вход ставит отдельную cookie на своей странице.
+                           Адрес ВСЕГДА петлевой (T-174): вход админа сервера принимается
+                           только с этого компьютера, и внешнее имя вело в отказ *@
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   Href="@(State.LocalBaseUrl + "/server-admin")"
+                                   data-server-admin="1"
+                                   StartIcon="@Icons.Material.Filled.AdminPanelSettings">
+                            @(State.IsServerAdmin ? L["account.serverAdmin.in"] : L["account.serverAdmin"])
+                        </MudButton>
+                        <MudTooltip Text="@L["servers.add"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.Dns"
+                                           OnClick="@(() => EditServerAsync(null))" />
+                        </MudTooltip>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Class="mb-2">@L["servers.hint"]</MudText>
+                    @* --- ОТБОР ЗАЯВОК (T-293) ---
+                       Решённая заявка на смену дирижёра оставалась в списке неделю, до уборки,
+                       и висела там как незаконченное дело: человек уже принял решение, а строка
+                       стоит. Теперь по умолчанию видны только серверы и заявки, ждущие решения,
+                       а вся история — по этому флажку. Он же добавляет к ней ОТКЛОНЁННЫЕ заявки
+                       на подключение серверов к кластеру: их «ОТКЛОНИТЬ» убирает из списка
+                       вовсе, и посмотреть, что было, до сих пор было негде *@
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2"
+                              Style="max-width: 1100px;">
+                        <MudTooltip Text="@L["servers.requests.all.hint"]">
+                            <MudCheckBox T="bool" Value="_allRequests" Dense="true" Size="Size.Small"
+                                         data-servers-all="@(_allRequests ? "1" : "0")"
+                                         ValueChanged="ShowAllRequestsAsync"
+                                         Label="@L["servers.requests.all"]" />
+                        </MudTooltip>
+                    </MudStack>
+                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+                        <thead>
+                            <tr>
+                                <th>@L["servers.code"]</th>
+                                <th>@L["servers.name"]</th>
+                                <th>@L["servers.address"]</th>
+                                <th>@L["servers.role"]</th>
+                                <th>@L["servers.orgs"]</th>
+                                <th>@L["common.active"]</th>
+                                @* статус репликации (ТЗ гл. 6, этап 43; todo43): у дирижёра
+                                   видны все серверы, у остальных — только текущий *@
+                                <th style="min-width: 190px;">@L["repl.status"]</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @* локальный сервер всегда первый — порядок задаёт сервер (п. 2) *@
+                            @foreach (var server in _servers)
+                            {
+                                <tr>
+                                    <td>@CodeOf(server)</td>
+                                    <td style="white-space: nowrap;">
+                                        @(server.Name.Length > 0 ? server.Name : server.Hostname)
+                                    </td>
+                                    @* второй строкой — ВНЕШНИЙ адрес, если он есть (T-50-S0):
+                                       по нему сервер зовут те, кому внутренний не виден *@
+                                    <td style="white-space: nowrap;">
+                                        <div data-server-url="1">@server.Url</div>
+                                        @if (server.HasAddress2)
+                                        {
+                                            <MudText Typo="Typo.caption" data-server-url2="1">
+                                                @server.Url2
+                                            </MudText>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (server.IsLocal)
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Primary"
+                                                     Variant="Variant.Text">@L["servers.local"]</MudChip>
+                                        }
+                                        @if (IsConductor(server))
+                                        {
+                                            <MudChip T="string" Size="Size.Small" Color="Color.Secondary"
+                                                     Variant="Variant.Text">@L["servers.conductor"]</MudChip>
+                                        }
+                                    </td>
+                                    <td style="white-space: normal; word-break: break-word;">
+                                        <MudText Typo="Typo.caption">@OrgsText(server)</MudText>
+                                        @* НАША ЗАЯВКА К ЭТОМУ СЕРВЕРУ (T-148): её состояние
+                                           видно прямо в строке, а не только в форме — именно
+                                           здесь человек ждёт решения после первого старта *@
+                                        @if (OrgServerStatus.IsRequest(server.JoinStatus))
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Warning">
+                                                @L["servers.join.state." + server.JoinStatus]
+                                                @server.JoinOrgCode
+                                            </MudText>
+                                        }
+                                    </td>
+                                    <td>
+                                        <MudIcon Size="Size.Small"
+                                                 Icon="@(server.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                                 Color="@(server.IsActive ? Color.Success : Color.Default)" />
+                                    </td>
+                                    @* --- статус репликации (todo43) --- *@
+                                    @* Дирижёр реплицируется со всеми, поэтому у САМОГО дирижёра
+                                       поля и кнопки нет: у него нет «своей» пары. У остальных
+                                       записей строка показывает пару «этот сервер ↔ дирижёр». *@
+                                    <td>
+                                        @if (Replication(server) is { } repl)
+                                        {
+                                            @if (repl.Status == ReplicationStatuses.Running)
+                                            {
+                                                <MudTooltip Text="@ReplHint(repl, server)">
+                                                    <MudStack Row="true" AlignItems="AlignItems.Center"
+                                                              Spacing="1" Style="min-width: 170px;">
+                                                        <MudProgressLinear Color="Color.Primary" Value="@repl.Percent"
+                                                                           Style="flex: 1;" />
+                                                        <MudText Typo="Typo.caption">@repl.Percent%</MudText>
+                                                    </MudStack>
+                                                </MudTooltip>
+                                            }
+                                            else
+                                            {
+                                                <MudTooltip Text="@ReplHint(repl, server)">
+                                                    <MudText Typo="Typo.caption" Color="@ReplColor(repl, server)"
+                                                             data-repl-state="1">
+                                                        @ReplText(repl, server)
+                                                    </MudText>
+                                                </MudTooltip>
+                                            }
+                                        }
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        @if (Replication(server) is not null)
+                                        {
+                                            @* Ручной пуск есть ВСЕГДА, даже когда интервал задан,
+                                               НО ТОЛЬКО ЕСЛИ ЗВОНИТЬ ЕСТЬ КУДА (T-50-S0): к серверу,
+                                               назвавшемуся петлевым адресом, мы не обратимся никогда —
+                                               сеансы с ним начинает он сам, и кнопка «запустить
+                                               репликацию» может лишь выдать отказ. Кнопка погашена,
+                                               а подсказка объясняет причину *@
+                                            <MudTooltip Text="@(Replication(server)!.CannotCall.Length > 0
+                                                                  ? Replication(server)!.CannotCall
+                                                                  : L["repl.run"])">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Sync" Size="Size.Small"
+                                                               Color="Color.Primary" data-repl-run="1"
+                                                               Disabled="@(Replication(server)!.CannotCall.Length > 0)"
+                                                               OnClick="@(() => ReplicateAsync(server))" />
+                                            </MudTooltip>
+                                            @* очередь повтора (T-160): строки, которые база не
+                                               приняла. Репликация из-за них не останавливается,
+                                               но молчать нельзя — часть данных не доехала *@
+                                            <MudTooltip Text="@L["repl.diagnostics"]">
+                                                <MudBadge Content="@Replication(server)!.Pending"
+                                                          Color="Color.Warning" Overlap="true"
+                                                          Visible="@(Replication(server)!.Pending > 0)">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.MonitorHeart"
+                                                                   Size="Size.Small" data-repl-diag="1"
+                                                                   OnClick="@(() => ShowReplicationAsync(server))" />
+                                                </MudBadge>
+                                            </MudTooltip>
+                                            @* конфликты файлов (todo44): кнопка с их числом.
+                                               Появляется только когда есть что решать *@
+                                            @if (Replication(server)!.FileConflicts is > 0 and var count)
+                                            {
+                                                <MudTooltip Text="@L["repl.conflicts.title"]">
+                                                    <MudBadge Content="@count" Color="Color.Error" Overlap="true">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.CompareArrows"
+                                                                       Size="Size.Small" Color="Color.Error"
+                                                                       OnClick="@(() => ShowConflictsAsync(server))" />
+                                                    </MudBadge>
+                                                </MudTooltip>
+                                            }
+                                        }
+                                        @* «перейти на сервер» (T-139): открывает ЕГО адрес
+                                           в новой закладке. Через неё человек попадает на
+                                           чужой сервер напрямую — например чтобы сменить там
+                                           свой пароль. У локального сервера кнопки нет:
+                                           переходить некуда, мы и так на нём *@
+                                        @* АДРЕСОВ БЫВАЕТ ДВА (T-50-S0): внутренний и внешний.
+                                           Какой из них сегодня рабочий, знает человек, а не мы, —
+                                           поэтому при двух адресах кнопка не ведёт молча по
+                                           первому, а спрашивает меню, куда идти *@
+                                        @if (!server.IsLocal && server.HasAddress2)
+                                        {
+                                            <MudTooltip Text="@L["servers.open"]">
+                                                <MudMenu Icon="@Icons.Material.Filled.Launch" Dense="true"
+                                                         Size="Size.Small" data-server-open="2">
+                                                    <MudMenuItem Href="@server.Url" Target="_blank">
+                                                        @L["servers.open.inner"]: @server.Url
+                                                    </MudMenuItem>
+                                                    <MudMenuItem Href="@server.Url2" Target="_blank">
+                                                        @L["servers.open.outer"]: @server.Url2
+                                                    </MudMenuItem>
+                                                </MudMenu>
+                                            </MudTooltip>
+                                        }
+                                        else if (!server.IsLocal)
+                                        {
+                                            <MudTooltip Text="@L["servers.open"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Launch"
+                                                               Size="Size.Small" Href="@server.Url"
+                                                               data-server-open="1"
+                                                               Target="_blank" />
+                                            </MudTooltip>
+                                        }
+                                        <MudTooltip Text="@L["common.edit"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                           data-server-edit="1"
+                                                           OnClick="@(() => EditServerAsync(server))" />
+                                        </MudTooltip>
+                                        @* «передать задачи дирижёру» (ТЗ гл. 6, этап 42): кнопка
+                                           появляется у сервера, ВЫВЕДЕННОГО из кластера — иначе
+                                           его задачи остались бы нередактируемыми навсегда.
+                                           Это единственный случай, когда владельца задачи
+                                           меняет не её сервер *@
+                                        @if (!server.IsLocal && !server.IsActive && State.IsConductor)
+                                        {
+                                            <MudTooltip Text="@L["servers.takeover"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.MoveDown"
+                                                               Size="Size.Small" Color="Color.Warning"
+                                                               OnClick="@(() => TakeOverAsync(server))" />
+                                            </MudTooltip>
+                                        }
+                                        @* УДАЛЕНИЕ СЕРВЕРА (T-141): так убирают неудачное первое
+                                           подключение — до первой репликации это безопасно,
+                                           и код сервера (S1) освобождается. У неудаляемых
+                                           кнопка погашена, а подсказка объясняет почему *@
+                                        @if (!server.IsLocal)
+                                        {
+                                            <MudTooltip Text="@(server.DeleteProblem.Length > 0
+                                                                  ? server.DeleteProblem
+                                                                  : L["servers.delete"])">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                               Size="Size.Small" Color="Color.Error"
+                                                               Disabled="@(server.DeleteProblem.Length > 0)"
+                                                               OnClick="@(() => DeleteServerAsync(server))" />
+                                            </MudTooltip>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @* заявки на подключение — ОТДЕЛЬНОЙ строкой ВНИЗУ списка и другим
+                               видом, чем остальные записи (todo41 пп. 8–9) *@
+                            @foreach (var request in _requests)
+                            {
+                                <tr class="ai2p-server-request" style="cursor: pointer;"
+                                    data-request-row="@request.Status"
+                                    @onclick="@(() => DecideRequestAsync(request))">
+                                    <td>
+                                        <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small"
+                                                 Color="@RowColor(OrgServerStatus.IsRequest(request.Status))" />
+                                    </td>
+                                    <td style="white-space: nowrap;"><b>@request.ServerName</b></td>
+                                    <td style="white-space: nowrap;">@request.Url</td>
+                                    <td colspan="4">
+                                        <MudText Typo="Typo.caption"
+                                                 Color="@RowColor(OrgServerStatus.IsRequest(request.Status))">
+                                            @L["servers.status." + request.Status] ·
+                                            @request.OrgName (@request.OrgCode)
+                                            @(request.RequestedBy.Length > 0 ? " · " + request.RequestedBy : "")
+                                        </MudText>
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        <MudTooltip Text="@L["servers.request.open"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                                           OnClick="@(() => DecideRequestAsync(request))" />
+                                        </MudTooltip>
+                                    </td>
+                                </tr>
+                            }
+                            @* ЗАЯВКИ НА СМЕНУ ДИРИЖЁРА (T-21-S1) — тем же видом и там же, где
+                               заявки на подключение: работа с ними для человека одинакова,
+                               различается только смысл. Решение принимает вторая сторона,
+                               подавший может снять свою заявку *@
+                            @foreach (var request in _conductorRequests)
+                            {
+                                <tr class="ai2p-conductor-request" style="cursor: pointer;"
+                                    data-conductor-row="@request.Status"
+                                    @onclick="@(() => ShowConductorAsync(request))">
+                                    <td>
+                                        <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Small"
+                                                 Color="@RowColor(ConductorRequestStatus.IsOpen(request.Status))" />
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        <b>@L["conductor.row"]</b>
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        @request.TargetServerCode @request.TargetServerName
+                                    </td>
+                                    <td colspan="4">
+                                        <MudText Typo="Typo.caption"
+                                                 Color="@RowColor(ConductorRequestStatus.IsOpen(request.Status))">
+                                            @L["conductor.status." + request.Status]
+                                            @(request.RequestedBy.Length > 0 ? " · " + request.RequestedBy : "")
+                                        </MudText>
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        <MudTooltip Text="@L["conductor.row.open"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                                           data-conductor-open-row="1"
+                                                           OnClick="@(() => ShowConductorAsync(request))" />
+                                        </MudTooltip>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudTabPanel>
+        }
+
+        @* --- ПОЛЬЗОВАТЕЛИ (ТЗ п. 2.14, этап 39): аккаунты входа; вкладка видна владельцу.
+             Без организации вкладки нет (T-148): роль человеку даёт участие в организации,
+             а заводить участников на сервере, который сам ещё не подключён, нечем --- *@
+        @if (State.CanManageAccounts && !State.NoOrg)
+        {
+            <MudTabPanel Text="@L["settings.tab.users"]">
+                <div class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 900px;">
+                        <MudText Typo="Typo.h6">@L["users.title"]</MudText>
+                        <MudSpacer />
+                        <MudTooltip Text="@L["users.add"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.PersonAdd"
+                                           OnClick="@(() => EditAccountAsync(null))" />
+                        </MudTooltip>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Class="mb-2">@L["users.hint"]</MudText>
+                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 900px;">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>@L["login.name"]</th>
+                                <th>@L["login.email"]</th>
+                                <th>@L["login.phone"]</th>
+                                <th>@L["users.executor"]</th>
+                                <th>@L["executors.systemRole"]</th>
+                                <th>@L["users.password"]</th>
+                                <th>@L["common.active"]</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var account in _accounts)
+                            {
+                                <tr>
+                                    <td>@account.DisplayId</td>
+                                    <td>@account.Name</td>
+                                    <td>@account.Email</td>
+                                    <td>@account.Phone</td>
+                                    <td>@account.ExecutorNick</td>
+                                    <td>@account.Role.ToDb()</td>
+                                    <td>
+                                        @* «пароль не задан» — вход только с этого компьютера (гл. 11) *@
+                                        <MudTooltip Text="@(account.HasPassword ? L["users.password.set"] : L["users.password.empty"])">
+                                            <MudIcon Size="Size.Small"
+                                                     Icon="@(account.HasPassword ? Icons.Material.Filled.Lock : Icons.Material.Filled.LockOpen)"
+                                                     Color="@(account.HasPassword ? Color.Success : Color.Warning)" />
+                                        </MudTooltip>
+                                    </td>
+                                    <td>
+                                        <MudIcon Size="Size.Small"
+                                                 Icon="@(account.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                                 Color="@(account.IsActive ? Color.Success : Color.Default)" />
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                       OnClick="@(() => EditAccountAsync(account))" />
+                                        @* удаление пользователя (T-140): кнопка есть всегда, но
+                                           у неудаляемых она погашена, а подсказка объясняет почему *@
+                                        <MudTooltip Text="@DeleteAccountHint(account)">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                           Disabled="@(!CanDeleteAccount(account))"
+                                                           OnClick="@(() => DeleteAccountAsync(account))" />
+                                        </MudTooltip>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudTabPanel>
+        }
+
+        @* --- ОРГАНИЗАЦИИ (ТЗ п. 2.15, этап 40): контейнеры всех данных.
+             Вкладка — у ХОЗЯИНА ЭТОГО КОМПЬЮТЕРА (T-201-S0), а не у владельца открытой
+             сейчас организации: организации лежат на этой машине, и раздел не должен
+             пропадать при переходе в организацию, приехавшую репликацией --- *@
+        @if (State.CanManageOrgs && !State.NoOrg)
+        {
+            <MudTabPanel Text="@L["settings.tab.orgs"]">
+                <div class="pa-4">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 900px;">
+                        <MudText Typo="Typo.h6">@L["orgs.title"]</MudText>
+                        <MudSpacer />
+                        <MudTooltip Text="@L["orgs.add"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.AddBusiness"
+                                           OnClick="@(() => EditOrgAsync(null))" />
+                        </MudTooltip>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Class="mb-2">@L["orgs.hint"]</MudText>
+                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 900px;">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>@L["common.name"]</th>
+                                <th>@L["orgs.code"]</th>
+                                <th>@L["orgs.servers"]</th>
+                                <th>@L["orgs.member"]</th>
+                                <th>@L["common.active"]</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var org in _orgs)
+                            {
+                                <tr>
+                                    @* КАТАЛОГ РЯДОМ С НОМЕРОМ (T-148-S0): у организации, чей номер
+                                       когда-то столкнулся с приехавшей, он называется иначе
+                                       (ORG-1-2), и человек должен видеть это до удаления *@
+                                    <td data-org-row="@org.DisplayId">
+                                        @org.DisplayId
+                                        @if (org.DirName.Length > 0 && org.DirName != org.DisplayId)
+                                        {
+                                            <MudText Typo="Typo.caption" data-org-dir="@org.DirName">
+                                                @L["orgs.dir"]: @org.DirName
+                                            </MudText>
+                                        }
+                                    </td>
+                                    <td>@org.Name</td>
+                                    <td>@org.Code</td>
+                                    <td>@OrgServersText(org)</td>
+                                    <td>
+                                        @if (org.IsMember)
+                                        {
+                                            <MudIcon Size="Size.Small" Color="Color.Success"
+                                                     Icon="@Icons.Material.Filled.CheckCircle" />
+                                        }
+                                    </td>
+                                    <td>
+                                        <MudIcon Size="Size.Small"
+                                                 Icon="@(org.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                                 Color="@(org.IsActive ? Color.Success : Color.Default)" />
+                                    </td>
+                                    <td>
+                                        @if (org.IsMember)
+                                        {
+                                            <MudTooltip Text="@L["orgs.open"]">
+                                                @* переход в другую организацию — полная перезагрузка:
+                                                   у неё свой адрес, свои данные и свой лейаут (ТЗ гл. 11) *@
+                                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                                               OnClick="@(() => Nav.NavigateTo(State.OrgUrl(org), forceLoad: true))" />
+                                            </MudTooltip>
+                                        }
+                                        else if (org.CanJoin)
+                                        {
+                                            @* ВСТУПИТЬ В ОРГАНИЗАЦИЮ ЭТОГО КОМПЬЮТЕРА (T-186-S0):
+                                               приехавшая репликацией организация участников здесь
+                                               не заводит, и без этого открыть её нечем *@
+                                            <MudTooltip Text="@L["orgs.join"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.PersonAdd" Size="Size.Small"
+                                                               data-org-join="@org.DisplayId"
+                                                               OnClick="@(() => JoinOrgAsync(org))" />
+                                            </MudTooltip>
+                                        }
+                                        @* ДОБАВИТЬ АРХИВ (T-43-S0) — только у ОТКРЫТОЙ сейчас организации
+                                           (архивы читаются в её контексте) и только на ДИРИЖЁРЕ: реестр
+                                           архивов общий, и «текущих» архивов иначе стало бы столько,
+                                           сколько машин в кластере. На прочих серверах кнопка видна,
+                                           но не нажимается, и подсказка объясняет почему *@
+                                        @if (IsCurrentOrg(org))
+                                        {
+                                            <MudTooltip Text="@(State.IsConductor ? L["arc.add"] : L["arc.conductorOnly"])">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Inventory2" Size="Size.Small"
+                                                               data-archive-add="1"
+                                                               Disabled="@(!State.IsConductor || !State.CanAdmin)"
+                                                               OnClick="AddArchiveAsync" />
+                                            </MudTooltip>
+                                        }
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                       OnClick="@(() => EditOrgAsync(org))" />
+                                        @* УДАЛЕНИЕ ОРГАНИЗАЦИИ С ЭТОГО СЕРВЕРА (T-148-S0):
+                                           только пустой (ни задач, ни архивов) и не той,
+                                           в которой сейчас работают. Почему нельзя — в подсказке *@
+                                        <MudTooltip Text="@(org.DeleteProblem.Length > 0
+                                                              ? org.DeleteProblem : L["orgs.delete"])">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                           Color="Color.Error" data-org-delete="@org.DisplayId"
+                                                           Disabled="@(org.DeleteProblem.Length > 0)"
+                                                           OnClick="@(() => DeleteOrgAsync(org))" />
+                                        </MudTooltip>
+                                    </td>
+                                </tr>
+                                @* СПИСОК АРХИВОВ ОРГАНИЗАЦИИ (T-43-S0) — дочерние строки записи
+                                   организации. Состояние архива на ЭТОМ сервере стоит в колонке
+                                   «активен» (текущий / открытый / закрытый / удалён), а в колонке
+                                   серверов — те, у кого архив есть *@
+                                @if (IsCurrentOrg(org))
+                                {
+                                    @foreach (var archive in _archives)
+                                    {
+                                        <tr data-archive-row="@archive.DisplayId"
+                                            data-archive-state="@ArchiveStateCode(archive)">
+                                            <td style="white-space: nowrap; padding-left: 24px;">
+                                                └ @archive.DisplayId
+                                            </td>
+                                            <td>@archive.Name</td>
+                                            <td>@archive.Code</td>
+                                            <td>@ArchiveServersText(archive)</td>
+                                            <td></td>
+                                            <td style="white-space: nowrap;">
+                                                @L["arc.state." + ArchiveStateCode(archive)]
+                                            </td>
+                                            <td style="white-space: nowrap;">
+                                                @* ОТКРЫТЬ / ЗАКРЫТЬ — это распаковка и упаковка каталога
+                                                   архива на этом сервере; у текущего архива её нет вовсе:
+                                                   в него идёт перенос данных *@
+                                                @if (!archive.IsCurrent && archive.State == ArchiveStates.Closed)
+                                                {
+                                                    <MudTooltip Text="@L["arc.open"]">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen"
+                                                                       Size="Size.Small" data-archive-open="@archive.DisplayId"
+                                                                       Disabled="@(!State.CanAdmin)"
+                                                                       OnClick="@(() => OpenArchiveAsync(archive))" />
+                                                    </MudTooltip>
+                                                }
+                                                @if (!archive.IsCurrent && archive.State == ArchiveStates.Open)
+                                                {
+                                                    <MudTooltip Text="@L["arc.close"]">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.Archive"
+                                                                       Size="Size.Small" data-archive-close="@archive.DisplayId"
+                                                                       Disabled="@(!State.CanAdmin)"
+                                                                       OnClick="@(() => CloseArchiveAsync(archive))" />
+                                                    </MudTooltip>
+                                                }
+                                                @* СКАЧАТЬ с другого сервера — у архива, которого здесь нет *@
+                                                @if (archive.State == ArchiveStates.Deleted)
+                                                {
+                                                    <MudTooltip Text="@L["arc.get"]">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
+                                                                       Size="Size.Small" data-archive-download="@archive.DisplayId"
+                                                                       Disabled="@(!State.CanAdmin)"
+                                                                       OnClick="@(() => DownloadArchiveAsync(archive))" />
+                                                    </MudTooltip>
+                                                }
+                                                @* ПРАВИЛА АРХИВАЦИИ (форма T-41-S0) — только у ТЕКУЩЕГО
+                                                   архива (T-202-S0): правила говорят, что пора уносить
+                                                   в архив, а перенос идёт только в текущий — у прочих
+                                                   архивов настраивать нечего. И только на дирижёре:
+                                                   правила у архива одни на весь кластер *@
+                                                @if (archive.IsCurrent && State.IsConductor)
+                                                {
+                                                    <MudTooltip Text="@L["arcrules.open"]">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.Rule"
+                                                                       Size="Size.Small" data-archive-rules="@archive.DisplayId"
+                                                                       OnClick="@(() => ArchiveRulesAsync(archive))" />
+                                                    </MudTooltip>
+                                                }
+                                                @* УДАЛИТЬ С ЭТОГО СЕРВЕРА: запись реестра остаётся —
+                                                   архив есть у соседей. Текущий не удаляется *@
+                                                @if (!archive.IsCurrent && archive.State != ArchiveStates.Deleted)
+                                                {
+                                                    <MudTooltip Text="@L["arc.delete"]">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                       Size="Size.Small" data-archive-delete="@archive.DisplayId"
+                                                                       Disabled="@(!State.CanAdmin)"
+                                                                       OnClick="@(() => DeleteArchiveAsync(archive))" />
+                                                    </MudTooltip>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            </MudTabPanel>
+        }
+
+        @* справочники, правила и действия принадлежат организации (T-148): пока её нет,
+           показывать нечего — вкладок тоже нет *@
+        @if (!State.NoOrg)
+        {
+        @* --- МОДЕЛИ (T-217): справочник ИИ-моделей (ТЗ п. 2.9) — СВОЯ вкладка. Справочник
+             дистрибутива вырос до трёх десятков записей и в общем списке справочников уже
+             не читался; здесь у него три представления: «таблица» (как было), «краткий»
+             (таблица без колонки навыков, T-238) и «навыки» --- *@
+        <MudTabPanel Text="@L["settings.tab.models"]">
+            <div class="pa-4" data-models-view="@ModelsView">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 1100px;">
+                    <MudText Typo="Typo.h6">@L["models.title"]</MudText>
+                    <MudSpacer />
+                    @* переключатель представления — «Вид: <выпадающий список>», как в списке
+                       задач (T-238): представлений стало три, и переключатель-полоса
+                       (MudToggleGroup) на узком экране занимал всю ширину шапки *@
+                    <MudSelect T="string" Value="@ModelsView" ValueChanged="OnModelsViewChanged"
+                               Label="@L["common.view"]" Dense="true" Margin="Margin.Dense"
+                               Style="max-width: 160px;">
+                        <MudSelectItem T="string" Value="@("table")">@L["models.view.table"]</MudSelectItem>
+                        @* «краткий» (T-238) — та же таблица без колонки навыков *@
+                        <MudSelectItem T="string" Value="@("brief")">@L["models.view.brief"]</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("skills")">@L["models.view.skills"]</MudSelectItem>
+                    </MudSelect>
+                    @* ВХОД В CLAUDE CLI (todo96): сеанс CLI протухает, и раньше войти заново
+                       можно было только в терминале компьютера сервера. Кнопка стоит рядом
+                       со справочником моделей — вход принадлежит транспорту "cli" профайла *@
+                    <MudTooltip Text="@L["claudeLogin.title"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Key" data-claude-login
+                                       OnClick="ClaudeLoginAsync" />
+                    </MudTooltip>
+                    @* кнопки «добавить» справочников — иконки с подсказками (гл. 11, эргономика) *@
+                    <MudTooltip Text="@L["models.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="@(() => EditModelAsync(null))" />
+                    </MudTooltip>
+                </MudStack>
+
+                @if (ModelsView == "skills")
+                {
+                    @* ПРЕДСТАВЛЕНИЕ «НАВЫКИ» (T-217): категория — навык из декларации
+                       возможностей, внутри модели по убыванию оценки этого навыка.
+                       При открытии вкладки все категории закрыты: их несколько десятков *@
+                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+                        <thead>
+                            <tr>
+                                <th>@L["models.name"]</th>
+                                <th>@L["models.score"]</th>
+                                <th>@L["models.placement"]</th>
+                                <th>@L["common.active"]</th>
+                                <th>@L["models.customShort"]</th>
+                                <th>@L["models.lora"]</th>
+                                @if (State.IsCluster)
+                                {
+                                    <th>@L["task.server"]</th>
+                                }
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var group in ModelSkillGroups.Build(State.Models))
+                            {
+                                var open = _openSkills.Contains(group.Skill);
+                                <tr class="ai2p-skill-cat" style="cursor: pointer;"
+                                    data-skill-cat="@group.Skill" data-skill-open="@(open ? "1" : "0")"
+                                    @onclick="@(() => ToggleSkill(group.Skill))">
+                                    <td colspan="@SkillViewColumns">
+                                        <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                                 Size="Size.Small" Style="vertical-align: middle;" />
+                                        <b>@SkillCategoryTitle(group.Skill)</b>
+                                        <MudText Typo="Typo.caption" Class="ml-2" Style="display: inline;">
+                                            @group.Models.Count
+                                        </MudText>
+                                    </td>
+                                </tr>
+                                @if (open)
+                                {
+                                    @foreach (var row in group.Models)
+                                    {
+                                        <tr data-skill-row="@group.Skill">
+                                            <td style="white-space: nowrap; padding-left: 32px;">@row.Model.Name</td>
+                                            <td>@row.Score</td>
+                                            <td>@PlacementCell(row.Model)</td>
+                                            <td>@ActiveCell(row.Model)</td>
+                                            <td>@CustomIcon(row.Model.IsCustom)</td>
+                                            <td>@LoraCell(row.Model)</td>
+                                            @if (State.IsCluster)
+                                            {
+                                                <td style="white-space: nowrap;">@ServerCell(row.Model)</td>
+                                            }
+                                            <td style="white-space: nowrap;">@ModelActions(row.Model)</td>
+                                        </tr>
+                                    }
+                                }
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+                else
+                {
+                    @* колонки: размещение (локальная / в облаке) и навыки — ТЗ v1.42, todo36_5;
+                       кнопка установки убрана в форму модели.
+                       «КРАТКИЙ» (T-238) — та же таблица БЕЗ колонки навыков: она самая
+                       широкая, и на телефоне из-за неё не видно ничего остального *@
+                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>@L["models.name"]</th>
+                                <th>@L["models.placement"]</th>
+                                <th>@L["common.active"]</th>
+                                <th>@L["models.customShort"]</th>
+                                @* «LoRA» — умеет ли модель работать с адаптером (T-13-S1).
+                                   Колонка узкая и есть в ОБОИХ видах, включая краткий:
+                                   на телефоне это одна галка, а вопрос «на чём вообще можно
+                                   обучить персонажа» задают раньше, чем смотрят навыки *@
+                                <th>@L["models.lora"]</th>
+                                @if (!ModelsBrief)
+                                {
+                                    <th>@L["models.skills"]</th>
+                                }
+                                @if (State.IsCluster)
+                                {
+                                    @* локальная часть справочника принадлежит серверу (ТЗ гл. 6,
+                                       этап 42): там она ставится и правится, здесь только видна *@
+                                    <th>@L["task.server"]</th>
+                                }
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var model in State.Models)
+                            {
+                                <tr>
+                                    <td>@model.DisplayId</td>
+                                    <td style="white-space: nowrap;">@model.Name</td>
+                                    <td>@PlacementCell(model)</td>
+                                    <td>@ActiveCell(model)</td>
+                                    <td>@CustomIcon(model.IsCustom)</td>
+                                    <td>@LoraCell(model)</td>
+                                    @* навыки «код - оценка» через запятую; не помещается —
+                                       переносится ТОЛЬКО после запятой (T-238): каждый навык
+                                       рисуется своим неразрывным куском (.ai2p-skill-chunk),
+                                       между кусками — обычный пробел, единственное место переноса *@
+                                    @if (!ModelsBrief)
+                                    {
+                                        <td data-models-skills="1"
+                                            style="white-space: normal; max-width: 460px;">
+                                            <MudText Typo="Typo.caption">
+                                                @foreach (var part in ModelSkillGroups.SkillsParts(model))
+                                                {
+                                                    <span class="ai2p-skill-chunk">@part</span>
+                                                    @(" ")
+                                                }
+                                            </MudText>
+                                        </td>
+                                    }
+                                    @if (State.IsCluster)
+                                    {
+                                        <td style="white-space: nowrap;">@ServerCell(model)</td>
+                                    }
+                                    <td style="white-space: nowrap;">@ModelActions(model)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["settings.tab.refs"]">
+            <div class="pa-4">
+                @* справочник skills (ТЗ пп. 7.3, v1.17): встроенные (переводятся) и кастомные *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 720px;">
+                    <MudText Typo="Typo.h6">@L["refs.skills.title"]</MudText>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["refs.skills.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="AddSkillAsync" />
+                    </MudTooltip>
+                </MudStack>
+                <MudSimpleTable Dense="true" Hover="true" Style="max-width: 720px;">
+                    <thead>
+                        <tr>
+                            <th>@L["refs.code"]</th>
+                            <th>@L["refs.description"]</th>
+                            <th>@L["models.customShort"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var skill in State.Skills)
+                        {
+                            <tr>
+                                <td>@skill.Name</td>
+                                <td>@(skill.IsCustom ? skill.Description : Localized("skill." + skill.Name, skill.Description))</td>
+                                <td>@CustomIcon(skill.IsCustom)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+
+                @* справочник io formats (ТЗ v1.17): форматы ввода-вывода для деклараций возможностей *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-8 mb-2" Style="max-width: 720px;">
+                    <MudText Typo="Typo.h6">@L["refs.ioformats.title"]</MudText>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["refs.ioformats.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="AddIoFormatAsync" />
+                    </MudTooltip>
+                </MudStack>
+                <MudSimpleTable Dense="true" Hover="true" Style="max-width: 720px;">
+                    <thead>
+                        <tr>
+                            <th>@L["refs.code"]</th>
+                            <th>@L["refs.description"]</th>
+                            <th>@L["models.customShort"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var format in State.IoFormats)
+                        {
+                            <tr>
+                                <td>@format.Name</td>
+                                <td>@(format.IsCustom ? format.Description : Localized("ioformat." + format.Name, format.Description))</td>
+                                <td>@CustomIcon(format.IsCustom)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+
+                @* справочник состояний задач (ТЗ v1.37, todo34_3): встроенные + кастомные,
+                   цвет надписи, активность, порядковый номер (доска и выпадающие списки) *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-8 mb-2" Style="max-width: 720px;">
+                    <MudText Typo="Typo.h6">@L["statuses.title"]</MudText>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["statuses.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="@(() => EditStatusAsync(null))" />
+                    </MudTooltip>
+                </MudStack>
+                <MudSimpleTable Dense="true" Hover="true" Style="max-width: 720px;">
+                    <thead>
+                        <tr>
+                            <th>@L["refs.code"]</th>
+                            <th>@L["statuses.name"]</th>
+                            <th>@L["statuses.color"]</th>
+                            <th>@L["statuses.order"]</th>
+                            <th>@L["models.customShort"]</th>
+                            <th>@L["common.active"]</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var status in _statuses)
+                        {
+                            <tr>
+                                <td>@status.Id</td>
+                                <td>@status.Name</td>
+                                <td><span class="ai2p-status" style="@($"background:{status.Color};color:{UiState.ContrastText(status.Color)};")">@status.Color</span></td>
+                                <td>@status.SortOrder</td>
+                                <td>@CustomIcon(status.IsCustom)</td>
+                                <td>
+                                    <MudIcon Icon="@(status.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                             Color="@(status.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                                </td>
+                                <td>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                   OnClick="@(() => EditStatusAsync(status))" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+
+                @* справочник импортов (ТЗ v1.28, todo30): откуда импортировать задачи *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-8 mb-2" Style="max-width: 720px;">
+                    <MudText Typo="Typo.h6">@L["imports.title"]</MudText>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["imports.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="@(() => EditImportSourceAsync(null))" />
+                    </MudTooltip>
+                </MudStack>
+                <MudSimpleTable Dense="true" Hover="true" Style="max-width: 720px;">
+                    <thead>
+                        <tr>
+                            <th>@L["imports.name"]</th>
+                            <th>@L["imports.kind"]</th>
+                            <th>@L["common.active"]</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var source in _importSources)
+                        {
+                            <tr>
+                                <td>@source.Name</td>
+                                <td>@source.Kind</td>
+                                <td>
+                                    <MudIcon Icon="@(source.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                             Color="@(source.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                                </td>
+                                <td>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                   OnClick="@(() => EditImportSourceAsync(source))" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                   OnClick="@(() => DeleteImportSourceAsync(source))" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+
+                @* --- ОБЩИЕ ПРАВИЛА АРХИВАЦИИ (T-41-S0, выпуск 1.105) --- Это ОБРАЗЕЦ:
+                     с него копируются правила каждого нового архива. Состав полей записи
+                     тот же, что у правил архива, поэтому и компонент один и тот же —
+                     здесь он в режиме «общие правила» (архив не задан) *@
+                <div class="mt-8" data-arcrules-common="1">
+                    <ArchiveRulesPanel CanEdit="@State.CanAdmin" />
+                </div>
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["settings.tab.security"]">
+            <div class="pa-4">
+                @* глобальные правила безопасности (ТЗ гл. 12, todo25) *@
+                <SecurityRulesPanel Scope="@(SecurityScope.Global)" />
+            </div>
+        </MudTabPanel>
+
+        @* --- ПЛАГИНЫ И MCP (T-114-S0). Вкладка стоит между «Справочниками» и «Действиями»
+             намеренно: плагин — это и справочник (запись организации, реплицируется), и
+             действия (каждый его инструмент заводит запись справочника действий, иначе
+             правило безопасности не закрывает инструмент вовсе, 2d3af8da).
+
+             СОСТОЯНИЕ В КОЛОНКЕ — СВОЁ У КАЖДОГО СЕРВЕРА: плагин, включённый в организации,
+             на компьютере без нужной программы остаётся невыполнимым, и это надо показывать
+             честно, а не молчать — иначе выйдет «модель есть, а задание не идёт» (cd91ad4e). *@
+        <MudTabPanel Text="@L["settings.tab.plugins"]">
+            <div class="pa-4" data-plugins-tab="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1" Style="max-width: 1100px;">
+                    <MudText Typo="Typo.h6">@L["plugins.title"]</MudText>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["plugins.check"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" data-plugins-refresh="1"
+                                       OnClick="LoadPluginsAsync" />
+                    </MudTooltip>
+                </MudStack>
+                <MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75; max-width: 900px;">
+                    @L["plugins.hint"]
+                </MudText>
+                @if (_plugins.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" data-plugins-empty="1"
+                              Style="max-width: 900px;">
+                        @L["plugins.empty"]
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+                        <thead>
+                            <tr>
+                                <th>@L["plugins.name"]</th>
+                                <th>@L["plugins.kind"]</th>
+                                <th>@L["plugins.state"]</th>
+                                <th>@L["plugins.softwareCol"]</th>
+                                <th>@L["plugins.actionsCol"]</th>
+                                <th>@L["plugins.expCol"]</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var plugin in _plugins)
+                            {
+                                <tr data-plugin-row="@plugin.Code" style="cursor: pointer;"
+                                    @onclick="@(() => OpenPluginAsync(plugin))">
+                                    <td>
+                                        @plugin.Name
+                                        <MudText Typo="Typo.caption" Style="opacity:.6;">@plugin.Code</MudText>
+                                    </td>
+                                    <td data-plugin-kind="@plugin.Kind">@L["plugin.kind." + plugin.Kind]</td>
+                                    <td data-plugin-state="@plugin.ShownState">
+                                        @L["plugin.state." + plugin.ShownState]
+                                    </td>
+                                    @* найденный софт и версия — либо честное «не найден здесь» *@
+                                    <td data-plugin-soft="@plugin.Software" style="word-break: break-all;">
+                                        @SoftwareText(plugin)
+                                    </td>
+                                    <td data-plugin-actions="@plugin.Actions">@plugin.Actions</td>
+                                    <td data-plugin-exp="@plugin.Experience">@plugin.Experience</td>
+                                    <td style="white-space: nowrap;" @onclick:stopPropagation="true">
+                                        <MudTooltip Text="@L["plugins.doc"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Info" Size="Size.Small"
+                                                           data-plugin-doc="@plugin.Code"
+                                                           OnClick="@(() => OpenPluginDocAsync(plugin))" />
+                                        </MudTooltip>
+                                        @if (State.CanAdmin)
+                                        {
+                                            @if (plugin.State == PluginStates.Disabled)
+                                            {
+                                                <MudTooltip Text="@L["plugins.enable"]">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.PlayCircle"
+                                                                   Color="Color.Success" Size="Size.Small"
+                                                                   data-plugin-enable="@plugin.Code"
+                                                                   OnClick="@(() => PluginRunAsync(plugin, "enable"))" />
+                                                </MudTooltip>
+                                            }
+                                            else if (plugin.HasManifest)
+                                            {
+                                                @* НЕ «сделать молча», а ОТКРЫТЬ ФОРМУ установки и
+                                                   настройки (T-136-S0): плагину сначала нужна
+                                                   программа — её либо показывают путём, либо
+                                                   ставят пакетом, и только потом инициализируют *@
+                                                <MudTooltip Text="@L["plugins.setup"]">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Bolt"
+                                                                   Color="Color.Primary" Size="Size.Small"
+                                                                   data-plugin-setup="@plugin.Code"
+                                                                   OnClick="@(() => OpenPluginSetupAsync(plugin))" />
+                                                </MudTooltip>
+                                            }
+                                            @if (plugin.State == PluginStates.Initialized)
+                                            {
+                                                <MudTooltip Text="@L["plugins.disable"]">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.PauseCircle"
+                                                                   Color="Color.Warning" Size="Size.Small"
+                                                                   data-plugin-disable="@plugin.Code"
+                                                                   OnClick="@(() => PluginRunAsync(plugin, "disable"))" />
+                                                </MudTooltip>
+                                            }
+                                            @if (plugin.Id.Length > 0 && plugin.HasManifest
+                                                 && plugin.State != PluginStates.Removed)
+                                            {
+                                                <MudTooltip Text="@L["plugins.remove"]">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                                   Color="Color.Error" Size="Size.Small"
+                                                                   data-plugin-remove="@plugin.Code"
+                                                                   OnClick="@(() => RemovePluginAsync(plugin))" />
+                                                </MudTooltip>
+                                            }
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["settings.tab.actions"]">
+            <div class="pa-4">
+                @* справочник действий агентов (ТЗ v1.21, todo24): иерархические коды, промпты;
+                   тексты — в языке приложения (en/ru) *@
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 900px;">
+                    <MudText Typo="Typo.h6">@L["actions.title"]</MudText>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["actions.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       OnClick="@(() => EditActionAsync(null))" />
+                    </MudTooltip>
+                </MudStack>
+                <MudSimpleTable Dense="true" Hover="true" Style="max-width: 900px;">
+                    <thead>
+                        <tr>
+                            <th>@L["actions.code"]</th>
+                            <th>@L["actions.titleField"]</th>
+                            <th>@L["actions.tool"]</th>
+                            <th>@L["models.customShort"]</th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var action in _actions)
+                        {
+                            <tr style="cursor: pointer;" @onclick="@(() => EditActionAsync(action))">
+                                @* иерархия кода — отступом по уровню (точки), как классы *@
+                                <td style="@($"padding-left: {8 + Depth(action.Code) * 22}px; white-space: nowrap;")">
+                                    @action.Code
+                                </td>
+                                <td>@action.Title</td>
+                                <td>@action.ToolName</td>
+                                <td>@CustomIcon(action.IsCustom)</td>
+                                <td>
+                                    @if (action.PromptModified)
+                                    {
+                                        @* промпт исправлен пользователем (todo24) *@
+                                        <MudTooltip Text="@L["actions.modified"]">
+                                            <MudIcon Icon="@Icons.Material.Filled.EditNote"
+                                                     Color="Color.Warning" Size="Size.Small" />
+                                        </MudTooltip>
+                                    }
+                                </td>
+                                <td>
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                   OnClick="@(() => EditActionAsync(action))" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            </div>
+        </MudTabPanel>
+
+        @* --- ОБЩИЙ ОПЫТ (T-11-S0): правила работы, годные для ЛЮБОГО проекта, — их
+             получает каждая задача организации, как опыт проекта получает каждая его задача.
+             Правила принадлежат организации и реплицируются; часть из них засеивается при
+             её заведении, дальше список ведёт человек (и агент — по правилам безопасности) --- *@
+        <MudTabPanel Text="@L["settings.tab.experience"]">
+            <div class="pa-4" data-general-exp="1">
+                <MudText Typo="Typo.h6" Class="mb-1">@L["exp.general.title"]</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75; max-width: 720px;">
+                    @L["exp.general.hint"]
+                </MudText>
+                <div style="max-width: 1100px;">
+                    <ExperienceTab General="true" CanEdit="@State.CanEdit" />
+                </div>
+            </div>
+        </MudTabPanel>
+
+        @* --- УВЕДОМЛЕНИЯ (T-272): список правил организации плюс почтовый сервер,
+             которым они уходят. Почта — настройка ЭТОГО компьютера (config.json), а правила
+             принадлежат организации и реплицируются: поэтому на одной вкладке они лежат
+             рядом, но сохраняются разными кнопками --- *@
+        <MudTabPanel Text="@L["settings.tab.notifications"]">
+            <div class="pa-4">
+                <NotificationsView />
+                <MudDivider Class="my-4" Style="max-width: 1100px;" />
+                <MudText Typo="Typo.h6" Class="mb-2" data-mail-title="1">@L["mail.title"]</MudText>
+                <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity: .75; max-width: 640px;">
+                    @L["mail.hint"]
+                </MudText>
+                <MudStack Spacing="3" Style="max-width: 480px;">
+                    <MudTextField @bind-Value="_settings.Mail.Host" Label="@L["mail.host"]"
+                                  data-mail-host="1" />
+                    <MudStack Row="true" Spacing="2">
+                        <MudNumericField T="int" @bind-Value="_settings.Mail.Port" Min="1" Max="65535"
+                                         Label="@L["mail.port"]" data-mail-port="1"
+                                         Style="max-width: 160px;" />
+                        <MudSwitch T="bool" @bind-Value="_settings.Mail.UseSsl" Label="@L["mail.ssl"]"
+                                   Color="Color.Primary" data-mail-ssl="1" />
+                    </MudStack>
+                    <MudTextField @bind-Value="_settings.Mail.User" Label="@L["mail.user"]"
+                                  data-mail-user="1" />
+                    @* пароль в config.json не попадает: он уходит в хранилище секретов.
+                       Пустое поле означает «не менять» — иначе каждое сохранение настроек
+                       стирало бы пароль (T-272) *@
+                    <MudTextField @bind-Value="_mailPassword" Label="@L["mail.password"]"
+                                  InputType="InputType.Password" data-mail-password="1"
+                                  HelperText="@MailPasswordHint" />
+                    <MudTextField @bind-Value="_settings.Mail.From" Label="@L["mail.from"]"
+                                  data-mail-from="1" />
+                    <MudTextField @bind-Value="_settings.Mail.FromName" Label="@L["mail.fromName"]"
+                                  data-mail-fromname="1" />
+                    <MudStack Row="true" Spacing="2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   OnClick="@(async () => await SaveAsync())">
+                            @L["common.save"]
+                        </MudButton>
+                        @* пробное письмо — единственный способ проверить настройки, не
+                           дожидаясь подходящего события (T-272) *@
+                        <MudButton Variant="Variant.Outlined" OnClick="MailTestAsync"
+                                   data-mail-test="1">
+                            @L["mail.test"]
+                        </MudButton>
+                    </MudStack>
+                </MudStack>
+            </div>
+        </MudTabPanel>
+        }
+    </MudTabs>
+}
+
+@code {
+    private MudMessageBox _modelDeleteBox = default!;
+    private MudMessageBox _accountDeleteBox = default!;
+    /// <summary>Переспрос перед передачей задач выбывшего сервера дирижёру (ТЗ гл. 6, этап 42).</summary>
+    private MudMessageBox _takeoverBox = default!;
+    private MudMessageBox _serverDeleteBox = default!;
+    /// <summary>Переспрос снятия плагина (T-114-S0).</summary>
+    private MudMessageBox _pluginRemoveBox = default!;
+    private SettingsDto? _settings;
+
+    /// <summary>
+    /// РЕЖИМ РЕДАКТИРОВАНИЯ вкладки «основное» (T-123-S0) — та же логика, что у формы
+    /// «Проект → Основное»: открывается в режиме чтения, карандаш включает правку,
+    /// рядом с «сохранить» стоит «отменить».
+    /// </summary>
+    private bool _editingMain;
+
+    /// <summary>
+    /// Значения полей вкладки «основное» на момент входа в режим редактирования — их
+    /// возвращает «отменить». Перечитывать настройки с сервера для этого нельзя:
+    /// объект <c>_settings</c> один на все вкладки, и его замена стёрла бы несохранённое,
+    /// набранное на вкладке почты.
+    /// </summary>
+    private (string Language, bool OpenBrowser, string TabTitle, string ScheduleCell,
+        string LogLevel, int MaxWidth, int MaxHeight, int MaxKb, string Format, string PadColor)? _mainBackup;
+
+    private List<ActionDto> _actions = [];
+    private List<ImportSource> _importSources = [];
+    private List<TaskStatusDef> _statuses = [];
+    // состояния установки локальных моделей по id модели (ТЗ v1.40, todo36_3)
+    private Dictionary<string, ModelInstallStatusDto> _installs = [];
+    // аккаунты пользователей (ТЗ п. 2.14, этап 39)
+    private List<Account> _accounts = [];
+    // организации и их серверы (ТЗ п. 2.15, этапы 40–41)
+    private List<Organization> _orgs = [];
+    private Dictionary<string, List<OrgServer>> _orgServers = [];
+    // серверы кластера, заявки на подключение и запись о локальном сервере (гл. 6, этап 41)
+    private List<ServerNode> _servers = [];
+    private List<OrgServer> _requests = [];
+    private ServerSettingsDto? _localServer;
+
+    /// <summary>
+    /// ОТБОР ЗАЯВОК (T-293): «показать все заявки». Выключен — в списке только серверы и то,
+    /// что ждёт решения человека; включён — вся история заявок обоих видов: решённые и снятые
+    /// заявки на смену дирижёра и отклонённые заявки на подключение серверов к кластеру.
+    ///
+    /// Живёт в компоненте и при открытии вкладки всегда выключен: это отбор на один разговор,
+    /// а не настройка. Сохранённое состояние вернуло бы человеку список с историей, которую
+    /// он смотрел неделю назад, и он снова решал бы, что заявки «висят».
+    /// </summary>
+    private bool _allRequests;
+
+    /// <summary>Переключить отбор и перечитать списки: решённые заявки лежат в базе, а не
+    /// отбрасываются на экране, — их надо ещё и спросить (иначе флажок ничего не покажет).</summary>
+    private async Task ShowAllRequestsAsync(bool value)
+    {
+        _allRequests = value;
+        await LoadServersAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await Api.GetSettingsAsync();
+        // СЕРВЕР ЕЩЁ НЕ ПОДКЛЮЧЁН К ОРГАНИЗАЦИИ (T-148): справочники, действия, импорт,
+        // состояния и пользователи лежат в её базе — спрашивать их нечем. Остаются
+        // настройки приложения и список серверов, ради которого сюда и приходят
+        if (!State.NoOrg)
+        {
+            // представление справочника моделей (T-217) — переживает перезапуск; категории
+            // навыков при этом ВСЕГДА начинают закрытыми, они в состоянии не хранятся
+            _modelsView = State.ComponentState<ModelsViewState>("modelsView");
+            await LoadActionsAsync();
+            await LoadPluginsAsync();
+            await LoadImportSourcesAsync();
+            await LoadStatusesAsync();
+            await LoadInstallsAsync();
+            await LoadAccountsAsync();
+            await LoadOrgsAsync();
+        }
+        await LoadServersAsync();
+        if (State.CanManageServers)
+        {
+            // колонка «статус репликации» живая: обратный отсчёт, прогресс-бар и процент
+            // должны двигаться сами, пока вкладка открыта (todo43)
+            StartReplPolling();
+        }
+    }
+
+    public void Dispose()
+    {
+        _replTimer?.Dispose();
+        _replTimer = null;
+    }
+
+    // --- серверы кластера (ТЗ гл. 6, этап 41) ---
+
+    /// <summary>Код локального сервера в ТЕКУЩЕЙ организации: S0, S1, … (только чтение).</summary>
+    private string LocalCode => _localServer?.Code ?? "";
+
+    /// <summary>
+    /// Передать дирижёру задачи сервера, выведенного из кластера (ТЗ гл. 6, этап 42).
+    /// Автоматически ничего не переносится: решение принимает человек — переданные задачи
+    /// снова становятся редактируемыми, но уже здесь.
+    /// </summary>
+    private async Task TakeOverAsync(ServerNode server)
+    {
+        if (await _takeoverBox.ShowAsync() is not true)
+        {
+            return;
+        }
+        try
+        {
+            var result = await Api.TakeOverServerTasksAsync(server.Id);
+            Snackbar.Add($"{L["servers.takeover.done"]}: {result.Tasks}", Severity.Success);
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// УДАЛИТЬ СЕРВЕР ИЗ СПИСКА (T-141). Разрешено, только пока с ним не было ни одной
+    /// репликации: запись вычёркивается начисто вместе со связями, и выданный ей код
+    /// (S1) освобождается — иначе повторная попытка подключения завела бы второй такой же
+    /// сервер с новым кодом, а неудачная запись висела бы в списке навсегда.
+    /// </summary>
+    private async Task DeleteServerAsync(ServerNode server)
+    {
+        if (await _serverDeleteBox.ShowAsync() is not true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteServerAsync(server.Id);
+            Snackbar.Add(L["servers.delete.done"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await LoadServersAsync();
+        await LoadOrgsAsync();
+    }
+
+    private async Task LoadServersAsync()
+    {
+        try
+        {
+            _localServer = await Api.GetLocalServerAsync();
+            if (State.CanManageServers)
+            {
+                _servers = await Api.GetServersAsync();
+                _requests = await Api.GetServerRequestsAsync(_allRequests);
+                _replication = await Api.GetReplicationAsync();
+                // заявки на смену дирижёра (T-21-S1) живут в БД ОРГАНИЗАЦИИ: без неё
+                // спрашивать их не у кого — на сервере, ждущем решения по своей заявке
+                // на подключение, организации нет вовсе
+                _conductorRequests = State.NoOrg
+                    ? []
+                    : await Api.GetConductorRequestsAsync(_allRequests);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // --- смена дирижёра (T-21-S1) ---
+
+    /// <summary>Заявки на смену дирижёра текущей организации: показываются внизу списка
+    /// серверов такой же строкой, как заявки на подключение (todo41 п. 8).</summary>
+    private List<ConductorRequestDto> _conductorRequests = [];
+
+    /// <summary>Открыть заявку на смену дирижёра: решение принимает вторая сторона, подавший
+    /// вправе её снять, а по истечении 12 часов у заявки назначаемого сервера появляется
+    /// одностороннее принятие (ТЗ гл. 6).</summary>
+    private async Task ShowConductorAsync(ConductorRequestDto request)
+    {
+        var parameters = new DialogParameters<ConductorRequestDialog>
+        {
+            { d => d.TargetId, request.TargetServerId },
+            { d => d.TargetName, request.TargetServerName },
+            { d => d.TargetCode, request.TargetServerCode },
+            { d => d.FromDescription, (request.FromServerCode + " " + request.FromServerName).Trim() },
+            { d => d.OrgName, State.Org.Name },
+            { d => d.Request, request },
+        };
+        var result = await Dialogs.ShowAsync<ConductorRequestDialog>(L["conductor.title"],
+            parameters, FormDialogs.Options(MaxWidth.Small));
+        if (await result.Result is { Canceled: false })
+        {
+            await LoadServersAsync();
+        }
+    }
+
+    // --- репликация (ТЗ гл. 6, этап 43; todo43) ---
+
+    private List<ReplicationStatusDto> _replication = [];
+    private Timer? _replTimer;
+
+    /// <summary>
+    /// Состояние репликации записи списка. Реплицируются все ТОЛЬКО с дирижёром, поэтому:
+    /// у самого дирижёра ни поля, ни кнопки нет (пары с самим собой не бывает); если мы
+    /// на дирижёре — видны все серверы, если нет — только текущий (todo43).
+    /// </summary>
+    private ReplicationStatusDto? Replication(ServerNode server) =>
+        _replication.FirstOrDefault(r => r.ServerId == server.Id && r.OrgId == State.Org.Id)
+        ?? _replication.FirstOrDefault(r => r.ServerId == server.Id);
+
+    /// <summary>
+    /// «Ручная» — интервал не задан; иначе сколько осталось до следующего сеанса.
+    ///
+    /// СТРОКА НЕ ВРЁТ ПРО ОШИБКУ (T-50-S0). Раньше она показывала только состояние ПАРЫ,
+    /// и пока в записи сервера висела жалоба на связь («Нет связи с сервером …»), человек
+    /// видел в списке бодрое «скоро», а ошибку — лишь открыв форму. Теперь строка знает
+    /// обе беды: и «звонить некуда» (сервер назвался петлевым адресом — сеансы начинает
+    /// он сам), и последнюю ошибку связи из записи сервера.
+    /// </summary>
+    private string ReplText(ReplicationStatusDto repl, ServerNode server)
+    {
+        if (repl.CannotCall.Length > 0)
+        {
+            return L["repl.cannotCall"];
+        }
+        if (repl.Status == ReplicationStatuses.Error || server.LastError.Length > 0)
+        {
+            return L["repl.error"] + (repl.SecondsLeft is { } wait ? $" · {Countdown(wait)}" : "");
+        }
+        if (repl.IntervalSec is null)
+        {
+            return L["repl.manual"];
+        }
+        return repl.SecondsLeft is { } left ? Countdown(left) : L["repl.soon"];
+    }
+
+    private Color ReplColor(ReplicationStatusDto repl, ServerNode server)
+    {
+        if (repl.CannotCall.Length > 0)
+        {
+            return Color.Warning;
+        }
+        if (repl.Status == ReplicationStatuses.Error || server.LastError.Length > 0)
+        {
+            return Color.Error;
+        }
+        return repl.IntervalSec is null ? Color.Default : Color.Success;
+    }
+
+    // отсчёт до следующего сеанса; единицы — из словарей (T-180)
+    private static string Countdown(int seconds) => AI2P.Core.Units.Seconds(seconds);
+
+    /// <summary>Подсказка колонки: подробности ошибки, конфликты и время прошлого сеанса.</summary>
+    private string ReplHint(ReplicationStatusDto repl, ServerNode server)
+    {
+        var lines = new List<string> { $"{repl.OrgName} ({repl.OrgCode}) ↔ {repl.ServerCode}" };
+        if (repl.Status == ReplicationStatuses.Running)
+        {
+            lines.Add(L["repl.phase." + (repl.Phase.Length > 0 ? repl.Phase : "pull")]);
+        }
+        // почему звонить некуда и что было в прошлый раз — обе причины словами (T-50-S0)
+        if (repl.CannotCall.Length > 0)
+        {
+            lines.Add(repl.CannotCall);
+        }
+        if (server.LastError.Length > 0)
+        {
+            lines.Add(server.LastError);
+        }
+        if (repl.LastError.Length > 0 && repl.LastError != server.LastError)
+        {
+            lines.Add(repl.LastError);
+        }
+        if (repl.LastOkAt is { } ok)
+        {
+            lines.Add($"{L["repl.lastOk"]}: {ok.ToLocalTime():g}");
+        }
+        if (repl.Conflicts > 0)
+        {
+            lines.Add($"{L["repl.conflicts"]}: {repl.Conflicts}");
+        }
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>Ручной пуск: сеанс идёт в фоне, состояние подтягивается опросом (todo43).</summary>
+    private async Task ReplicateAsync(ServerNode server)
+    {
+        try
+        {
+            _replication = await Api.ReplicateAsync(server.Id);
+            Snackbar.Add(L["repl.started"], Severity.Info);
+            StartReplPolling();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Пока сеанс идёт, состояние перечитывается раз в секунду: прогресс-бар, процент
+    /// и обратный отсчёт должны двигаться сами.
+    ///
+    /// Раз в пять тиков перечитываются и САМИ СПИСКИ — серверы и заявки (T-141). Заявка
+    /// приходит от другого сервера в любой момент, а список читался только при открытии
+    /// вкладки: пришедшая заявка появлялась в нём лишь после закрытия и повторного открытия
+    /// настроек. Отложенная модальным окном — тем более: решение принято в другом
+    /// компоненте, и этот о нём не знал.
+    /// </summary>
+    private void StartReplPolling()
+    {
+        var tick = 0;
+        _replTimer ??= new Timer(async _ =>
+        {
+            try
+            {
+                _replication = await Api.GetReplicationAsync();
+                if (++tick % 5 == 0)
+                {
+                    _servers = await Api.GetServersAsync();
+                    // отбор заявок (T-293) действует и в опросе: иначе решённые заявки,
+                    // которые человек только что убрал флажком, вернулись бы через пять тиков
+                    _requests = await Api.GetServerRequestsAsync(_allRequests);
+                    // ЗАЯВКА НА СМЕНУ ДИРИЖЁРА ТОЖЕ ПРИХОДИТ ИЗВНЕ (T-290). Её подают на
+                    // другом сервере, и сюда она приезжает обычной репликацией — но опрос
+                    // обновлял только серверы и заявки на подключение, а этот список читался
+                    // лишь при открытии вкладки. На дирижёре заявка, поданная рядовым
+                    // сервером, не показывалась до закрытия и повторного открытия настроек:
+                    // со стороны это выглядит как «репликация её не привезла». Та же болезнь
+                    // и то же лечение, что у заявок на подключение в T-141
+                    if (!State.NoOrg)
+                    {
+                        _conductorRequests = await Api.GetConductorRequestsAsync(_allRequests);
+                    }
+                    // УЧАСТИЕ ПРИЕХАЛО РЕПЛИКАЦИЕЙ (T-148): пока сервер подключался, интерфейс
+                    // был урезан — как только человек стал участником организации, он должен
+                    // оказаться в ней целиком, а не сидеть в экране ожидания. Проверяем это
+                    // здесь же: репликацию из него и запускают
+                    if (State.NoOrg && await MyOrgAsync() is { } mine)
+                    {
+                        // адрес относительный (T-199-S0): остаёмся на том имени сервера,
+                        // по которому человек сюда пришёл, а не уезжаем на внешнее
+                        Nav.NavigateTo(State.OrgUrlOf(mine), forceLoad: true);
+                        return;
+                    }
+                }
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (ApiException)
+            {
+                // связь с собственным API пропала — покажем при следующем тике
+            }
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>Код организации, участником которой вошедший УЖЕ стал (T-148); null — ещё нет.
+    /// Спрашивается на сервере, который подключается: участие приезжает репликацией.</summary>
+    private async Task<string?> MyOrgAsync()
+    {
+        try
+        {
+            return (await Api.GetOrgsAsync()).FirstOrDefault(o => o.IsMember)?.Code;
+        }
+        catch (ApiException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Конфликты файлов пары (todo44): пары версий и четыре решения.</summary>
+    private async Task ShowConflictsAsync(ServerNode server)
+    {
+        var parameters = new DialogParameters<FileConflictsDialog> { { d => d.ServerId, server.Id } };
+        var dialog = await Dialogs.ShowAsync<FileConflictsDialog>(L["repl.conflicts.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        await dialog.Result;
+        await LoadServersAsync();
+    }
+
+    /// <summary>Экран диагностики репликации (ТЗ гл. 6): курсоры, отставание, конфликты.</summary>
+    private async Task ShowReplicationAsync(ServerNode server)
+    {
+        var parameters = new DialogParameters<ReplicationDialog>
+        {
+            { d => d.ServerId, server.Id },
+            { d => d.ServerName, server.Name.Length > 0 ? server.Name : server.Hostname },
+        };
+        var dialog = await Dialogs.ShowAsync<ReplicationDialog>(L["repl.diagnostics"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        await LoadServersAsync();
+    }
+
+    /// <summary>Код сервера в текущей организации; сервер с ней не связан — прочерк.</summary>
+    private string CodeOf(ServerNode server) =>
+        server.Orgs.FirstOrDefault(l => l.OrgId == State.Org.Id && l.Status == OrgServerStatus.Active)
+            ?.Code ?? "—";
+
+    private bool IsConductor(ServerNode server) =>
+        server.Orgs.Any(l => l.IsConductor && l.Status == OrgServerStatus.Active);
+
+    /// <summary>Цвет строки заявки (T-293): ждёт решения — предупреждение, решённая — обычный
+    /// текст. Показанная по флажку история не должна кричать так же, как несделанное дело.</summary>
+    private static Color RowColor(bool open) => open ? Color.Warning : Color.Default;
+
+    /// <summary>Организации сервера строкой «код организации: код сервера» (связь п. 11).</summary>
+    private static string OrgsText(ServerNode server) =>
+        string.Join(", ", server.Orgs
+            .Where(l => l.Status == OrgServerStatus.Active)
+            .Select(l => $"{l.OrgCode}: {l.Code}{(l.IsConductor ? " ★" : "")}"));
+
+    /// <summary>
+    /// Форма сервера: у локального — свои настройки из config.json (адрес, каталоги, пароль
+    /// администратора сервера), у остальных — только адрес, активность и список организаций.
+    /// </summary>
+    private async Task EditServerAsync(ServerNode? server)
+    {
+        if (server is { IsLocal: true })
+        {
+            var local = await Dialogs.ShowAsync<LocalServerDialog>(L["servers.local.title"],
+                new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+            await local.Result;
+            await LoadServersAsync();
+            return;
+        }
+        var parameters = new DialogParameters<ServerDialog>
+        {
+            { d => d.Source, server },
+            { d => d.Orgs, _orgs },
+            // интервалы репликации чужого сервера задаёт дирижёр (ТЗ гл. 6, этап 43)
+            { d => d.IsLocalConductor, State.IsConductor },
+            // времена пары лежат в записи её рядового конца — на рядовом сервере это мы сами
+            // (T-50-S0), поэтому форме нужна и наша запись
+            { d => d.Local, _servers.FirstOrDefault(s => s.IsLocal) },
+        };
+        var dialog = await Dialogs.ShowAsync<ServerDialog>(
+            server is null ? L["servers.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: ServerSaveDto dto })
+        {
+            try
+            {
+                if (server is null)
+                {
+                    await Api.CreateServerAsync(dto);
+                }
+                else
+                {
+                    await Api.UpdateServerAsync(server.Id, dto);
+                }
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+        await LoadServersAsync();
+        await LoadOrgsAsync();
+    }
+
+    /// <summary>
+    /// Решение по заявке на подключение (todo41 пп. 9–10): ПРИНЯТЬ — сервер получает код
+    /// в организации; ОТЛОЖИТЬ — запись остаётся в списке; ОТКЛОНИТЬ — запись исчезает,
+    /// а событие в журнале остаётся.
+    /// </summary>
+    private async Task DecideRequestAsync(OrgServer request)
+    {
+        var decision = await ServerRequests.DecideAsync(Dialogs, Api, Snackbar, L, request);
+        if (decision.Length > 0)
+        {
+            await LoadServersAsync();
+            await LoadOrgsAsync();
+        }
+    }
+
+    // --- организации (ТЗ п. 2.15, этап 40) ---
+    private async Task LoadOrgsAsync()
+    {
+        // условие то же, что у вкладки (T-201-S0): хозяин компьютера, а не владелец
+        // открытой сейчас организации
+        if (!State.CanManageOrgs)
+        {
+            return;
+        }
+        try
+        {
+            _orgs = await Api.GetOrgsAsync();
+            // переключатель организаций в тулбаре держит свой список, полученный при старте
+            // (T-148-S0): без этого только что созданная организация не появлялась в форме
+            // смены до перезагрузки страницы
+            State.SetOrgs(_orgs);
+            _orgServers = [];
+            foreach (var org in _orgs)
+            {
+                _orgServers[org.Id] = await Api.GetOrgServersAsync(org.Id);
+            }
+            // архивы — дочерний список записи ОТКРЫТОЙ организации (T-43-S0)
+            await LoadArchivesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // --- АРХИВЫ ОРГАНИЗАЦИИ (T-43-S0, выпуск 1.105) ---
+    // Дочерний список записи организации. Реестр архивов общий на кластер, а состояние
+    // (открыт / закрыт / удалён) у каждого сервера своё, поэтому список приходит с состоянием
+    // ЭТОГО сервера, и открыть / закрыть / удалить действуют тоже только здесь.
+
+    private List<Archive> _archives = [];
+
+    /// <summary>Это ОТКРЫТАЯ сейчас организация: архивы читаются в её контексте, у чужих
+    /// организаций спросить их этому серверу нечем.</summary>
+    private bool IsCurrentOrg(Organization org) => org.Id == State.Org.Id;
+
+    /// <summary>Состояние архива для колонки «активен»: текущий — свойство самого архива
+    /// (одно на кластер), остальные три — его состояние на этом сервере.</summary>
+    private static string ArchiveStateCode(Archive archive) =>
+        archive.IsCurrent ? "current" : archive.State;
+
+    /// <summary>На каких серверах архив есть — коды серверов организации.</summary>
+    private string ArchiveServersText(Archive archive) =>
+        string.Join(", ", archive.Servers.Select(id =>
+        {
+            var code = State.ServerCodeOf(id);
+            return (code.Length > 0 ? code : id) + (id == State.ServerId ? " ✓" : "");
+        }));
+
+    private async Task LoadArchivesAsync()
+    {
+        if (!State.CanAdmin || State.NoOrg)
+        {
+            return;
+        }
+        try
+        {
+            _archives = await Api.GetArchivesAsync();
+            // ПОЛЕ «СРЕДА» В ТУЛБАРЕ (T-200-S0): у него свой список открытых архивов,
+            // и читался он только при входе. Отдаём ему уже прочитанный список —
+            // добавленный архив появляется сразу, закрытый сразу исчезает
+            await State.ApplyArchivesAsync(_archives);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Добавить архив: форма спрашивает имя, код и источник правил, а до того
+    /// проверяет правила прежнего текущего архива (T-41-S0).</summary>
+    private async Task AddArchiveAsync()
+    {
+        var parameters = new DialogParameters<ArchiveCreateDialog>
+        {
+            { d => d.Previous, _archives.FirstOrDefault(a => a.IsCurrent) },
+        };
+        var dialog = await Dialogs.ShowAsync<ArchiveCreateDialog>(L["arc.add"], parameters,
+            FormDialogs.Options(MaxWidth.Small));
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ArchiveCreateDialog.Result created })
+        {
+            return;
+        }
+        try
+        {
+            await Api.CreateArchiveAsync(created.Code, created.Name, created.RulesMode);
+            await LoadArchivesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task OpenArchiveAsync(Archive archive) =>
+        await ArchiveActionAsync(() => Api.OpenArchiveAsync(archive.Id));
+
+    private async Task CloseArchiveAsync(Archive archive) =>
+        await ArchiveActionAsync(() => Api.CloseArchiveAsync(archive.Id));
+
+    /// <summary>Удаление снимает архив С ЭТОГО СЕРВЕРА — запись реестра остаётся, поэтому
+    /// спрашиваем прямо об этом.</summary>
+    private async Task DeleteArchiveAsync(Archive archive)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["arc.delete"],
+            L["arc.delete.ask", archive.DisplayId, archive.Name],
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed == true)
+        {
+            await ArchiveActionAsync(() => Api.DeleteArchiveAsync(archive.Id));
+        }
+    }
+
+    /// <summary>Скачать архив с другого сервера — окно выбора источника (передача T-47-S0).</summary>
+    private async Task DownloadArchiveAsync(Archive archive)
+    {
+        var parameters = new DialogParameters<ArchiveDownloadDialog> { { d => d.Archive, archive } };
+        var dialog = await Dialogs.ShowAsync<ArchiveDownloadDialog>(L["arc.get"], parameters,
+            FormDialogs.Options(MaxWidth.ExtraSmall));
+        await dialog.Result;
+        await LoadArchivesAsync();
+    }
+
+    /// <summary>Правила архивации архива — та же форма, что у общих правил организации.</summary>
+    private async Task ArchiveRulesAsync(Archive archive)
+    {
+        var parameters = new DialogParameters<ArchiveRulesDialog>
+        {
+            { d => d.ArchiveId, archive.Id },
+            { d => d.CanEdit, State.CanAdmin && State.IsConductor },
+        };
+        var dialog = await Dialogs.ShowAsync<ArchiveRulesDialog>(
+            L["arcrules.title"] + " — " + archive.Name, parameters,
+            FormDialogs.Options(MaxWidth.Large));
+        await dialog.Result;
+    }
+
+    private async Task ArchiveActionAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await LoadArchivesAsync();
+    }
+
+    /// <summary>Серверы организации: код и признак дирижёра (ТЗ гл. 6); заявки на подключение
+    /// показываются их состоянием, а не кодом — код выдаётся только при подтверждении.</summary>
+    private string OrgServersText(Organization org) =>
+        _orgServers.TryGetValue(org.Id, out var servers)
+            ? string.Join(", ", servers.Select(s => OrgServerStatus.IsRequest(s.Status)
+                ? L["servers.status." + s.Status]
+                : s.Code + (s.IsConductor ? " ★" : "")))
+            : "";
+
+    /// <summary>
+    /// УДАЛИТЬ ОРГАНИЗАЦИЮ С ЭТОГО СЕРВЕРА (T-148-S0). Переспрос называет ровно то, что
+    /// исчезнет: номер, название и ИМЯ КАТАЛОГА на диске — оно не обязано совпадать с номером
+    /// (ORG-1-2), а удаляется именно каталог. Удаление местное: на других серверах
+    /// организация остаётся, и там её удаляют своей такой же кнопкой.
+    /// </summary>
+    private async Task DeleteOrgAsync(Organization org)
+    {
+        var dir = org.DirName.Length > 0 ? org.DirName : org.DisplayId;
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["orgs.delete"],
+            L["orgs.delete.confirm", org.Name, org.DisplayId, dir],
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteOrgAsync(org.Id);
+            Snackbar.Add(L["orgs.deleted", org.Name], Severity.Normal);
+            await LoadOrgsAsync();
+            await LoadServersAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// ВСТУПИТЬ В ОРГАНИЗАЦИЮ ЭТОГО КОМПЬЮТЕРА (T-186-S0). Организация, приехавшая сюда
+    /// репликацией, участников здесь не заводит: исполнителя заявителя заводит дирижёр,
+    /// а при включении сервера галочкой в его форме заявителя нет вовсе. Поэтому хозяин
+    /// компьютера видел организацию в этой таблице, но не мог ни открыть её, ни выбрать
+    /// в переключателе. Вступление заводит его исполнителем-администратором.
+    /// </summary>
+    private async Task JoinOrgAsync(Organization org)
+    {
+        try
+        {
+            await Api.JoinOrgAsync(org.Id);
+            Snackbar.Add(L["orgs.joined", org.Name], Severity.Normal);
+            await LoadOrgsAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task EditOrgAsync(Organization? org)
+    {
+        var parameters = new DialogParameters<OrgDialog>
+        {
+            { d => d.Source, org },
+            { d => d.Servers, _servers },
+            { d => d.Links, org is not null && _orgServers.TryGetValue(org.Id, out var links)
+                ? links : [] },
+        };
+        var dialog = await Dialogs.ShowAsync<OrgDialog>(
+            org is null ? L["orgs.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: OrgDialog.Result saved })
+        {
+            try
+            {
+                if (org is null)
+                {
+                    await Api.CreateOrgAsync(saved.Org);
+                }
+                else
+                {
+                    await Api.UpdateOrgAsync(org.Id, saved.Org);
+                    // список серверов организации — та же связь, что в форме сервера (п. 11)
+                    await Api.SaveOrgServersAsync(org.Id, saved.Servers);
+                }
+                await LoadOrgsAsync();
+                await LoadServersAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    // --- пользователи системы (ТЗ п. 2.14, этап 39) ---
+    private async Task LoadAccountsAsync()
+    {
+        if (!State.CanManageAccounts)
+        {
+            return;
+        }
+        try
+        {
+            _accounts = await Api.GetAccountsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task EditAccountAsync(Account? account)
+    {
+        var parameters = new DialogParameters<AccountEditDialog>
+        {
+            { d => d.Source, account },
+            { d => d.TakenEmails, _accounts.Select(a => a.Email).ToList() },
+        };
+        var dialog = await Dialogs.ShowAsync<AccountEditDialog>(
+            account is null ? L["users.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: AccountSaveDto dto })
+        {
+            try
+            {
+                if (account is null)
+                {
+                    await Api.CreateAccountAsync(dto);
+                }
+                else
+                {
+                    await Api.UpdateAccountAsync(account.Id, dto);
+                }
+                await LoadAccountsAsync();
+                // список исполнителей меняется вместе с аккаунтами (новому заводится исполнитель)
+                await State.RefreshReferenceDataAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Пользователя можно удалить (T-140): он НЕАКТИВЕН, он не владелец системы и он не вы сами.
+    /// Роль здесь — роль в ТЕКУЩЕЙ организации; окончательное решение всё равно за сервером,
+    /// он смотрит все организации сразу и на отказ отвечает понятным текстом.
+    /// </summary>
+    private bool CanDeleteAccount(Account account) =>
+        !account.IsActive && account.Role != SystemRole.Owner && account.Id != State.Account.Id;
+
+    /// <summary>Подсказка кнопки удаления: у погашенной — причина, почему удалить нельзя.</summary>
+    private string DeleteAccountHint(Account account) =>
+        account.Id == State.Account.Id ? L["users.delete.self"]
+        : account.Role == SystemRole.Owner ? L["users.delete.owner"]
+        : account.IsActive ? L["users.delete.active"]
+        : L["users.delete"];
+
+    /// <summary>
+    /// Удалить пользователя (T-140): переспрос, затем удаление. Аккаунт помечается удалённым —
+    /// войти под ним нельзя, из списка он уходит, а сделанное им в журнале работ остаётся.
+    /// </summary>
+    private async Task DeleteAccountAsync(Account account)
+    {
+        if (await _accountDeleteBox.ShowAsync() != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteAccountAsync(account.Id);
+            await LoadAccountsAsync();
+            // исполнитель организации остаётся (он актор действий в журнале), но список
+            // людей мог измениться — перечитываем справочники, как и при заведении
+            await State.RefreshReferenceDataAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // --- установка локальных моделей (ТЗ v1.40, todo36_3) ---
+    private async Task LoadInstallsAsync()
+    {
+        try
+        {
+            _installs = (await Api.GetModelInstallsAsync()).ToDictionary(i => i.ModelId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Удалить кастомную запись справочника моделей (ТЗ v1.43, todo36_6): переспрос, затем
+    /// удаление ЗАПИСИ — скачанные файлы модели и установленные пакеты остаются на диске.
+    /// Модель, выбранную исполнителями, сервер удалить не даст (понятная ошибка).
+    /// </summary>
+    private async Task DeleteModelAsync(AiModel model)
+    {
+        if (await _modelDeleteBox.ShowAsync() != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteModelAsync(model.Id);
+            await LoadInstallsAsync();
+            await State.RefreshReferenceDataAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+
+    // --- вкладка «Модели» (T-217): представления «таблица», «краткий» (T-238) и «навыки» ---
+
+    /// <summary>Выбранное представление справочника моделей; переживает перезапуск (гл. 11).</summary>
+    private sealed class ModelsViewState
+    {
+        public string View { get; set; } = "table";
+    }
+
+    private ModelsViewState _modelsView = new();
+
+    /// <summary>Открытые категории представления «навыки». Пусто — все закрыты, и это
+    /// СТАРТОВОЕ состояние по заданию T-217: категорий несколько десятков, открытые
+    /// разом они превращают страницу в тот же нечитаемый список. В app_state не
+    /// сохраняется намеренно — каждое открытие вкладки начинается с закрытых категорий.</summary>
+    private readonly HashSet<string> _openSkills = new(StringComparer.Ordinal);
+
+    private string ModelsView => _modelsView.View;
+
+    /// <summary>Представление «краткий» (T-238) — та же таблица, но БЕЗ колонки навыков:
+    /// колонка самая широкая, и на телефоне из-за неё не помещается ничего остального.
+    /// Разметка у обоих представлений одна, чтобы они не разъезжались.</summary>
+    private bool ModelsBrief => ModelsView == "brief";
+
+    /// <summary>Колонок в представлении «навыки» — на них растягивается строка категории.
+    /// С T-13-S1 колонок на одну больше: добавлена «LoRA».</summary>
+    private int SkillViewColumns => State.IsCluster ? 8 : 7;
+
+    private void OnModelsViewChanged(string view)
+    {
+        _modelsView.View = view;
+        State.PersistComponentStates();
+    }
+
+    /// <summary>Раскрыть/закрыть категорию навыка.</summary>
+    private void ToggleSkill(string skill)
+    {
+        if (!_openSkills.Remove(skill))
+        {
+            _openSkills.Add(skill);
+        }
+    }
+
+    /// <summary>Заголовок категории: «код — описание навыка» из справочника (описание
+    /// встроенного навыка переводится, как в списке навыков), пустой код — «без навыков».</summary>
+    private string SkillCategoryTitle(string skill)
+    {
+        if (skill.Length == 0)
+        {
+            return L["models.skills.none"];
+        }
+        var known = State.Skills.FirstOrDefault(s => string.Equals(s.Name, skill, StringComparison.OrdinalIgnoreCase));
+        if (known is null)
+        {
+            return skill;   // навык объявлен в декларации, но из справочника уже убран
+        }
+        var text = known.IsCustom ? known.Description : Localized("skill." + known.Name, known.Description);
+        return text.Length > 0 ? $"{skill} — {text}" : skill;
+    }
+
+    // ячейки строки модели — общие у обоих представлений, чтобы они не разъезжались
+
+    private RenderFragment PlacementCell(AiModel model) => __builder =>
+    {
+        <MudTooltip Text="@(model.IsLocal ? L["models.local"] : L["models.cloud"])">
+            <MudIcon Icon="@(model.IsLocal ? Icons.Material.Filled.Computer : Icons.Material.Filled.Cloud)"
+                     Color="@(model.IsLocal ? Color.Default : Color.Info)" Size="Size.Small" />
+        </MudTooltip>
+    };
+
+    private static RenderFragment ActiveCell(AiModel model) => __builder =>
+    {
+        <MudIcon Icon="@(model.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                 Color="@(model.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+    };
+
+    @* Колонка «LoRA» (T-13-S1): умеет ли модель работать с адаптером. Признак берётся из
+       НАСТРОЙКИ профайла, поэтому у модели, про которую ничего не сказано, стоит не галка,
+       а прочерк с подсказкой «настройка не заполнена» — это разные вещи, и путать их нельзя:
+       «провайдер не даёт» это ответ, а «не заполнено» это работа. *@
+    private RenderFragment LoraCell(AiModel model) => __builder =>
+    {
+        <MudTooltip Text="@LoraHint(model)">
+            <span data-model-lora="@(model.Lora.Supported ? "1" : "0")">
+                <MudIcon Icon="@(model.Lora.Supported ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Remove)"
+                         Color="@(model.Lora.Supported ? Color.Success : Color.Default)"
+                         Style="@(model.Lora.Supported ? "" : "opacity:.45;")" Size="Size.Small" />
+            </span>
+        </MudTooltip>
+    };
+
+    /// <summary>Подсказка колонки «LoRA»: поддерживает — чем адаптер подключается, нет — почему.</summary>
+    private string LoraHint(AiModel model) =>
+        model.Lora.Supported
+            ? L["models.lora.apply." + model.Lora.Apply.Kind]
+            : L["models.lora.reason." + (model.Lora.Reason.Length > 0 ? model.Lora.Reason : LoraReasons.Unknown)];
+
+    @* Колонка «сервер» справочника моделей. У ЛОКАЛЬНОЙ модели (T-8-S1) это список серверов,
+       где она ВКЛЮЧЕНА: она ставится на каждом компьютере отдельно, и активность у неё на
+       каждом сервере своя. У облачной — прежнее: чья это запись. *@
+    private RenderFragment ServerCell(AiModel model) => __builder =>
+    {
+        @if (model.IsLocal)
+        {
+            <span data-model-servers="@ActiveServersOf(model)">@ActiveServersText(model)</span>
+        }
+        else
+        {
+            @if (model.IsReadOnly)
+            {
+                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small"
+                         Style="opacity:.6; vertical-align: middle;" />
+            }
+            @(model.ServerCode.Length > 0 ? model.ServerCode : L["security.server.common"])
+        }
+    };
+
+    /// <summary>Коды серверов, где локальная модель включена, через запятую (T-8-S1).</summary>
+    private static string ActiveServersOf(AiModel model) =>
+        string.Join(", ", model.Servers.Where(s => s.IsActive)
+            .Select(s => s.ServerCode.Length > 0 ? s.ServerCode : s.ServerName)
+            .Where(code => code.Length > 0));
+
+    /// <summary>То же для показа: пусто — модель не включена нигде.</summary>
+    private string ActiveServersText(AiModel model)
+    {
+        var codes = ActiveServersOf(model);
+        return codes.Length > 0 ? codes : L["models.activeNowhere"];
+    }
+
+    private RenderFragment ModelActions(AiModel model) => __builder =>
+    {
+        @* у ЛОКАЛЬНОЙ модели форма открывается на ЛЮБОМ сервере (T-8-S1): пути, установка
+           и активность у неё здесь свои, даже если саму запись завёл другой сервер *@
+        <MudTooltip Text="@(model.CanConfigure ? L["common.edit"] : L["models.server.readOnly"])">
+            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                           Disabled="@(!model.CanConfigure)"
+                           OnClick="@(() => EditModelAsync(model))" />
+        </MudTooltip>
+        @* удалять можно только кастомные записи (ТЗ v1.43, todo36_6):
+           удаляется запись справочника, скачанные файлы остаются. Чужую запись удаляет
+           её сервер — здесь кнопки нет (T-8-S1: форма открывается везде, удаление — нет) *@
+        @if (model.IsCustom && !model.IsReadOnly)
+        {
+            <MudTooltip Text="@L["models.delete"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                               OnClick="@(() => DeleteModelAsync(model))" />
+            </MudTooltip>
+        }
+    };
+
+    // --- справочник состояний задач (ТЗ v1.37, todo34_3) ---
+    private async Task LoadStatusesAsync()
+    {
+        try
+        {
+            _statuses = await Api.GetTaskStatusesAsync(L.Lang, includeInactive: true);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Форма состояния (todo34_3): у встроенных код не меняется, признак «кастом» —
+    /// только в debug-режиме; после сохранения справочник в UiState обновляется.</summary>
+    private async Task EditStatusAsync(TaskStatusDef? status)
+    {
+        var parameters = new DialogParameters<TaskStatusDialog>
+        {
+            { d => d.Source, status },
+            { d => d.TakenIds, _statuses.Where(s => s.Id != status?.Id).Select(s => s.Id).ToList() },
+        };
+        var dialog = await Dialogs.ShowAsync<TaskStatusDialog>(
+            status is null ? L["statuses.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: TaskStatusSaveDto dto })
+        {
+            try
+            {
+                if (status is null)
+                {
+                    await Api.CreateTaskStatusAsync(dto, L.Lang);
+                }
+                else
+                {
+                    await Api.UpdateTaskStatusAsync(status.Id, dto, L.Lang);
+                }
+                await LoadStatusesAsync();
+                await State.RefreshTaskStatusesAsync(L.Lang); // доска/списки видят правки сразу
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    // --- справочник импортов (ТЗ v1.28, todo30) ---
+    private async Task LoadImportSourcesAsync()
+    {
+        try
+        {
+            _importSources = await Api.GetImportSourcesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task EditImportSourceAsync(ImportSource? source)
+    {
+        var parameters = new DialogParameters<ImportSourceDialog>
+        {
+            { d => d.Source, source },
+            { d => d.Existing, _importSources },
+        };
+        var dialog = await Dialogs.ShowAsync<ImportSourceDialog>(
+            source is null ? L["imports.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: ImportSource saved })
+        {
+            try
+            {
+                if (source is null)
+                {
+                    await Api.CreateImportSourceAsync(saved);
+                }
+                else
+                {
+                    await Api.UpdateImportSourceAsync(saved);
+                }
+                await LoadImportSourcesAsync();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+        else
+        {
+            // ключ и токен (ТЗ v1.65) сохраняются сразу и могли включить источник —
+            // список перечитываем, даже если форму закрыли отменой
+            await LoadImportSourcesAsync();
+        }
+    }
+
+    private async Task DeleteImportSourceAsync(ImportSource source)
+    {
+        try
+        {
+            await Api.DeleteImportSourceAsync(source.Id);
+            await LoadImportSourcesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Перевод встроенного значения справочника (ТЗ v1.17); нет перевода — описание.</summary>
+    private string Localized(string key, string fallback) => L[key] == key ? fallback : L[key];
+
+    private static int Depth(string code) => code.Count(c => c == '.');
+
+    private static RenderFragment CustomIcon(bool isCustom) => __builder =>
+    {
+        <MudIcon Icon="@(isCustom ? Icons.Material.Filled.Person : Icons.Material.Filled.Inventory2)"
+                 Size="Size.Small" />
+    };
+
+    private async Task LoadActionsAsync()
+    {
+        try
+        {
+            _actions = await Api.GetActionsAsync(L.Lang);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    // --- ПЛАГИНЫ И MCP (T-114-S0) ---
+
+    private List<PluginListItemDto> _plugins = [];
+
+    private async Task LoadPluginsAsync()
+    {
+        try
+        {
+            _plugins = await Api.GetPluginsAsync(L.Lang);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Найденная программа и её версия — либо честное «софт не найден на этом
+    /// сервере»: молчать об этом нельзя, иначе задание просто не пойдёт (cd91ad4e).</summary>
+    private string SoftwareText(PluginListItemDto plugin) => plugin.Software switch
+    {
+        PluginSoftwareCodes.NotNeeded => L["plugins.notNeeded"],
+        PluginSoftwareCodes.Found => plugin.SoftwareVersion.Length > 0
+            ? $"{plugin.SoftwarePath} ({L["plugins.version"]} {plugin.SoftwareVersion})"
+            : plugin.SoftwarePath,
+        _ => L["plugins.notFound"],
+    };
+
+    /// <summary>Форма записи плагина: четыре блока — софт, действия, опыт, документ.</summary>
+    private async Task OpenPluginAsync(PluginListItemDto plugin)
+    {
+        var parameters = new DialogParameters<PluginDialog> { { d => d.Code, plugin.Code } };
+        var dialog = await Dialogs.ShowAsync<PluginDialog>(plugin.Name, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        // форма меняет состояние записи и ручной путь — список за ней надо перечитать всегда
+        await LoadPluginsAsync();
+    }
+
+    /// <summary>ОКНО УСТАНОВКИ И НАСТРОЙКИ (T-136-S0): путь к уже стоящей программе, установка
+    /// пакета с прогрессом и кнопка «Инициализировать» — вместо прежнего молчаливого действия
+    /// прямо из списка.</summary>
+    private async Task OpenPluginSetupAsync(PluginListItemDto plugin)
+    {
+        var parameters = new DialogParameters<PluginInstallDialog> { { d => d.Code, plugin.Code } };
+        var dialog = await Dialogs.ShowAsync<PluginInstallDialog>(
+            L["plugins.setup"] + " — " + plugin.Name, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+        await LoadPluginsAsync();
+    }
+
+    /// <summary>Документ плагина окном поверх списка — та же страница, что кнопка «i» формы.</summary>
+    private async Task OpenPluginDocAsync(PluginListItemDto plugin)
+    {
+        var parameters = new DialogParameters<DocPageDialog> { { d => d.Path, plugin.Doc } };
+        await Dialogs.ShowAsync<DocPageDialog>(L["plugins.doc"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private async Task PluginRunAsync(PluginListItemDto plugin, string action)
+    {
+        try
+        {
+            await Api.PluginActionAsync(plugin.Code, action, L.Lang);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await LoadPluginsAsync();
+    }
+
+    /// <summary>Снятие удаляет действия и записи опыта У ВСЕЙ ОРГАНИЗАЦИИ — переспрос обязателен.</summary>
+    private async Task RemovePluginAsync(PluginListItemDto plugin)
+    {
+        if (await _pluginRemoveBox.ShowAsync() is true)
+        {
+            await PluginRunAsync(plugin, "remove");
+        }
+    }
+
+    /// <summary>Форма действия (todo24): у встроенных редактируется только промпт.</summary>
+    private async Task EditActionAsync(ActionDto? action)
+    {
+        var parameters = new DialogParameters<ActionDialog>
+        {
+            { d => d.Source, action },
+            { d => d.TakenCodes, _actions.Where(a => a.Id != action?.Id).Select(a => a.Code).ToList() },
+        };
+        var dialog = await Dialogs.ShowAsync<ActionDialog>(
+            action is null ? L["actions.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: ActionSaveDto dto })
+        {
+            try
+            {
+                if (action is null)
+                {
+                    await Api.CreateActionAsync(dto, L.Lang);
+                }
+                else
+                {
+                    await Api.UpdateActionAsync(action.Id, dto, L.Lang);
+                }
+                await LoadActionsAsync();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Добавление skill в справочник (ТЗ v1.17): код en + описание.</summary>
+    private async Task AddSkillAsync()
+    {
+        var parameters = new DialogParameters<RefItemDialog>
+        {
+            { d => d.TakenNames, State.Skills.Select(s => s.Name).ToList() },
+        };
+        var dialog = await Dialogs.ShowAsync<RefItemDialog>(L["refs.skills.add"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: (string name, string description) })
+        {
+            try
+            {
+                await Api.CreateSkillAsync(name, description);
+                await State.RefreshReferenceDataAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Добавление io format в справочник (ТЗ v1.17).</summary>
+    private async Task AddIoFormatAsync()
+    {
+        var parameters = new DialogParameters<RefItemDialog>
+        {
+            { d => d.TakenNames, State.IoFormats.Select(f => f.Name).ToList() },
+        };
+        var dialog = await Dialogs.ShowAsync<RefItemDialog>(L["refs.ioformats.add"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: (string name, string description) })
+        {
+            try
+            {
+                await Api.CreateIoFormatAsync(name, description);
+                await State.RefreshReferenceDataAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// ВХОД В CLAUDE CLI (todo96): состояние входа и сам вход — двумя шагами (ссылка → код).
+    /// Форма ввода, поэтому щелчок мимо окна её не закрывает (<see cref="FormDialogs"/>).
+    /// </summary>
+    private async Task ClaudeLoginAsync()
+    {
+        var dialog = await Dialogs.ShowAsync<ClaudeLoginDialog>(L["claudeLogin.title"],
+            FormDialogs.Options(MaxWidth.Small));
+        await dialog.Result;
+    }
+
+    private async Task EditModelAsync(AiModel? model)
+    {
+        var parameters = new DialogParameters<AiModelDialog>
+        {
+            { d => d.Source, model },
+            // состояние установки (ТЗ v1.41): блокирует «активна» у неустановленной
+            { d => d.Install, model is not null && _installs.TryGetValue(model.Id, out var inst) ? inst : null },
+        };
+        var dialog = await Dialogs.ShowAsync<AiModelDialog>(
+            model is null ? L["models.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        // установка и ключ меняют состояние модели прямо из формы (ТЗ v1.42) — обновляем
+        // справочник и состояния установки в любом случае, даже при отмене формы
+        await LoadInstallsAsync();
+        if (result is { Canceled: false, Data: AiModel edited })
+        {
+            try
+            {
+                if (model is null)
+                {
+                    await Api.CreateModelAsync(edited);
+                }
+                else
+                {
+                    await Api.UpdateModelAsync(edited);
+                }
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+        await State.RefreshReferenceDataAsync();
+        State.NotifyChanged();
+    }
+
+    // --- почта уведомлений (T-272) ---
+
+    /// <summary>Новый пароль SMTP. Пустое поле означает «не менять»: пароль хранится в
+    /// секретах и наружу не отдаётся, поэтому предзаполнить поле нечем — а без этого
+    /// правила каждое сохранение настроек стирало бы пароль.</summary>
+    private string _mailPassword = "";
+
+    private string MailPasswordHint => _settings?.Mail is { } mail
+        ? (mail.HasPassword ? L["mail.password.set"] : L["mail.password.unset"])
+          + " · " + mail.PasswordFile
+        : "";
+
+    /// <summary>Пробное письмо на свой адрес: проверить настройки, не дожидаясь события.</summary>
+    private async Task MailTestAsync()
+    {
+        try
+        {
+            var result = await Api.SendNotificationTestAsync("");
+            Snackbar.Add($"{L["mail.test.done"]}: {result.Address}", Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Карандаш вкладки «основное» (T-123-S0): запомнить значения и включить правку.</summary>
+    private void StartEditMain()
+    {
+        if (_settings is not { } s)
+        {
+            return;
+        }
+        _mainBackup = (s.Language, s.OpenBrowserOnStart, s.TabTitleMode, s.ScheduleCellMode,
+            s.LogLevel, s.LoraImage.MaxWidth, s.LoraImage.MaxHeight, s.LoraImage.MaxKb,
+            s.LoraImage.Format, s.LoraImage.PadColor);
+        _editingMain = true;
+    }
+
+    /// <summary>«Отменить» на вкладке «основное» (T-123-S0): вернуть запомненное и выйти из правки.</summary>
+    private void CancelMain()
+    {
+        if (_settings is { } s && _mainBackup is { } b)
+        {
+            s.Language = b.Language;
+            s.OpenBrowserOnStart = b.OpenBrowser;
+            s.TabTitleMode = b.TabTitle;
+            s.ScheduleCellMode = b.ScheduleCell;
+            s.LogLevel = b.LogLevel;
+            s.LoraImage.MaxWidth = b.MaxWidth;
+            s.LoraImage.MaxHeight = b.MaxHeight;
+            s.LoraImage.MaxKb = b.MaxKb;
+            s.LoraImage.Format = b.Format;
+            s.LoraImage.PadColor = b.PadColor;
+        }
+        _mainBackup = null;
+        _editingMain = false;
+    }
+
+    /// <summary>«Сохранить» на вкладке «основное»: после УДАЧНОЙ записи — обратно в режим
+    /// чтения. Отказ сервера правку не заканчивает: набранное осталось бы негде взять.</summary>
+    private async Task SaveMainAsync()
+    {
+        if (await SaveAsync())
+        {
+            _mainBackup = null;
+            _editingMain = false;
+        }
+    }
+
+    /// <summary>Запись настроек. Возвращает «удалось» — по нему вкладка «основное»
+    /// решает, выходить ли из режима редактирования (T-123-S0).</summary>
+    private async Task<bool> SaveAsync()
+    {
+        if (_settings is null)
+        {
+            return false;
+        }
+        try
+        {
+            // пароль SMTP уходит, только если его ввели: null — «не менять» (T-272)
+            _settings.Mail.Password = _mailPassword.Length > 0 ? _mailPassword : null;
+            await Api.SaveSettingsAsync(_settings);
+            if (_mailPassword.Length > 0)
+            {
+                _settings.Mail.HasPassword = true;
+                _mailPassword = "";
+            }
+            _settings.Mail.Password = null;
+            L.Lang = _settings.Language; // смена языка «на лету» (гл. 9)
+            State.SetTabTitleMode(_settings.TabTitleMode); // заголовки закладок «на лету» (v1.18)
+            State.SetScheduleCellMode(_settings.ScheduleCellMode); // ячейка календаря «на лету» (v1.37)
+            await LoadActionsAsync(); // тексты действий — в новом языке (todo24)
+            await LoadStatusesAsync(); // названия состояний — в новом языке (v1.37)
+            await State.RefreshTaskStatusesAsync(L.Lang);
+            Snackbar.Add(L["settings.saved"], Severity.Success);
+            return true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return false;
+        }
+    }
+}

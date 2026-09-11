@@ -1,0 +1,74 @@
+@using AI2P.Server.Api
+@inject ConfigHolder ConfigHolder
+@inject IHttpContextAccessor Http
+
+<!DOCTYPE html>
+<html lang="@AI2P.Core.Loc.Lang">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    @* base href = basePath + организация (ТЗ гл. 11, «URL и ссылки на задачи»; этап 40).
+       Организация именно здесь, а не в маршрутах страниц: браузер достраивает от base href
+       ВСЕ относительные ссылки — картинки описаний, _content, _blazor — и они автоматически
+       попадают в нужную организацию. Blazor тоже сопоставляет маршруты относительно base href,
+       поэтому /ai2p/acme/task/T-18 остаётся для роутера маршрутом /task/{id}. *@
+    <base href="@BaseHref" />
+    @* ЗНАЧОК ВКЛАДКИ (T-6-S0): тот же рисунок, что у программы на рабочем столе —
+       вариант 3 «Знак-надпись AI2P» из T-288. Путь относительный, как у стилей и скриптов:
+       браузер достраивает его от base href, поэтому он верен и с префиксом организации.
+       Пересобирается вместе со значком программы: python test/t6s0/mkappicon.py *@
+    <link rel="icon" href="_content/AI2P.UI/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="_content/AI2P.UI/apple-touch-icon.png" />
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServer" />
+    @* баннер фатальной ошибки circuit'а (багфикс v1.18): без него необработанное исключение
+       в рендере выглядело как «глухое зависание» — UI замирал без единого сообщения *@
+    <div id="blazor-error-ui"
+         style="display: none; position: fixed; bottom: 0; left: 0; right: 0; z-index: 10000;
+                background: #b71c1c; color: #fff; padding: 10px 16px; font-family: sans-serif;">
+        @AI2P.Core.Loc.T("app.circuitError")
+        <a href="." class="reload" style="color: #fff; font-weight: bold; margin-left: 12px;">@AI2P.Core.Loc.T("app.reload")</a>
+        <span class="dismiss" style="cursor: pointer; float: right;">✕</span>
+    </div>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
+    @* ?v= по времени сборки AI2P.UI — иначе браузер держит старый ai2p.js в кэше
+       и правки JS (вставка картинок и пр.) не доезжают до пользователя *@
+    <script src="_content/AI2P.UI/ai2p.js?v=@JsVersion"></script>
+    <script src="_framework/blazor.web.js"></script>
+</body>
+
+</html>
+
+@code {
+    /// <summary>Префикс приложения с организацией: /ai2p/&lt;код&gt;/ (ТЗ гл. 11, этап 40).
+    /// Сегмент организации переносит в PathBase middleware маршрутизации (OrgRouting),
+    /// поэтому здесь достаточно самого PathBase — и он же виден NavigationManager'у.</summary>
+    private string BaseHref
+    {
+        get
+        {
+            var pathBase = Http.HttpContext?.Request.PathBase.Value;
+            return (pathBase is { Length: > 0 } ? pathBase : ConfigHolder.Config.Ui.NormalizedBasePath()) + "/";
+        }
+    }
+
+    private static readonly long JsVersion = ComputeJsVersion();
+
+    private static long ComputeJsVersion()
+    {
+        try
+        {
+            var location = typeof(AI2P.UI.MainLayout).Assembly.Location;
+            return location.Length > 0 ? System.IO.File.GetLastWriteTimeUtc(location).Ticks : 1;
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or NotSupportedException)
+        {
+            return 1;
+        }
+    }
+}

@@ -1,0 +1,84 @@
+@inject I18nService L
+
+@* Форма действия справочника действий (ТЗ v1.21, todo24): внешний иерархический код,
+   заголовок, подсказка для человека, промпт для агента. У встроенного действия
+   редактируется только промпт; если он исправлен — кнопка «откатить по умолчанию». *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @if (!IsCustom)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">@L["actions.builtinHint"]</MudAlert>
+            }
+            <MudTextField @bind-Value="_code" Label="@L["actions.code"]" Immediate="true"
+                          ReadOnly="@(!IsCustom)" Placeholder="AI2P.Files.Read"
+                          Error="@(IsCustom && CodeTaken)" ErrorText="@L["actions.codeTaken"]" />
+            @if (Source?.ToolName is { Length: > 0 } tool)
+            {
+                <MudTextField T="string" Value="@tool" Label="@L["actions.tool"]" ReadOnly="true" />
+            }
+            <MudTextField @bind-Value="_title" Label="@L["actions.titleField"]" Immediate="true"
+                          ReadOnly="@(!IsCustom)" />
+            <MudTextField @bind-Value="_hint" Label="@L["actions.hint"]" Lines="3"
+                          ReadOnly="@(!IsCustom)" />
+            <MudTextField @bind-Value="_prompt" Label="@L["actions.prompt"]" Lines="7"
+                          Immediate="true" />
+            @if (!IsCustom && Source is { } source && _prompt != source.DefaultPrompt)
+            {
+                @* промпт исправлен — откат к значению по умолчанию (todo24) *@
+                <div>
+                    <MudButton Variant="Variant.Outlined" Color="Color.Warning" Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Undo"
+                               OnClick="@(() => _prompt = source.DefaultPrompt)">
+                        @L["actions.resetPrompt"]
+                    </MudButton>
+                </div>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_code.Trim().Length == 0 || (IsCustom && CodeTaken) || _prompt.Trim().Length == 0)"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — создание кастомного действия.</summary>
+    [Parameter] public ActionDto? Source { get; set; }
+
+    /// <summary>Коды остальных действий — проверка уникальности на клиенте.</summary>
+    [Parameter] public List<string> TakenCodes { get; set; } = [];
+
+    private string _code = "";
+    private string _title = "";
+    private string _hint = "";
+    private string _prompt = "";
+
+    private bool IsCustom => Source?.IsCustom ?? true;
+
+    private bool CodeTaken => TakenCodes.Any(c =>
+        c.Trim().Equals(_code.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            _code = Source.Code;
+            _title = Source.Title;
+            _hint = Source.Hint;
+            _prompt = Source.Prompt;
+        }
+    }
+
+    private void Save() => Dialog.Close(DialogResult.Ok(new ActionSaveDto
+    {
+        Code = _code.Trim(),
+        Title = _title.Trim(),
+        Hint = _hint,
+        Prompt = _prompt,
+    }));
+}

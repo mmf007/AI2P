@@ -1,0 +1,253 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Представление «иерархия» (ТЗ гл. 5, экран 1): дерево по родительским
+   бизнес-процессам/задачам (parent_id); корни — задачи без родителя в выборке.
+   Потомков можно сворачивать и разворачивать (todo14).
+   Сортировка (ТЗ v1.17): применяется только к самому верхнему уровню (RootSort).
+   Перенос по иерархии мышкой (todo37): строка перетаскивается на другую — становится
+   её подзадачей, на полосу «в корень» — теряет родителя. Работает во всех четырёх
+   представлениях: все задачи, задачи проекта, все шаблоны, шаблоны проекта. *@
+@if (Tasks.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["common.empty"]</MudAlert>
+}
+else
+{
+    <div id="@_containerId">
+        @* полоса «в корень» вверху дерева (T-176) — она же подсказка к перетаскиванию.
+           ЛИПКАЯ: зона сброса обязана оставаться на виду при любом размере дерева. Раньше
+           такая полоса была ОДНА и стояла в самом конце списка — при 500 задачах на 16 000 px
+           ниже видимой части, мышью с задачей до неё было не доехать, и сброс «в корень»
+           выглядел как «ничего не происходит» (сама подсказка при этом стояла вверху и на
+           зону сброса была похожа). Вторая такая же полоса осталась в конце дерева. *@
+        @* в списке ПОДЗАДАЧ задачи (T-132-S0) полос «в корень» нет вовсе: оттуда задачу
+           разрешено переносить только внутри иерархии — вытащить её в корень нельзя *@
+        @if (AllowRoot)
+        {
+        <div class="ai2p-tree-root ai2p-tree-root-top" data-tree-drop="" data-tree-root="top">
+            <MudIcon Icon="@Icons.Material.Filled.VerticalAlignTop" Size="Size.Small" />
+            <b>@L["tasks.tree.dnd.root"]</b>
+            <span class="ai2p-tree-hint">@L["tasks.tree.dnd.hint"]</span>
+        </div>
+        }
+
+        @foreach (var (task, depth, hasChildren) in Flatten())
+        {
+            @* чужую задачу перетаскивать нельзя: иерархию между серверами меняет дирижёр
+               (ТЗ гл. 6, этап 42) — у него CanWriteOn возвращает true для любой строки *@
+            @* data-tree-move дублирует draggable для переноса ПАЛЬЦЕМ (T-193): на телефоне
+               нативное перетаскивание выключается на время касания (оно съедало прокрутку
+               списка), поэтому «можно ли двигать» жест читает из своего атрибута *@
+            <div class="ai2p-tree-node" draggable="@(CanMove(task) ? "true" : "false")"
+                 data-tree-move="@(CanMove(task) ? "1" : "0")"
+                 data-tree-task="@task.Id" data-tree-drop="@task.Id"
+                 style="@($"padding-left: {8 + depth * 24}px;")"
+                 @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    @if (CanMove(task))
+                    {
+                        @* ручка переноса (T-4-S1): за неё строка берётся СРАЗУ, без удержания —
+                           на телефоне удержание браузер норовит понять как выделение текста или
+                           своё контекстное меню. Она же подсказка «строку можно двигать».
+                           Тап по ручке не должен открывать карточку — stopPropagation *@
+                        <span class="ai2p-tree-grip" data-tree-grip="1" title="@L["tasks.tree.dnd.grip"]"
+                              @onclick:stopPropagation="true">
+                            <MudIcon Icon="@Icons.Material.Filled.DragIndicator" Size="Size.Small" />
+                        </span>
+                    }
+                    else
+                    {
+                        <span style="display: inline-block; width: 20px;"></span>
+                    }
+                    @if (hasChildren)
+                    {
+                        @* стрелка сворачивания не должна открывать карточку — stopPropagation *@
+                        <span @onclick:stopPropagation="true">
+                            <MudIconButton Icon="@(_collapsed.Contains(task.Id)
+                                                     ? Icons.Material.Filled.ChevronRight
+                                                     : Icons.Material.Filled.ExpandMore)"
+                                           Size="Size.Small" OnClick="@(() => Toggle(task.Id))" />
+                        </span>
+                    }
+                    else
+                    {
+                        <span style="display: inline-block; width: 30px;"></span>
+                    }
+                    <MudIcon Icon="@(task.Kind == TaskKind.Process ? Icons.Material.Filled.AccountTree : Icons.Material.Filled.Task)"
+                             Size="Size.Small" />
+                    <MudText Typo="Typo.body2"><b>@task.DisplayId</b> @task.Title</MudText>
+                    @if (State.IsCluster && task.IsReadOnly)
+                    {
+                        @* задача другого сервера — здесь только чтение (ТЗ гл. 6, этап 42) *@
+                        <MudTooltip Text="@(L["task.server.readOnlyHint"] + " " + task.ServerCode)">
+                            <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" Style="opacity:.6;" />
+                        </MudTooltip>
+                    }
+                    @if (task.PendingQuestions > 0)
+                    {
+                        @* висящие вопросы агентов — хорошо заметны (ТЗ v1.17) *@
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                                 Icon="@Icons.Material.Filled.HelpOutline">@task.PendingQuestions</MudChip>
+                    }
+                    <span class="ai2p-status" style="@State.StatusStyle(task.Status)">@State.StatusName(task.Status)</span>
+                </MudStack>
+            </div>
+        }
+
+        @* та же зона в конце дерева — привычное место (todo37) *@
+        @if (AllowRoot)
+        {
+        <div class="ai2p-tree-root" data-tree-drop="" data-tree-root="bottom">
+            <MudIcon Icon="@Icons.Material.Filled.VerticalAlignTop" Size="Size.Small" />
+            <span>@L["tasks.tree.dnd.root"]</span>
+        </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    [Parameter] public List<TaskItem> Tasks { get; set; } = [];
+
+    /// <summary>Сортировка верхнего уровня иерархии (ТЗ v1.17); null — серверный порядок.</summary>
+    [Parameter] public Comparison<TaskItem>? RootSort { get; set; }
+
+    /// <summary>Перечитать список у родителя после переноса задачи (todo37).</summary>
+    [Parameter] public EventCallback OnReload { get; set; }
+
+    /// <summary>Разрешено ли вытаскивать задачу В КОРЕНЬ (T-132-S0): в списке подзадач
+    /// карточки — нет, там перенос идёт только внутри иерархии. Полосы «в корень»
+    /// тогда не рисуются вовсе, а сброс с пустой целью отбрасывается.</summary>
+    [Parameter] public bool AllowRoot { get; set; } = true;
+
+    private readonly HashSet<string> _collapsed = [];
+    /// <summary>Свой id контейнера: в одном фрейме может жить несколько деревьев.</summary>
+    private readonly string _containerId = "ai2p-tree-" + Guid.NewGuid().ToString("N")[..8];
+    private DotNetObjectReference<TaskTreeView>? _selfRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Tasks.Count == 0)
+        {
+            return; // контейнера нет — вешать слушатели не на что
+        }
+        _selfRef ??= DotNetObjectReference.Create(this);
+        // повторный вызов на живом контейнере ничего не делает (флаг в data-атрибуте)
+        await Js.InvokeVoidAsync("ai2p.initTreeDnd", _containerId, _selfRef);
+    }
+
+    public void Dispose() => _selfRef?.Dispose();
+
+    /// <summary>
+    /// Задачу можно перетаскивать (ТЗ гл. 6, этап 42): свою — всегда, чужую — только на
+    /// дирижёре: иерархия между серверами меняется именно там, он единственный, кому
+    /// разрешено писать строки, ему не принадлежащие.
+    /// </summary>
+    private bool CanMove(TaskItem task) =>
+        State.CanEdit && (!task.IsReadOnly || State.IsConductor);
+
+    /// <summary>Задачу перетащили на другую (или на полосу «в корень»): сменить родителя.</summary>
+    [JSInvokable]
+    public async Task OnTreeDropAsync(string taskId, string? parentId)
+    {
+        if (!AllowRoot && string.IsNullOrEmpty(parentId))
+        {
+            return; // «в корень» здесь не разрешено (T-132-S0)
+        }
+        // права по ролям (ТЗ п. 2.2, этап 39): читатель иерархию не меняет
+        if (!State.CanEdit)
+        {
+            Snackbar.Add(L["common.readonly"], Severity.Warning);
+            await OnReload.InvokeAsync();
+            return;
+        }
+        // чужая задача (ТЗ гл. 6, этап 42): переносить её может только дирижёр
+        if (Tasks.FirstOrDefault(t => t.Id == taskId) is { IsReadOnly: true } && !State.IsConductor)
+        {
+            Snackbar.Add(L["task.server.readOnly"], Severity.Warning);
+            await OnReload.InvokeAsync();
+            return;
+        }
+        try
+        {
+            await Api.MoveTaskAsync(taskId, string.IsNullOrEmpty(parentId) ? null : parentId);
+            Snackbar.Add(L["tasks.tree.dnd.moved"], Severity.Success);
+            await OnReload.InvokeAsync();
+            State.NotifyChanged(); // эксплорер и другие списки тоже перечитаются
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Toggle(string taskId)
+    {
+        if (!_collapsed.Remove(taskId))
+        {
+            _collapsed.Add(taskId);
+        }
+    }
+
+    /// <summary>«Свернуть все» (T-136): свёрнутыми помечаются все узлы с потомками —
+    /// на экране остаются только корни выборки. Кнопка живёт в тулбаре представления
+    /// (TasksView), поэтому метод публичный.</summary>
+    public void CollapseAll()
+    {
+        var ids = Tasks.Select(t => t.Id).ToHashSet();
+        _collapsed.Clear();
+        foreach (var task in Tasks.Where(t => t.ParentId is not null && ids.Contains(t.ParentId)))
+        {
+            _collapsed.Add(task.ParentId!); // родитель имеет потомка — значит, сворачиваемый
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>«Развернуть все» (T-136): свёрнутых узлов не остаётся.</summary>
+    public void ExpandAll()
+    {
+        _collapsed.Clear();
+        StateHasChanged();
+    }
+
+    private IEnumerable<(TaskItem Task, int Depth, bool HasChildren)> Flatten()
+    {
+        var ids = Tasks.Select(t => t.Id).ToHashSet();
+        var byParent = Tasks
+            .Where(t => t.ParentId is not null && ids.Contains(t.ParentId))
+            .ToLookup(t => t.ParentId!);
+        // сортировке подлежит только самый верхний уровень (ТЗ v1.17)
+        var roots = Tasks.Where(t => t.ParentId is null || !ids.Contains(t.ParentId)).ToList();
+        if (RootSort is not null)
+        {
+            roots.Sort(RootSort);
+        }
+
+        IEnumerable<(TaskItem, int, bool)> Walk(TaskItem task, int depth)
+        {
+            var hasChildren = byParent[task.Id].Any();
+            yield return (task, depth, hasChildren);
+            if (hasChildren && !_collapsed.Contains(task.Id))
+            {
+                foreach (var child in byParent[task.Id])
+                {
+                    foreach (var item in Walk(child, depth + 1))
+                    {
+                        yield return item;
+                    }
+                }
+            }
+        }
+
+        return roots.SelectMany(r => Walk(r, 0));
+    }
+}

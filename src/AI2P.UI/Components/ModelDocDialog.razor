@@ -1,0 +1,103 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject UiState State
+@inject IDialogService Dialogs
+
+@* Документ из поставляемой документации (ТЗ гл. 14, todo47, todo47_2): открывается
+   кнопкой «i» в форме модели (как получить ключ у облачной модели, какие требования
+   к железу у локальной) и в форме источника импорта (как получить ключи Trello).
+
+   Текст лежит в doc/<язык>/<раздел>/<имя>.md и целиком копируется в релизную выкладку.
+   Языка интерфейса может не быть — тогда показывается русский, затем английский;
+   на каком языке нашлось, видно в шапке. Документа нет вовсе — показывается подсказка,
+   куда его положить: пустой экран без объяснения бесполезен.
+
+   ССЫЛКИ НА ЭТУ СТРАНИЦУ (T-207-S0, второй проход) — знак в правом верхнем углу, окно то же
+   стандартное, что у ссылки на задачу и у окна справки DocPageDialog. Это окно тоже
+   «документация как подсказка», открываемая из разных мест, и прочитанное здесь так же
+   хочется переслать. Путь страницы — внутри языкового каталога: «models/<имя>.md» либо
+   «import/<вид>.md», языка в ссылке нет — получатель откроет её на своём. *@
+<MudDialog>
+    <DialogContent>
+        @if (_doc is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (!_doc.Found)
+        {
+            <MudStack Spacing="2" Style="min-width: 520px;">
+                <MudAlert Severity="Severity.Info" Dense="true">@L["models.doc.missing"]</MudAlert>
+                <MudText Typo="Typo.caption" Style="word-break: break-all;">@_doc.Hint</MudText>
+            </MudStack>
+        }
+        else
+        {
+            <MudStack Spacing="2" Style="min-width: 560px; max-height: 70vh; overflow-y: auto;">
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.caption" Style="opacity:.7; word-break: break-all;">@RelPath</MudText>
+                    <MudSpacer />
+                    <MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small"
+                                   data-modeldoc-link="1" title="@L["docs.link"]"
+                                   OnClick="ShowLinkAsync" />
+                </MudStack>
+                @if (!string.Equals(_doc.Language, Current, StringComparison.OrdinalIgnoreCase))
+                {
+                    @* перевода на язык интерфейса ещё нет — честно об этом говорим *@
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        @L["models.doc.otherLang"]: @_doc.Language
+                    </MudAlert>
+                }
+                <div class="ai2p-md">@((MarkupString)Html)</div>
+                <MudText Typo="Typo.caption" Style="opacity:.6; word-break: break-all;">@_doc.Path</MudText>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close(DialogResult.Ok(true)))">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Модель, документ которой показывается; пусто — документ вида импорта.</summary>
+    [Parameter] public string ModelId { get; set; } = "";
+
+    /// <summary>Вид источника импорта (todo47_2): заполнен вместо <see cref="ModelId"/>.</summary>
+    [Parameter] public string ImportKind { get; set; } = "";
+
+    /// <summary>Язык интерфейса — с ним сверяется язык найденного документа.</summary>
+    [Parameter] public string Current { get; set; } = "ru";
+
+    private ModelDocDto? _doc;
+
+    /// <summary>Готовый HTML документа: картинки берутся у своего эндпойнта (T-97-S0) —
+    /// документ лежит в разделе (<c>models</c>/<c>import</c>) языкового каталога, и путь
+    /// картинки считается от него.</summary>
+    private string Html => _doc is null ? "" : DocLinks.MarkImages(Md.ToHtml(_doc.Text),
+        _doc.Language, RelPath);
+
+    /// <summary>Путь страницы ВНУТРИ языкового каталога — им же считаются пути картинок
+    /// и строится ссылка на страницу.</summary>
+    private string RelPath => (ImportKind.Length > 0 ? "import/" : "models/") + (_doc?.FileName ?? "");
+
+    /// <summary>Ссылки на показанный документ (T-207-S0): краткая, полная внутренняя
+    /// и полная публичная — тем же окном, что ссылка на задачу.</summary>
+    private Task ShowLinkAsync() => DocLink.ShowAsync(Dialogs, State, L, RelPath);
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _doc = ImportKind.Length > 0
+                ? await Api.GetImportDocAsync(ImportKind)
+                : await Api.GetModelDocAsync(ModelId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _doc = new ModelDocDto { Hint = ex.Message };
+        }
+    }
+}

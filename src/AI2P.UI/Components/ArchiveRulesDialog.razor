@@ -1,0 +1,32 @@
+@inject I18nService L
+
+@* ОКНО ПРАВИЛ АРХИВАЦИИ ОДНОГО АРХИВА (T-41-S0). Открывается кнопкой-иконкой «изменить
+   правила архивации» с записи архива в списке архивов организации (T-43-S0) — и только
+   НА ДИРИЖЁРЕ: реестр архивов общий, и правила у архива одни на весь кластер.
+
+   Внутри — тот же компонент, что и у общих правил организации в справочниках настроек:
+   состав полей записи у обеих групп одинаков, различает их только ссылка на архив. Кнопка
+   «вернуть умолчание» (снести правила архива и взять общие) живёт в самом компоненте. *@
+<MudDialog>
+    <DialogContent>
+        <div data-arcrules-dialog="@ArchiveId" style="min-height: 240px;">
+            <ArchiveRulesPanel ArchiveId="@ArchiveId" CanEdit="@CanEdit" />
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close())" data-arcrules-close="1">
+            @L["common.close"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Архив, чьи правила правим. Пустое значение здесь бессмысленно: общие правила
+    /// организации живут своей закладкой в настройках.</summary>
+    [Parameter] public string ArchiveId { get; set; } = "";
+
+    /// <summary>Правила можно править: у читателя и на НЕ дирижёре окно только показывает.</summary>
+    [Parameter] public bool CanEdit { get; set; } = true;
+}

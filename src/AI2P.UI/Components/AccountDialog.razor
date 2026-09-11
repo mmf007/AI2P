@@ -1,0 +1,105 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Форма своего аккаунта (ТЗ п. 2.14, гл. 11, этап 39) — вызывается кнопкой в правом верхнем
+   углу тулбара: имя, телефон и смена пароля тремя полями. Почта — уникальный идентификатор
+   аккаунта, менять её нельзя (сменить можно только вместе с аккаунтом). *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 340px;">
+            @* autocomplete="off" у текстовых полей и "new-password" у паролей: это не форма
+               входа, и без запрета браузер подставляет сюда сохранённые логин и пароль *@
+            <MudTextField Value="@_email" Label="@L["login.email"]" ReadOnly="true" Disabled="true" />
+            <MudTextField @bind-Value="_name" Label="@L["login.name"]" Immediate="true"
+                          autocomplete="off" />
+            <MudTextField @bind-Value="_phone" Label="@L["login.phone"]" autocomplete="off" />
+            <MudText Typo="Typo.body2">@L["account.role"]: @State.Role.ToDb()</MudText>
+
+            <MudDivider Class="my-2" />
+            <MudText Typo="Typo.subtitle2">@L["account.changePassword"]</MudText>
+            @* пустой пароль допустим (ТЗ гл. 11) — тогда вход только с этого компьютера *@
+            <MudTextField @bind-Value="_currentPassword" Label="@L["account.currentPassword"]"
+                          InputType="InputType.Password" autocomplete="current-password" />
+            <MudTextField @bind-Value="_newPassword" Label="@L["account.newPassword"]"
+                          InputType="InputType.Password" Immediate="true"
+                          autocomplete="new-password" />
+            <MudTextField @bind-Value="_repeatPassword" Label="@L["login.password2"]"
+                          InputType="InputType.Password" Immediate="true"
+                          Error="@Mismatch" ErrorText="@L["login.error.mismatch"]"
+                          autocomplete="new-password" />
+            <div>
+                <MudButton Variant="Variant.Outlined" Disabled="@(Mismatch || _busy)"
+                           OnClick="ChangePasswordAsync">@L["account.changePassword"]</MudButton>
+            </div>
+            @if (!State.Account.HasPassword)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">@L["login.emptyPasswordNote"]</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.close"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@_busy"
+                   OnClick="SaveAsync">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    private string _email = "";
+    private string _name = "";
+    private string _phone = "";
+    private string _currentPassword = "";
+    private string _newPassword = "";
+    private string _repeatPassword = "";
+    private bool _busy;
+
+    private bool Mismatch => _newPassword != _repeatPassword;
+
+    protected override void OnInitialized()
+    {
+        _email = State.Account.Email;
+        _name = State.Account.Name;
+        _phone = State.Account.Phone;
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            State.UpdateAccount(await Api.UpdateSelfAccountAsync(_name, _phone));
+            Dialog.Close();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.ChangePasswordAsync(_currentPassword, _newPassword);
+            _currentPassword = _newPassword = _repeatPassword = "";
+            Snackbar.Add(L["account.passwordChanged"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

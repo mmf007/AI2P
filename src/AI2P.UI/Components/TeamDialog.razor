@@ -1,0 +1,248 @@
+@inject UiState State
+@inject I18nService L
+
+@* Форма ввода команды (ТЗ гл. 11): название + список участников (из полного списка
+   исполнителей) с проф. ролью (п. 2.8). Иерархия команды (ТЗ v1.17): у участника можно
+   указать руководителя (участника этой же команды); тимлид — только верхний уровень;
+   единственный участник верхнего уровня становится тимлидом автоматически. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_team.Name" Label="@L["teams.name"]" Immediate="true"
+                          Error="@NameTaken" ErrorText="@L["teams.nameTaken"]" />
+            <MudTextField @bind-Value="_team.AgentLanguage" Label="@L["teams.agentLanguage"]" />
+            <MudSwitch T="bool" @bind-Value="_team.IsActive" Label="@L["common.active"]" Color="Color.Primary" />
+
+            @* состав команды таблицей с заголовками (правка v1.18, todo21) — редактор иерархии
+               (руководитель, тимлид) хорошо заметен; диалог открывается широким *@
+            <MudText Typo="Typo.subtitle2">@L["teams.members"]</MudText>
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr>
+                        <th style="min-width: 180px;">@L["executors.nick"]</th>
+                        <th style="min-width: 150px;">@L["teams.role"]</th>
+                        <th style="min-width: 170px;">@L["teams.manager"]</th>
+                        <th>@L["teams.lead"]</th>
+                        <th>@L["teams.memberActive"]</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var member in _team.Members)
+                    {
+                        <tr>
+                            <td>
+                                <MudSelect T="string" @bind-Value="member.ExecutorId" Dense="true"
+                                           Margin="Margin.Dense">
+                                    @* только активные исполнители (ТЗ п. 2.2), ещё не входящие
+                                       в состав (дубликаты запрещены, багфикс v1.18) *@
+                                    @foreach (var executor in AvailableFor(member))
+                                    {
+                                        <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </td>
+                            <td>
+                                <MudSelect T="string" @bind-Value="member.RoleId" Dense="true"
+                                           Margin="Margin.Dense" Clearable="true">
+                                    @foreach (var role in State.Roles)
+                                    {
+                                        <MudSelectItem T="string" Value="@role.Id">@role.Name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </td>
+                            <td>
+                                @* руководитель — участник этой же команды (иерархия, ТЗ v1.17) *@
+                                <MudSelect T="string" Value="@member.ParentExecutorId"
+                                           ValueChanged="@(value => OnParentChanged(member, value))"
+                                           Dense="true" Margin="Margin.Dense" Clearable="true"
+                                           Placeholder="@L["teams.topLevel"]">
+                                    @foreach (var other in _team.Members.Where(m =>
+                                                  m.ExecutorId.Length > 0 && m.ExecutorId != member.ExecutorId))
+                                    {
+                                        <MudSelectItem T="string" Value="@other.ExecutorId">@Nick(other.ExecutorId)</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </td>
+                            <td>
+                                @* тимлид: доступен только участнику верхнего уровня (ТЗ v1.17) *@
+                                <MudTooltip Text="@L["teams.leadHint"]">
+                                    <MudCheckBox T="bool" Value="@member.IsLead"
+                                                 ValueChanged="@(value => OnLeadChanged(member, value))"
+                                                 Dense="true" Disabled="@(member.ParentExecutorId is not null)" />
+                                </MudTooltip>
+                            </td>
+                            <td>
+                                @* активность участника В ЭТОЙ КОМАНДЕ (T-129): неактивный не
+                                   подключается при запуске команды и не берётся автоподбором *@
+                                <MudTooltip Text="@L["teams.memberActiveHint"]">
+                                    <MudCheckBox T="bool" @bind-Value="member.IsActive" Dense="true" />
+                                </MudTooltip>
+                            </td>
+                            <td>
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                               OnClick="@(() => RemoveMember(member))" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+            <div>
+                @* добавление недоступно, когда свободных активных исполнителей нет (багфикс v1.18):
+                   раньше добавлялась пустая строка, а выбор дубликата ронял диалог *@
+                <MudTooltip Text="@(HasFreeExecutor ? "" : L["teams.noFreeExecutors"])">
+                    <MudButton StartIcon="@Icons.Material.Filled.Add" OnClick="AddMember"
+                               Disabled="@(!HasFreeExecutor)">
+                        @L["teams.addMember"]
+                    </MudButton>
+                </MudTooltip>
+            </div>
+            @if (HierarchyError is { } error)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true">@error</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_team.Name.Trim().Length == 0 || NameTaken || HierarchyError is not null)"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — создание новой команды.</summary>
+    [Parameter] public Team? Source { get; set; }
+
+    private Team _team = new();
+
+    /// <summary>Имя команды уникально (ТЗ гл. 11, правка v1.13).</summary>
+    private bool NameTaken => State.Teams.Any(t =>
+        t.Id != _team.Id &&
+        t.Name.Trim().Equals(_team.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Проверка состава и иерархии на клиенте (ТЗ v1.17): дубликаты исполнителей и
+    /// циклы; сервер проверяет ещё раз. Ошибка блокирует сохранение — падать нельзя
+    /// (исключение в рендере убивает Blazor-circuit: «глухое зависание», багфикс v1.18).</summary>
+    private string? HierarchyError
+    {
+        get
+        {
+            var byId = new Dictionary<string, TeamMember>();
+            foreach (var member in _team.Members.Where(m => m.ExecutorId.Length > 0))
+            {
+                if (!byId.TryAdd(member.ExecutorId, member))
+                {
+                    return L["teams.duplicateMember"];
+                }
+            }
+            foreach (var member in byId.Values)
+            {
+                var seen = new HashSet<string> { member.ExecutorId };
+                for (var up = member.ParentExecutorId;
+                     up is not null && byId.TryGetValue(up, out var parent);
+                     up = parent.ParentExecutorId)
+                {
+                    if (!seen.Add(up))
+                    {
+                        return L["teams.hierarchyCycle"];
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
+    private string Nick(string executorId) =>
+        State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? executorId;
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            // редактируем копию, чтобы отмена не портила кэш состояния
+            _team = new Team
+            {
+                Id = Source.Id,
+                DisplayId = Source.DisplayId,
+                Name = Source.Name,
+                ProjectId = Source.ProjectId,
+                AgentLanguage = Source.AgentLanguage,
+                IsActive = Source.IsActive,
+                Members = Source.Members
+                    .Select(m => new TeamMember
+                    {
+                        ExecutorId = m.ExecutorId,
+                        RoleId = m.RoleId,
+                        ParentExecutorId = m.ParentExecutorId,
+                        IsLead = m.IsLead,
+                        IsActive = m.IsActive,
+                    })
+                    .ToList(),
+            };
+        }
+    }
+
+    /// <summary>Исполнители, доступные в строке состава: активные, не занятые другими строками
+    /// (+ текущее значение строки, чтобы выбор не пропадал). Дубликаты запрещены (v1.18).</summary>
+    private IEnumerable<Executor> AvailableFor(TeamMember member) =>
+        State.Executors.Where(e =>
+            e.Id == member.ExecutorId
+            || (e.IsActive && _team.Members.All(m => m == member || m.ExecutorId != e.Id)));
+
+    /// <summary>Есть ли активный исполнитель, ещё не входящий в состав.</summary>
+    private bool HasFreeExecutor => State.Executors.Any(e =>
+        e.IsActive && _team.Members.All(m => m.ExecutorId != e.Id));
+
+    private void AddMember()
+    {
+        var firstFree = State.Executors.FirstOrDefault(e =>
+            e.IsActive && _team.Members.All(m => m.ExecutorId != e.Id));
+        if (firstFree is null)
+        {
+            return; // свободных исполнителей нет — кнопка и так недоступна (v1.18)
+        }
+        _team.Members.Add(new TeamMember { ExecutorId = firstFree.Id });
+    }
+
+    private void RemoveMember(TeamMember member)
+    {
+        _team.Members.Remove(member);
+        // подчинённые удалённого поднимаются на верхний уровень
+        foreach (var orphan in _team.Members.Where(m => m.ParentExecutorId == member.ExecutorId))
+        {
+            orphan.ParentExecutorId = null;
+        }
+    }
+
+    private void OnParentChanged(TeamMember member, string? parentId)
+    {
+        member.ParentExecutorId = parentId;
+        if (parentId is not null)
+        {
+            member.IsLead = false; // тимлид — только верхний уровень (ТЗ v1.17)
+        }
+    }
+
+    private void OnLeadChanged(TeamMember member, bool value)
+    {
+        member.IsLead = value;
+        if (value)
+        {
+            // тимлид один: у остальных признак снимается (ТЗ v1.17)
+            foreach (var other in _team.Members.Where(m => m != member))
+            {
+                other.IsLead = false;
+            }
+        }
+    }
+
+    private void Save()
+    {
+        _team.Members.RemoveAll(m => m.ExecutorId.Length == 0);
+        Dialog.Close(DialogResult.Ok(_team));
+    }
+}

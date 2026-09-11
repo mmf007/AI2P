@@ -1,0 +1,145 @@
+@inject I18nService L
+
+@* Заявка на подключение сервера к организации (ТЗ гл. 6, todo41 пп. 9–10).
+   Подключение двустороннее: заявку подал другой сервер, а решение принимает человек здесь —
+   на дирижёре. Форма показывается и по клику на строке заявки в списке серверов, и модально
+   владельцу (или администратору), работающему на этом сервере в момент прихода заявки.
+   «ОТКЛОНИТЬ» убирает запись из списка, но событие в журнале остаётся. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 380px;">
+            <MudAlert Severity="Severity.Info" Dense="true">@L["servers.request.hint"]</MudAlert>
+            @if (Request.ApplicantEmail.Length > 0)
+            {
+                <MudText Typo="Typo.caption">@L["servers.request.applicantHint"]</MudText>
+            }
+            <MudSimpleTable Dense="true" Elevation="0">
+                <tbody>
+                    <tr>
+                        <td>@L["servers.name"]</td>
+                        <td><b>@Request.ServerName</b></td>
+                    </tr>
+                    <tr>
+                        <td>@L["servers.address"]</td>
+                        <td>@Request.Url</td>
+                    </tr>
+                    <tr>
+                        <td>@L["servers.org"]</td>
+                        <td>@Request.OrgName (@Request.OrgCode)</td>
+                    </tr>
+                    <tr>
+                        <td>@L["servers.code"]</td>
+                        <td>@Request.Code</td>
+                    </tr>
+                    @* состояние заявки (T-293): по флажку «показать все заявки» сюда попадают
+                       и отклонённые — без этой строки открытая форма не отличалась бы от
+                       формы заявки, которая ещё ждёт решения *@
+                    <tr>
+                        <td>@L["conductor.state"]</td>
+                        <td data-request-status="@Request.Status">
+                            <MudText Typo="Typo.body2"
+                                     Color="@(OrgServerStatus.IsRequest(Request.Status) ? Color.Warning : Color.Default)">
+                                @L["servers.status." + Request.Status]
+                            </MudText>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>@L["servers.requestedBy"]</td>
+                        <td>@(Request.RequestedBy.Length > 0 ? Request.RequestedBy : "—")</td>
+                    </tr>
+                    @* ЗАЯВИТЕЛЬ (T-139, доработка): заявка приходит анонимно — реквизитов
+                       этого сервера у подающего нет, — и называет человека сама. «ПРИНЯТЬ»
+                       делает его участником организации, а его аккаунт приезжает репликацией *@
+                    @if (Request.ApplicantEmail.Length > 0)
+                    {
+                        <tr>
+                            <td>@L["servers.applicant"]</td>
+                            <td>
+                                @(Request.ApplicantName.Length > 0
+                                    ? $"{Request.ApplicantName} <{Request.ApplicantEmail}>"
+                                    : Request.ApplicantEmail)
+                            </td>
+                        </tr>
+                        @* ИСПОЛНИТЕЛЬ ОРГАНИЗАЦИИ (T-150): участие в организации — это
+                           исполнитель-человек с аккаунтом заявителя (ТЗ п. 2.15). Он
+                           заводится сам, но молча, и про него забывали: теперь видно,
+                           есть он уже или заведётся, и заведение можно снять *@
+                        <tr>
+                            <td>@L["servers.request.member"]</td>
+                            <td>
+                                @if (Request.ApplicantMember.Length > 0)
+                                {
+                                    <MudText Typo="Typo.body2">
+                                        @L["servers.request.member.has"] @Request.ApplicantMember
+                                    </MudText>
+                                }
+                                else
+                                {
+                                    <MudCheckBox T="bool" @bind-Value="_addMember" Dense="true"
+                                                 Color="Color.Primary"
+                                                 Label="@L["servers.request.member.add"]" />
+                                }
+                            </td>
+                        </tr>
+                    }
+                    <tr>
+                        <td>@L["servers.requestedAt"]</td>
+                        <td>@Request.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</td>
+                    </tr>
+                    @* внутренний ключ: им серверы узнают друг друга при репликации (п. 6) *@
+                    <tr>
+                        <td>@L["servers.unid"]</td>
+                        <td><MudText Typo="Typo.caption">@Request.ServerId</MudText></td>
+                    </tr>
+                </tbody>
+            </MudSimpleTable>
+            @* чем грозит снятый флажок: сервер подключится, а человек участником не станет *@
+            @if (Request.ApplicantEmail.Length > 0 && Request.ApplicantMember.Length == 0)
+            {
+                <MudAlert Severity="@(_addMember ? Severity.Normal : Severity.Warning)" Dense="true">
+                    @L[_addMember ? "servers.request.member.hint" : "servers.request.member.warn"]
+                </MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        @* РЕШЁННАЯ ЗАЯВКА — только для чтения (T-293). Отклонённые заявки видны по флажку
+           «показать все заявки», и решать по ним нечего: запись уже убрана из кластера,
+           а «ПРИНЯТЬ» на ней означало бы подключение задним числом *@
+        @if (OrgServerStatus.IsRequest(Request.Status))
+        {
+            <MudButton Color="Color.Error" OnClick="@(() => Close("reject"))">
+                @L["servers.request.reject"]
+            </MudButton>
+            <MudSpacer />
+            <MudButton OnClick="@(() => Close("defer"))">
+                @L["servers.request.defer"]
+            </MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => Close("accept"))">
+                @L["servers.request.accept"]
+            </MudButton>
+        }
+        else
+        {
+            <MudSpacer />
+            <MudButton OnClick="@(() => Dialog.Close())" data-request-close="1">
+                @L["common.close"]
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Заявка: связь «организация ↔ сервер» в состоянии pending/deferred.</summary>
+    [Parameter] public OrgServer Request { get; set; } = new();
+
+    /// <summary>Завести заявителя участником организации (T-150): по умолчанию да — почти
+    /// всегда так и нужно, а забывают именно про это.</summary>
+    private bool _addMember = true;
+
+    /// <summary>Решение формы: слово и флажок участия одним значением (T-150).</summary>
+    private void Close(string decision) =>
+        Dialog.Close(DialogResult.Ok(new ServerRequestDecision(decision, _addMember)));
+}

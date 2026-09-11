@@ -1,0 +1,47 @@
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+@* Окно просмотра длинного текста с копированием в буфер (todo37).
+   Первый потребитель — ошибка подключения участника команды: в подсказке статуса её
+   было видно, но не выделить и не скопировать. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="1">
+            @if (Caption.Length > 0)
+            {
+                <MudText Typo="Typo.body2" Style="opacity:.8;">@Caption</MudText>
+            }
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                <MudTextField T="string" Value="@Text" ReadOnly="true" Lines="@Lines"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1" />
+                <MudTooltip Text="@L["common.copy"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Primary"
+                                   OnClick="CopyAsync" />
+                </MudTooltip>
+            </MudStack>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close())">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Текст для просмотра и копирования.</summary>
+    [Parameter] public string Text { get; set; } = "";
+
+    /// <summary>Пояснение над полем (например, ник участника и команда).</summary>
+    [Parameter] public string Caption { get; set; } = "";
+
+    /// <summary>Высота поля в строках: длинный текст виден целиком, короткий не растягивается.</summary>
+    private int Lines => Math.Clamp(Text.Split('\n').Length + 1, 3, 20);
+
+    private async Task CopyAsync()
+    {
+        await Js.InvokeVoidAsync("ai2p.copyText", Text);
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+}

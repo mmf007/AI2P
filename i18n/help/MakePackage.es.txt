@@ -1,0 +1,64 @@
+AI2P — MakePackage: PAQUETE DE INSTALACIÓN a partir de una publicación terminada
+
+Un único archivo instalador que se le puede dar a una persona sin explicarle nada sobre
+install.* ni sobre carpetas.
+
+SE EJECUTA DESDE LA CARPETA DE PUBLICACIÓN. buildRelease deja este script en
+builds/<SO>/release y builds/<SO>/releasefull, y funciona «de aquí para allá»: el origen
+es la carpeta donde está el script y el destino, ../../packages (es decir,
+builds/packages).
+
+USO (Windows)
+  MakePackage.cmd                   desde la carpeta de publicación, ejecución normal
+  MakePackage.cmd D:\out            dejar el paquete en otra carpeta
+  MakePackage.ps1 -Output D:\out    lo mismo
+  MakePackage.ps1 -Source D:\release  compilar el paquete de una publicación ajena
+  MakePackage.ps1 -KeepStage        no eliminar la carpeta temporal (análisis de errores)
+  MakePackage.ps1 -Lang es          idioma de los mensajes
+  MakePackage.cmd --help            esta ayuda
+
+USO (Linux / macOS)
+  ./MakePackage.sh                  desde la carpeta de publicación
+  ./MakePackage.sh /tmp/out         dejar el paquete en otra carpeta
+  ./MakePackage.sh --source DIR     compilar el paquete de una publicación ajena
+  ./MakePackage.sh --lang es        idioma de los mensajes
+  ./MakePackage.sh --help           esta ayuda
+
+EL NOMBRE DEL ARCHIVO se compone solo, a partir del version.json de la publicación:
+  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
+  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
+NN es el número de build (la segunda parte de la versión) y no hay que preguntarlo. En
+Windows el instalador lo compila Inno Setup (ISCC.exe), y .exe es su tipo de resultado;
+.run es el tipo de resultado de makeself: un archivo autoextraíble que ejecuta él mismo
+install.sh.
+
+QUÉ HACE FALTA EN LA MÁQUINA
+  Windows      — Inno Setup 6 (ISCC.exe), lo instala install_required.bat
+                 (winget: JRSoftware.InnoSetup)
+  Linux/macOS  — makeself, lo instala install_required.sh
+                 (apt/dnf/brew: makeself)
+Si la herramienta no está, el script lo dirá con claridad.
+
+QUÉ ENTRA EN EL PAQUETE: toda la publicación, SALVO los datos del usuario (data, logs,
+secrets, secrets.json) y el inventario de la instalación anterior (installed.json). El
+config.json de trabajo el instalador no lo sobrescribe: sólo lo deja si el archivo no
+existe, y al lado deja siempre config.new.json, que la aplicación fusionará en el primer
+arranque (ConfigMerge), exactamente igual que hace install.*.
+
+SERVICIO DEL SO. Si la instalación se hizo como servicio (makeAsServise, nombre del
+servicio AI2P), el instalador lo detiene solo antes de copiar y lo vuelve a iniciar
+después, y al desinstalar el programa lo retira. Un servicio ajeno, que apunte a otra
+carpeta, no lo toca. El propio makeAsServise viaja en el paquete y llega a la
+instalación: convertirla en servicio se hace a mano.
+
+DÓNDE VAN LOS DATOS (Windows). La instalación «para todos los usuarios» es
+C:\Program Files\AI2P, y ahí un usuario normal no puede escribir. Por eso los archivos de
+trabajo (config.json, data, logs, secrets) de esa instalación están en
+C:\ProgramData\AI2P; el instalador crea esa carpeta y la abre a escritura para todos los
+usuarios del ordenador. La instalación «sólo para mí» deja el programa en la carpeta del
+usuario, y ahí todo es como antes, junto al programa.
+
+IDIOMA DEL PROPIO INSTALADOR. El guion de Inno Setup lleva ambos idiomas (russian e
+english); los textos de AI2P de la sección [Code] se toman al compilar de
+i18n/scripts.<idioma>.txt y se colocan en [CustomMessages], de modo que un idioma nuevo
+del instalador es un catálogo nuevo más una línea en [Languages].

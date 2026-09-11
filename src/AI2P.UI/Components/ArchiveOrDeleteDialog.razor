@@ -1,0 +1,178 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+
+@* ФОРМА «ПЕРЕНЕСТИ В АРХИВ ИЛИ УДАЛИТЬ СОВСЕМ» (T-44-S0, выпуск 1.105).
+
+   Одна форма на все сущности, у которых есть иконка «удалить»: задача, узел шаблона,
+   объект проекта, запись опыта и проект целиком. Раньше каждая из них спрашивала простое
+   «удалить?» — теперь у человека три исхода: унести в текущий архив, удалить насовсем
+   и отмена.
+
+   ТРИ ВЕЩИ, КОТОРЫЕ ФОРМА ОБЯЗАНА СКАЗАТЬ ДО НАЖАТИЯ КНОПКИ.
+   1. ЧТО УЕДЕТ ВМЕСТЕ С ЗАПИСЬЮ. Иерархия архивируется целиком, поэтому у задачи верхнего
+      уровня уезжают все подзадачи, у узла шаблона — все дочерние узлы, у объекта — все
+      дочерние объекты, а у проекта — его задачи, шаблоны, объекты, опыт, логи и настройки.
+      Состав не выдумывается формой: его считает сам движок переноса (GET /api/archives/movable,
+      T-42-S0) — те же проверки, что у настоящего переноса, только без переноса.
+   2. ПОЧЕМУ ИМЕННО НЕЛЬЗЯ, если унести нельзя. Отказ приходит оттуда же готовым текстом
+      («Задачу T-15 архивировать нельзя: состояние „в работе“», «Шаблон занят будущим
+      расписанием …»), и он показывается рядом с недоступным вариантом. Своими словами
+      причина здесь не пересказывается намеренно: пересказ разъедется с проверкой.
+   3. ЧТО АРХИВА ЕЩЁ НЕТ. Пока в организации не заведён текущий архив, переносить некуда,
+      и вариант выключен с подсказкой, где архив завести.
+
+   Сам перенос и само удаление делает ВЫЗЫВАЮЩАЯ сторона: у каждой сущности свой вызов
+   удаления и своё обновление списка, а форма отвечает только за выбор. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" data-arcdel-form="@Target">
+            <MudText>@L["arcdel.ask", Name]</MudText>
+
+            @if (_loading)
+            {
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary"
+                                   data-arcdel-loading="1" />
+            }
+            else
+            {
+                @if (Info.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" data-arcdel-info="1">
+                        @Info
+                    </MudAlert>
+                }
+                @if (_reason.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" data-arcdel-reason="1">
+                        @_reason
+                    </MudAlert>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())" data-arcdel-cancel="1">
+            @L["common.cancel"]
+        </MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Outlined" data-arcdel-delete="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(Delete)))">
+            @L["arcdel.delete"]
+        </MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!CanArchive)"
+                   data-arcdel-archive="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(Archive)))">
+            @L["arcdel.archive"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Вид переноса (<see cref="ArchiveMoveTargets"/>): задача, шаблон, объект,
+    /// опыт, проект целиком.</summary>
+    [Parameter] public string Target { get; set; } = ArchiveMoveTargets.Task;
+
+    /// <summary>Идентификатор записи — им же идёт и проверка состава.</summary>
+    [Parameter] public string Id { get; set; } = "";
+
+    /// <summary>Как запись зовётся на экране (номер и заголовок, имя объекта).</summary>
+    [Parameter] public string Name { get; set; } = "";
+
+    /// <summary>Выбор человека: перенести в архив.</summary>
+    public const string Archive = "archive";
+
+    /// <summary>Выбор человека: удалить совсем.</summary>
+    public const string Delete = "delete";
+
+    /// <summary>
+    /// Открыть форму и вернуть выбор человека: <see cref="Archive"/>, <see cref="Delete"/>
+    /// либо null (отмена). Собрано здесь, а не у каждой сущности своё, чтобы вопрос звучал
+    /// одинаково на всех пяти экранах.
+    /// </summary>
+    public static async Task<string?> AskAsync(IDialogService dialogs, string title,
+        string target, string id, string name)
+    {
+        var parameters = new DialogParameters<ArchiveOrDeleteDialog>
+        {
+            { d => d.Target, target },
+            { d => d.Id, id },
+            { d => d.Name, name },
+        };
+        var dialog = await dialogs.ShowAsync<ArchiveOrDeleteDialog>(title, parameters);
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: string choice } ? choice : null;
+    }
+
+    private ArchiveMovableDto? _movable;
+    private string _reason = "";
+    private bool _loading = true;
+
+    /// <summary>Вариант «перенести в архив» доступен, только если состав посчитан: любой
+    /// отказ движка переноса (и отсутствие архива, и задача в работе) оставляет причину.</summary>
+    private bool CanArchive => _movable is not null && _reason.Length == 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // архивами распоряжается администратор (ApiPermissions: раздел archives) —
+            // редактору вариант показывается выключенным, а не молча пропадает
+            if (!State.CanAdmin)
+            {
+                _reason = L["arcdel.noRights"];
+                return;
+            }
+            // ТЕКУЩЕГО АРХИВА МОЖЕТ НЕ БЫТЬ ВОВСЕ — тогда переносить некуда, и сказать надо
+            // не «нельзя», а где архив завести. Отличить этот случай от прочих отказов
+            // движка иначе нечем: наружу оба приходят одной ошибкой 400
+            var archives = await Api.GetArchivesAsync();
+            if (!archives.Any(a => a.IsCurrent))
+            {
+                _reason = L["arcdel.noArchive"];
+                return;
+            }
+            _movable = await Api.GetArchiveMovableAsync(Target, Id);
+        }
+        catch (ApiException ex)
+        {
+            // готовая причина движка переноса: какая задача и в каком состоянии мешает,
+            // каким расписанием занят шаблон, не открыт ли текущий архив на этом сервере
+            _reason = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>
+    /// ЧТО УЕДЕТ ВМЕСТЕ С ЗАПИСЬЮ — по составу, посчитанному движком переноса. У задачи,
+    /// узла шаблона и объекта это число потомков (корень из списка вычитается), у проекта —
+    /// его задачи и шаблоны, объекты и записи опыта; логи и настройки проекта уезжают
+    /// всегда, поэтому названы словами.
+    /// </summary>
+    private string Info
+    {
+        get
+        {
+            if (_movable is not { } plan)
+            {
+                return "";
+            }
+            var children = Math.Max(0, plan.Tasks.Count - 1);
+            return Target switch
+            {
+                ArchiveMoveTargets.Task when children > 0 => L["arcdel.info.task", children],
+                ArchiveMoveTargets.Template when children > 0 => L["arcdel.info.template", children],
+                ArchiveMoveTargets.Object when plan.Objects.Count > 1 =>
+                    L["arcdel.info.object", plan.Objects.Count - 1],
+                ArchiveMoveTargets.Project =>
+                    L["arcdel.info.project", plan.Tasks.Count, plan.Objects.Count,
+                        plan.Experience.Count],
+                _ => "",
+            };
+        }
+    }
+}

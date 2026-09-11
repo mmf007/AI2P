@@ -1,0 +1,615 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+@* ЗАКЛАДКА «ОБЪЕКТ» (T-99-S0) — сделана по образцу карточки задачи (TaskCardView).
+
+   ЗАЧЕМ. Объект заводят оконной формой, и это правильно: заведение — короткое дело, ради
+   которого не стоит уходить с того места, где работаешь. А ЧИТАЮТ объект иначе: паспорт
+   персонажа длинный, у него внутренний список кадров, у адаптера — датасет и обучение, и
+   всё это надо держать открытым рядом с задачей, переключаясь между ними. Модальное окно
+   для этого не годится вовсе: оно закрывает собой всё остальное и не переживает перехода
+   к соседнему объекту. Поэтому щелчок по строке списка открывает ОБЫЧНУЮ ЗАКЛАДКУ для
+   чтения, а правка осталась там же, где была, — за кнопкой «изменить» в тулбаре.
+
+   Шапка и тулбар повторяют карточку задачи вплоть до порядка кнопок; заголовок закладки
+   («Объект» + код либо начало названия) считается тем же параметром ui.tabTitleMode —
+   настройка одна на задачи, проекты и объекты.
+
+   СЕРВЕР-ВЛАДЕЛЕЦ (T-102-S0) — как у задачи: плашка рядом с видом объекта говорит, чей он,
+   а кнопка «сменить сервер» передаёт его другому компьютеру ВМЕСТЕ С ПОДДЕРЕВОМ (датасеты и
+   кадры — содержимое объекта). Чужой объект здесь только читается: правка, удаление,
+   настройка LoRA и заведение субобъектов у него погашены. *@
+@if (_notFound)
+{
+    <MudAlert Severity="Severity.Warning" data-object-card-missing="1">@L["objects.notFound"]</MudAlert>
+}
+else if (_item is not { } item)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <div class="ai2p-card-fill">
+    @* шапка в две строки, как у задачи (T-130): длинное название переносится по словам
+       и не сжимает тулбар. Слева — название проекта той же плашкой, что на карточке
+       задачи: список объектов свой у каждого проекта, и это надо видеть сразу *@
+    <MudText Typo="Typo.h5" Class="mb-1" Style="overflow-wrap:anywhere;">
+        @if (ProjectName is { Length: > 0 } projectName)
+        {
+            <MudTooltip Text="@L["task.project"]">
+                <span class="ai2p-task-project">@projectName</span>
+            </MudTooltip>
+        }
+        <b>@item.DisplayId</b> @item.Name
+    </MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudChip T="string" Size="Size.Small" Icon="@KindIcon(item.Type)"
+                 data-object-card-kind="@item.Type">
+            @ObjectKinds.Title(item.Type, L.Lang)
+        </MudChip>
+        @if (!item.IsActive)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Default"
+                     data-object-card-inactive="1">@L["projects.inactive"]</MudChip>
+        }
+        @if (item.LoraStatus != LoraStates.None)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined"
+                     data-object-card-lora="@item.LoraStatus">
+                @L["objects.lora." + item.LoraStatus]
+            </MudChip>
+        }
+        @* сервер-владелец объекта (T-102-S0, ТЗ гл. 6): чужой объект правится только у себя,
+           здесь он в режиме просмотра — об этом и говорит плашка *@
+        @if (State.IsCluster)
+        {
+            <MudTooltip Text="@(item.IsReadOnly
+                                  ? L["objects.server.readOnlyHint"] + " " + ServerTitle(item)
+                                  : L["objects.server.ownHint"])">
+                <MudChip T="string" Size="Size.Small"
+                         Color="@(item.IsReadOnly ? Color.Default : Color.Info)"
+                         Icon="@(item.IsReadOnly ? Icons.Material.Filled.Lock : Icons.Material.Filled.Dns)"
+                         data-object-card-server="@(item.ServerId ?? "")">
+                    @ServerTitle(item)
+                </MudChip>
+            </MudTooltip>
+        }
+        <MudSpacer />
+        @* В АРХИВЕ ФУНКЦИЙ ПРАВКИ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат *@
+        @if (!State.InArchive)
+        {
+            <MudTooltip Text="@L["common.edit"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Edit" data-object-card-edit="1"
+                               Disabled="@(!CanEditObject)" OnClick="EditAsync" />
+            </MudTooltip>
+        }
+        @* «сменить сервер» (T-102-S0): доступна на сервере, которому объект принадлежит
+           сейчас, и на дирижёре — если сервера у объекта нет вовсе *@
+        @if (State.IsCluster && !State.InArchive)
+        {
+            <MudTooltip Text="@L["task.server.change"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Dns" data-object-server-change="1"
+                               Disabled="@(!CanEditObject)" OnClick="ChangeServerAsync" />
+            </MudTooltip>
+        }
+        @* ссылка на объект: и та, что вставляют в задачу, и адрес закладки *@
+        <MudTooltip Text="@L["objects.link"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Link" data-object-card-link="1"
+                           OnClick="ShowLinkAsync" />
+        </MudTooltip>
+        @* настройка LoRA — только у объекта-адаптера: у персонажа и локации своего
+           адаптера нет, и кнопка рядом с паспортом только сбивала бы с толку (T-264) *@
+        @if (item.Type == ObjectKinds.Lora && !State.InArchive)
+        {
+            <MudTooltip Text="@L["objects.lora.setup"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Tune" Color="Color.Primary"
+                               data-object-card-lora-setup="1" Disabled="@(!CanEditObject)"
+                               OnClick="OpenLoraEditorAsync" />
+            </MudTooltip>
+        }
+        <MudTooltip Text="@L["objects.prompt"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Preview" data-object-card-prompt="1"
+                           OnClick="ShowPromptAsync" />
+        </MudTooltip>
+        @if (!State.InArchive)
+        {
+            <MudTooltip Text="@L["common.delete"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                               data-object-card-delete="1" Disabled="@(!CanEditObject)"
+                               OnClick="DeleteAsync" />
+            </MudTooltip>
+        }
+        <MudTooltip Text="@L["common.refresh"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" data-object-card-refresh="1"
+                           OnClick="ReloadAsync" />
+        </MudTooltip>
+    </MudStack>
+
+    @* активная подвкладка запоминается и восстанавливается при возврате (todo23) *@
+    <MudTabs Elevation="1" Rounded="true" @key="@item.Id"
+             ActivePanelIndex="@_tabState.TabIndex"
+             ActivePanelIndexChanged="@(i => _tabState.TabIndex = i)">
+        @* ОСНОВНОЕ — те же поля, что в оконной форме, но ТОЛЬКО ДЛЯ ЧТЕНИЯ и без кнопок:
+           закладка это чтение, а правка живёт в окне за кнопкой «изменить». Поля
+           «внутренний список» здесь нет — вместо него своя вкладка «Субобъекты» *@
+        <MudTabPanel Text="@L["projects.tab.main"]">
+            <MudStack Spacing="3" Class="pa-4" data-object-card-main="1">
+                <MudStack Row="true" Spacing="2">
+                    <MudTextField T="string" Value="@item.Name" Label="@L["objects.name"]"
+                                  ReadOnly="true" Class="flex-grow-1" data-object-card-name="1" />
+                    <MudTextField T="string" Value="@ObjectKinds.Title(item.Type, L.Lang)"
+                                  Label="@L["objects.kind"]" ReadOnly="true"
+                                  Style="max-width: 220px;" />
+                </MudStack>
+                <MudTextField T="string" Value="@ParentTitle(item.ParentId)"
+                              Label="@L["objects.parent"]" ReadOnly="true" />
+                <MudTextField T="string" Value="@string.Join(", ", item.Tags)"
+                              Label="@L["objects.tags"]" ReadOnly="true" />
+                @* эталонный файл: слева превью, справа путь — как в оконной форме (T-264) *@
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <ObjectPic Url="@OwnPic" Alt="@item.Name" Code="@item.DisplayId" SizePx="132" />
+                    <MudTextField T="string" Value="@item.PathOrUrl" Label="@L["objects.path"]"
+                                  ReadOnly="true" Class="flex-grow-1" data-object-card-path="1" />
+                </MudStack>
+                @* ПАСПОРТ — главное содержимое карточки: показан отрендеренным Markdown,
+                   как описание задачи. Ради него закладку и заводили: в поле окна длинный
+                   паспорт читается через щёлочку в восемь строк *@
+                <div>
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                        <MudText Typo="Typo.subtitle2">@L["objects.passport"]</MudText>
+                        <MudSpacer />
+                        <CopyMenuButton Size="Size.Small" data-field-copy="description"
+                                        Parts="@(() => CopyText.One(_item!.Description))" />
+                    </MudStack>
+                    <MudPaper Elevation="0" Class="ai2p-md-preview" data-object-card-passport="1">
+                        @((MarkupString)Md.ToHtml(item.Description))
+                    </MudPaper>
+                </div>
+                @if (item.Type == ObjectKinds.Lora)
+                {
+                    <MudPaper Outlined="true" Elevation="0" Class="pa-3" data-object-card-lora-panel="1">
+                        <MudStack Spacing="2">
+                            <MudText Typo="Typo.subtitle2">@L["objects.lora"]</MudText>
+                            <MudTextField T="string" Value="@L["objects.lora." + item.LoraStatus]"
+                                          Label="@L["objects.lora.status"]" ReadOnly="true" />
+                            <MudTextField T="string" Value="@item.LoraPath"
+                                          Label="@L["objects.lora.path"]" ReadOnly="true" />
+                        </MudStack>
+                    </MudPaper>
+                }
+                @* переключатель погашен: закладка — чтение, правка живёт в оконной форме *@
+                <MudSwitch T="bool" Value="@item.IsActive" Disabled="true" Color="Color.Primary"
+                           Label="@L["common.active"]" data-object-card-active="@(item.IsActive ? "1" : "0")" />
+            </MudStack>
+        </MudTabPanel>
+
+        @* СУБОБЪЕКТЫ — внутренний список объекта, устроенный как список подзадач на карточке
+           задачи: строка с превью, щелчок открывает новую закладку, в конце строки —
+           «изменить» и «удалить» *@
+        <MudTabPanel Text="@L["objects.card.children"]">
+            <MudStack Spacing="2">
+                <MudStack Row="true">
+                    <MudSpacer />
+                    @if (!State.InArchive)
+                    {
+                        <MudTooltip Text="@L["common.add"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.Add" data-object-child-add="1"
+                                           Disabled="@(!CanEditObject)" OnClick="AddChildAsync" />
+                        </MudTooltip>
+                    }
+                </MudStack>
+                @if (Children.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">@L["common.empty"]</MudText>
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th style="width: 1%;"></th>
+                                <th style="width: 1%; white-space: nowrap;">ID</th>
+                                <th style="width: 100%;">@L["objects.name"]</th>
+                                <th style="width: 1%; white-space: nowrap;">@L["objects.kind"]</th>
+                                <th style="width: 1%; white-space: nowrap;">@L["objects.path"]</th>
+                                <th style="width: 1%;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var child in Children)
+                            {
+                                var current = child;
+                                <tr style="cursor: pointer;" data-object-child="@current.DisplayId"
+                                    @onclick="@(() => State.OpenObject(current.Id, current.DisplayId,
+                                                                       current.Name, FrameIndex))">
+                                    <td style="white-space: nowrap; padding: 2px 4px;">
+                                        <ObjectPic Url="@PicOf(current)" Alt="@current.Name"
+                                                   Code="@current.DisplayId" SizePx="48" />
+                                    </td>
+                                    <td style="white-space: nowrap;">@current.DisplayId</td>
+                                    <td style="@(current.IsActive ? "" : "opacity: .5;")">
+                                        @current.Name
+                                        @if (current.ChildCount > 0)
+                                        {
+                                            <span class="ml-2" style="opacity: .6; font-size: .78rem;"
+                                                  data-object-children="@current.ChildCount">+@current.ChildCount</span>
+                                        }
+                                    </td>
+                                    <td style="white-space: nowrap;">@ObjectKinds.Title(current.Type, L.Lang)</td>
+                                    <td style="white-space: nowrap;">@current.PathOrUrl</td>
+                                    @* кнопки строки не должны открывать закладку — stopPropagation *@
+                                    <td style="white-space: nowrap;" @onclick:stopPropagation="true">
+                                        @if (!State.InArchive)
+                                        {
+                                            <MudTooltip Text="@L["common.edit"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                               data-object-child-edit="@current.DisplayId"
+                                                               Disabled="@(!CanEditObject)"
+                                                               OnClick="@(() => EditChildAsync(current))" />
+                                            </MudTooltip>
+                                            <MudTooltip Text="@L["common.delete"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                               Color="Color.Error"
+                                                               data-object-child-delete="@current.DisplayId"
+                                                               Disabled="@(!CanEditObject)"
+                                                               OnClick="@(() => DeleteChildAsync(current))" />
+                                            </MudTooltip>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudStack>
+        </MudTabPanel>
+    </MudTabs>
+    </div>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт закладка (todo22): субобъект открывается в нём же.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    [Parameter, EditorRequired] public string ObjectId { get; set; } = "";
+
+    private ObjectItem? _item;
+    /// <summary>Все объекты проекта: из них берутся дети, название родителя, список тэгов
+    /// и превью. Один запрос вместо четырёх — список объектов проекта невелик.</summary>
+    private List<ObjectItem> _all = [];
+    private List<string> _allTags = [];
+    private Dictionary<string, string> _pics = [];
+    private bool _notFound;
+    private string? _loadedId;
+
+    /// <summary>Активная подвкладка — запоминается на время сессии (todo23).</summary>
+    private ObjectCardState _tabState = new();
+
+    private sealed class ObjectCardState
+    {
+        public int TabIndex { get; set; }
+    }
+
+    private string ProjectId => _item?.ProjectId ?? "";
+
+    /// <summary>Правка объекта возможна: право в организации И объект НАШЕГО сервера
+    /// (T-102-S0) — чужой объект правится только у себя, здесь он читается.</summary>
+    private bool CanEditObject => State.CanEdit && _item is { IsReadOnly: false };
+
+    /// <summary>Сервер объекта для надписи: «S1 (ноутбук)», «S1» либо «без сервера».</summary>
+    private string ServerTitle(ObjectItem item)
+    {
+        if (item.ServerId is not { Length: > 0 })
+        {
+            return L["task.server.none"];
+        }
+        var code = item.ServerCode.Length > 0 ? item.ServerCode : State.ServerCodeOf(item.ServerId);
+        var name = item.ServerName;
+        return name.Length > 0 && code.Length > 0 ? $"{code} ({name})" : code.Length > 0 ? code : name;
+    }
+
+    /// <summary>
+    /// Сменить сервер-владелец объекта (T-102-S0) — тем же окном, что у задачи. После смены
+    /// объект на этом сервере больше не редактируется: карточка перечитывается и переходит
+    /// в режим просмотра.
+    /// </summary>
+    private async Task ChangeServerAsync()
+    {
+        if (_item is not { } item)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<TaskServerDialog>
+        {
+            { d => d.Current, item.ServerId ?? "" },
+            { d => d.IsObject, true },
+        };
+        var dialog = await Dialogs.ShowAsync<TaskServerDialog>(L["task.server.change"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string serverId } && serverId != (item.ServerId ?? ""))
+        {
+            try
+            {
+                await Api.ChangeObjectServerAsync(item.Id, serverId);
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    private string ProjectName =>
+        State.Projects.FirstOrDefault(p => p.Id == ProjectId)?.Name ?? "";
+
+    private List<ObjectItem> Children =>
+        _all.Where(o => o.ParentId == ObjectId).ToList();
+
+    /// <summary>Превью самого объекта — только СВОЙ файл: на карточке уместно показать то,
+    /// что у объекта есть, а не первую попавшуюся картинку его детей (они и так видны
+    /// вкладкой «Субобъекты»).</summary>
+    private string? OwnPic =>
+        _item is null ? null : ObjectPics.Own(_item, ProjectId) is { Length: > 0 } url ? url : null;
+
+    private string? PicOf(ObjectItem item) =>
+        _pics.TryGetValue(item.Id, out var url) ? url : null;
+
+    private string ParentTitle(string? id)
+    {
+        if (id is not { Length: > 0 })
+        {
+            return "";
+        }
+        var parent = _all.FirstOrDefault(o => o.Id == id);
+        return parent is null ? id : $"{parent.DisplayId} {parent.Name}";
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedId != ObjectId)
+        {
+            _loadedId = ObjectId;
+            _tabState = State.ComponentState<ObjectCardState>("objectCard:" + ObjectId);
+            await ReloadAsync();
+        }
+    }
+
+    /// <summary>Картинки строк рисует браузер, но слушатель «файла нет» вешает JS — тот же,
+    /// что в списке объектов (T-276).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_item is not null)
+        {
+            await Js.InvokeVoidAsync("ai2p.initPics");
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _item = await Api.GetObjectAsync(ObjectId);
+            _notFound = false;
+            _all = await Api.GetObjectsAsync(ProjectId);
+            _pics = ObjectPics.Build(_all, ProjectId);
+            _allTags = await Api.GetObjectTagsAsync(ProjectId);
+            // название могло смениться — освежаем заголовок закладки
+            State.OpenObject(_item.Id, _item.DisplayId, _item.Name, FrameIndex);
+        }
+        catch (ApiException ex)
+        {
+            // объекта нет (удалили, устаревшая ссылка) — так и пишем: пустая закладка
+            // читалась бы как «не загрузилось»
+            _notFound = _item is null;
+            if (_item is not null)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Правка — та же оконная форма, что и в списке (T-99-S0): вторую копию полей
+    /// заводить незачем, а заведение объекта осталось коротким делом.</summary>
+    private Task EditAsync() => EditDialogAsync(_item);
+
+    private Task EditChildAsync(ObjectItem child) => EditDialogAsync(child);
+
+    /// <summary>Новый субобъект: та же форма с проставленным родителем.</summary>
+    private Task AddChildAsync() => EditDialogAsync(null);
+
+    private async Task EditDialogAsync(ObjectItem? item)
+    {
+        if (!State.CanEdit || _item is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ObjectDialog>
+        {
+            { d => d.ProjectId, ProjectId },
+            { d => d.Item, item },
+            { d => d.Existing, _all },
+            { d => d.KnownTags, _allTags },
+            // новый объект заводится ВНУТРИ этого (вкладка «Субобъекты»)
+            { d => d.DefaultParentId, item is null ? ObjectId : null },
+        };
+        var dialog = await Dialogs.ShowAsync<ObjectDialog>(
+            item is null ? L["objects.new"] : L["objects.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ObjectItem saved })
+        {
+            return;
+        }
+        try
+        {
+            if (item is null)
+            {
+                await Api.CreateObjectAsync(saved);
+            }
+            else
+            {
+                await Api.UpdateObjectAsync(saved);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Редактор LoRA — то же действие, что кнопка внутри оконной формы (T-12-S1).
+    /// Описание он возвращает сюда, и здесь оно сразу сохраняется: закладка не форма,
+    /// кнопки «сохранить» у неё нет и правку копить негде.</summary>
+    private async Task OpenLoraEditorAsync()
+    {
+        if (_item is not { } item)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<LoraEditorDialog>
+        {
+            { d => d.Item, item },
+            { d => d.Description, item.Description },
+        };
+        var dialog = await Dialogs.ShowAsync<LoraEditorDialog>(L["objects.lora.setup"], parameters,
+            FormDialogs.Options(MaxWidth.Large));
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string description } && description != item.Description)
+        {
+            try
+            {
+                item.Description = description;
+                await Api.UpdateObjectAsync(item);
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+        await ReloadAsync();
+    }
+
+    /// <summary>Ссылки на объект — то же действие, что кнопка внутри оконной формы.</summary>
+    private async Task ShowLinkAsync()
+    {
+        if (_item is not { } item)
+        {
+            return;
+        }
+        var prompt = "";
+        try
+        {
+            prompt = (await Api.GetObjectPromptAsync(item.Id)).Prompt;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        var parameters = new DialogParameters<ObjectLinkDialog>
+        {
+            { d => d.Marker, ObjectRefs.Marker(item.DisplayId) },
+            { d => d.Url, State.ObjectUrl(item.Id) },
+            { d => d.LocalUrl, State.HasExternalUrl ? State.ObjectLocalUrl(item.Id) : "" },
+            // относительная — от корня сайта (T-196-S0)
+            { d => d.RelativeUrl, LinkUrls.RelativeOf(State.ObjectUrl(item.Id)) },
+            { d => d.Prompt, prompt },
+        };
+        await Dialogs.ShowAsync<ObjectLinkDialog>(L["objects.link"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    /// <summary>Что уйдёт в модель — то же действие, что кнопка внутри оконной формы.</summary>
+    private async Task ShowPromptAsync()
+    {
+        if (_item is not { } item)
+        {
+            return;
+        }
+        try
+        {
+            var prompt = await Api.GetObjectPromptAsync(item.Id);
+            var parameters = new DialogParameters<ObjectPromptDialog>
+            {
+                { d => d.Prompt, prompt.Prompt },
+                { d => d.TrainPrompt, prompt.TrainPrompt },
+            };
+            await Dialogs.ShowAsync<ObjectPromptDialog>(L["objects.prompt"], parameters,
+                new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Удаление объекта закладки — тот же выбор «в архив или совсем» (T-44-S0);
+    /// после удаления закладка закрывается: показывать в ней нечего.</summary>
+    private async Task DeleteAsync()
+    {
+        if (_item is not { } item || !await RemoveAsync(item))
+        {
+            return;
+        }
+        State.CloseEntityTab(UiState.ViewObject, ObjectId);
+    }
+
+    private async Task DeleteChildAsync(ObjectItem child)
+    {
+        if (await RemoveAsync(child))
+        {
+            // закладка удалённого субобъекта, если она открыта, закрывается вместе с ним
+            State.CloseEntityTab(UiState.ViewObject, child.Id);
+            await ReloadAsync();
+        }
+    }
+
+    private async Task<bool> RemoveAsync(ObjectItem item)
+    {
+        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+            ArchiveMoveTargets.Object, item.Id, $"{item.DisplayId} {item.Name}");
+        if (choice is null)
+        {
+            return false;
+        }
+        try
+        {
+            if (choice == ArchiveOrDeleteDialog.Archive)
+            {
+                await Api.MoveToArchiveAsync(ArchiveMoveTargets.Object, item.Id);
+            }
+            else
+            {
+                await Api.DeleteObjectAsync(item.Id);
+            }
+            return true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return false;
+        }
+    }
+
+    /// <summary>Значок вида объекта — тот же, что в дереве (ObjectTreeView).</summary>
+    private static string KindIcon(string kind) => kind switch
+    {
+        ObjectKinds.Character => Icons.Material.Filled.Person,
+        ObjectKinds.Location => Icons.Material.Filled.Place,
+        ObjectKinds.Prop => Icons.Material.Filled.Category,
+        ObjectKinds.Style => Icons.Material.Filled.Palette,
+        ObjectKinds.Image => Icons.Material.Filled.Image,
+        ObjectKinds.Dataset => Icons.Material.Filled.PhotoLibrary,
+        ObjectKinds.Lora => Icons.Material.Filled.Tune,
+        ObjectKinds.File => Icons.Material.Filled.InsertDriveFile,
+        ObjectKinds.Hardware => Icons.Material.Filled.Memory,
+        ObjectKinds.Media => Icons.Material.Filled.Movie,
+        _ => Icons.Material.Filled.Circle,
+    };
+}

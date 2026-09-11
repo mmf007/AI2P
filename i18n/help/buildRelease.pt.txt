@@ -1,0 +1,48 @@
+AI2P — buildRelease: DISTRIBUIÇÃO DE RELEASE DO SERVIDOR EM UM DIRETÓRIO SEPARADO
+
+Um conjunto autossuficiente de arquivos que roda sem os fontes e sem o dotnet run
+(ET cap. 4.2). Este é um script do DESENVOLVEDOR: ele é executado na máquina de
+compilação, a partir do repositório, e a saída dele ainda é mista (russo e inglês) —
+é o nível B da análise T-64-S0, ainda não traduzido pelo i18n.
+[antes da T-285 chamava-se publish.*]
+
+USO (Windows)
+  buildRelease.cmd                       para builds\windows\release
+  buildRelease.cmd D:\AI2P_v1.45         para o diretório indicado
+  buildRelease.cmd D:\out Release        diretório e configuração
+  buildRelease.cmd full                  COM O RUNTIME DENTRO, em releasefull
+  buildRelease.ps1 -Output D:\out -Clean limpar o diretório (exceto os dados) e refazer
+  buildRelease.cmd --help                esta ajuda
+  buildRelease.cmd --help -Lang ru       idioma desta ajuda
+
+USO (Linux / macOS)
+  ./buildRelease.sh                      para builds/<SO>/release
+  ./buildRelease.sh --self-contained     COM O RUNTIME DENTRO
+  ./buildRelease.sh --help               esta ajuda
+  ./buildRelease.sh --help --lang ru     idioma desta ajuda
+
+DUAS DISTRIBUIÇÕES
+  comum          — sem o runtime: pequena, mas exige o ASP.NET Core 8.x instalado na
+                   máquina (o install.* dela verifica isso e oferece instalar);
+  -SelfContained — o runtime fica dentro da própria distribuição, não há o que instalar
+                   na máquina, mas a distribuição fica presa à plataforma (-Runtime,
+                   por padrão win-x64) e pesa uma ordem de grandeza a mais.
+Os diretórios são diferentes e NÃO se misturam.
+
+DIRETÓRIO DO SISTEMA OPERACIONAL. Entre builds e release/releasefull há um subdiretório
+com o SO para o qual a distribuição foi montada — windows, linux ou macos:
+  builds/windows/release      — sem runtime
+  builds/windows/releasefull  — com runtime
+  builds/linux/releasefull    — o mesmo, montado para Linux (-Runtime linux-x64)
+  builds/macos/releasefull    — para macOS (-Runtime osx-x64 / osx-arm64)
+As distribuições de sistemas diferentes não se sobrescrevem mais no mesmo diretório:
+elas têm scripts de instalação diferentes, runtime diferente e executáveis diferentes.
+
+O PACOTE DE INSTALAÇÃO é montado em uma etapa SEPARADA e já a partir da distribuição
+pronta: nela é colocado o MakePackage.ps1/.cmd (para Linux/macOS, o MakePackage.sh),
+que deve ser executado A PARTIR do diretório da distribuição, e o resultado vai para
+../../packages.
+
+O diretório de dados NÃO é copiado para cá: data, logs, config.json, secrets.json e
+secrets (chaves dos modelos, um json por chave) são transferidos manualmente e não são
+tocados em uma nova geração da distribuição.

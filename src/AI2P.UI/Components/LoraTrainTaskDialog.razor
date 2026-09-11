@@ -1,0 +1,69 @@
+@inject I18nService L
+
+@* ЗАПУСК ОБУЧЕНИЯ LoRA ЗАДАЧЕЙ (T-157-S0) — последние два вопроса кнопки «Обучить»:
+   ПО КАКОМУ ШАБЛОНУ и КАК ЗАПУСТИТЬ. Одним окном, а не двумя переспросами подряд: вопросы
+   про одно и то же решение, и человек, выбрав шаблон, тут же говорит, запускать ли.
+
+   Заголовок, описание, исполнителя и тэги здесь НЕ спрашивают вовсе — они приезжают из узла
+   шаблона (TaskService.InstantiateTemplate переносит их вместе с опытом узла). Ровно этого и
+   просил заказчик: «писать их не надо». *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 460px;" data-loratask-form="1">
+            <MudText Typo="Typo.body2">@L["lora.task.intro"]</MudText>
+            @if (Templates.Count == 1)
+            {
+                @* один шаблон — выбирать не из чего, но сказать, по какому пойдёт работа, надо *@
+                <MudText Typo="Typo.subtitle2" data-loratask-single="@Templates[0].Id">
+                    @Templates[0].DisplayId — @Templates[0].Title
+                </MudText>
+                <MudText Typo="Typo.caption" Style="opacity:.75;">@Templates[0].ExecutorNick</MudText>
+            }
+            else
+            {
+                <MudSelect T="string" @bind-Value="_templateId" Label="@L["lora.task.template"]"
+                           data-loratask-template="1">
+                    @foreach (var node in Templates)
+                    {
+                        <MudSelectItem T="string" Value="@node.Id">
+                            @node.DisplayId — @node.Title (@node.ExecutorNick)
+                        </MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton data-loratask-cancel="1"
+                   OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudSpacer />
+        @* «Только создать» — задача ждёт в pending: человек сам решит когда, в том числе
+           поставит её блокирующей или в иерархию *@
+        <MudButton Variant="Variant.Outlined" data-loratask-create="1" Disabled="@(_templateId.Length == 0)"
+                   OnClick="@(() => Close(run: false))">@L["lora.task.createOnly"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" data-loratask-run="1"
+                   Disabled="@(_templateId.Length == 0)"
+                   OnClick="@(() => Close(run: true))">@L["lora.task.createAndRun"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Годные узлы шаблонов — те, у кого в исполнителях стоит подходящий «авто ПО».</summary>
+    [Parameter, EditorRequired] public List<LoraTrainTemplateDto> Templates { get; set; } = [];
+
+    private string _templateId = "";
+
+    protected override void OnInitialized() =>
+        _templateId = Templates.Count > 0 ? Templates[0].Id : "";
+
+    /// <summary>Ответ окна: выбранный шаблон и «запускать ли». Отмена приходит отдельно —
+    /// Dialog.Cancel(), а не третьим значением: у отмены нет ни шаблона, ни запуска.</summary>
+    private void Close(bool run) =>
+        Dialog.Close(DialogResult.Ok(new LoraTrainTaskCreateDto
+        {
+            TemplateId = _templateId,
+            Run = run,
+        }));
+}

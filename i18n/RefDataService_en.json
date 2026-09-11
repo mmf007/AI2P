@@ -1,0 +1,239 @@
+{
+  "seedVersion": 2,
+  "roles": [
+    {
+      "id": "rd710000-0000-4000-9000-000000000001",
+      "name": "manager"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000002",
+      "name": "developer"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000003",
+      "name": "tester"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000004",
+      "name": "art director"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000005",
+      "name": "artist"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000006",
+      "name": "analyst"
+    }
+  ],
+  "codeSkills": [
+    {
+      "name": "code-write",
+      "description": "writing code"
+    },
+    {
+      "name": "code-review",
+      "description": "code review"
+    },
+    {
+      "name": "code-debug",
+      "description": "debugging"
+    },
+    {
+      "name": "code-test",
+      "description": "writing and running tests"
+    },
+    {
+      "name": "code-refactor",
+      "description": "refactoring"
+    }
+  ],
+  "skills": [
+    {
+      "name": "text-write",
+      "description": "writing texts"
+    },
+    {
+      "name": "text-docs",
+      "description": "technical documentation"
+    },
+    {
+      "name": "text-edit",
+      "description": "editing and proofreading"
+    },
+    {
+      "name": "text-translate",
+      "description": "translation"
+    },
+    {
+      "name": "text-summarize",
+      "description": "summarization and text analysis"
+    },
+    {
+      "name": "analyze-requirements",
+      "description": "requirements analysis"
+    },
+    {
+      "name": "analyze-plan",
+      "description": "planning and work decomposition"
+    },
+    {
+      "name": "analyze-data",
+      "description": "data analysis"
+    },
+    {
+      "name": "image-generate",
+      "description": "text-to-image generation (t2i)"
+    },
+    {
+      "name": "image-edit",
+      "description": "image editing (i2i)"
+    },
+    {
+      "name": "image-inpaint",
+      "description": "masked image editing (inpaint)"
+    },
+    {
+      "name": "image-concept",
+      "description": "concept art"
+    },
+    {
+      "name": "image-photo",
+      "description": "photorealistic images"
+    },
+    {
+      "name": "image-text",
+      "description": "images with text (typography, lettering)"
+    },
+    {
+      "name": "video-generate",
+      "description": "text-to-video generation (t2v)"
+    },
+    {
+      "name": "video-animate",
+      "description": "image-to-video animation (i2v)"
+    },
+    {
+      "name": "video-edit",
+      "description": "editing an existing video (v2v)"
+    },
+    {
+      "name": "video-extend",
+      "description": "extending an existing clip (v2v, extend)"
+    },
+    {
+      "name": "video-keyframes",
+      "description": "video from the first and last frame (flf2v)"
+    },
+    {
+      "name": "video-restyle",
+      "description": "video restyling by reference (v2v, restyle)"
+    },
+    {
+      "name": "video-lipsync",
+      "description": "lip sync to an audio track (a2v)"
+    },
+    {
+      "name": "audio-song",
+      "description": "songs with vocals (t2a)"
+    },
+    {
+      "name": "audio-music",
+      "description": "instrumental music (t2a)"
+    },
+    {
+      "name": "audio-speech",
+      "description": "speech voice-over (t2s)"
+    },
+    {
+      "name": "3d-generate",
+      "description": "text-to-3D model (t23d)"
+    },
+    {
+      "name": "3d-image",
+      "description": "image-to-3D model (i23d)"
+    },
+    {
+      "name": "3d-texture",
+      "description": "texturing and materials"
+    },
+    {
+      "name": "3d-animation",
+      "description": "3D animation"
+    },
+    {
+      "name": "3d-environment",
+      "description": "3D environment (landscape)"
+    }
+  ],
+  "ioFormats": [
+    {
+      "name": "text/plain",
+      "description": "plain text"
+    },
+    {
+      "name": "text/markdown",
+      "description": "Markdown text"
+    },
+    {
+      "name": "text/html",
+      "description": "HTML"
+    },
+    {
+      "name": "text/source-code",
+      "description": "source code"
+    },
+    {
+      "name": "application/json",
+      "description": "JSON data"
+    },
+    {
+      "name": "application/pdf",
+      "description": "PDF document"
+    },
+    {
+      "name": "image/*",
+      "description": "images (any)"
+    },
+    {
+      "name": "image/png",
+      "description": "PNG image"
+    },
+    {
+      "name": "image/jpeg",
+      "description": "JPEG image"
+    },
+    {
+      "name": "image/webp",
+      "description": "WebP image"
+    },
+    {
+      "name": "audio/*",
+      "description": "audio (any)"
+    },
+    {
+      "name": "audio/wav",
+      "description": "WAV audio"
+    },
+    {
+      "name": "audio/mpeg",
+      "description": "MP3 audio"
+    },
+    {
+      "name": "video/*",
+      "description": "video (any)"
+    },
+    {
+      "name": "video/mp4",
+      "description": "MP4 video"
+    },
+    {
+      "name": "model/3d",
+      "description": "3D model"
+    },
+    {
+      "name": "model/glb",
+      "description": "glTF/GLB 3D model"
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+
+@* СМЕНА ДИРИЖЁРА (T-21-S1) — одна форма на обе половины сценария.
+
+   ПОДАЧА. Дирижёрство не переставляется флажком: от дирижёра зависит выдача кодов серверам,
+   ведение справочников и вся топология репликации (ТЗ гл. 6). Поэтому передача — отдельная
+   двусторонняя операция, устроенная как первое подключение сервера: здесь заявка подаётся,
+   а решение принимает человек на другой стороне. Подать её вправе только две стороны —
+   назначаемый сервер и сегодняшний дирижёр.
+
+   РЕШЕНИЕ. Если заявка уже идёт, форма показывает её и даёт кнопки той стороне, которая
+   вправе решать: подавшему — «снять», второй стороне — «принять» и «отклонить».
+
+   АВАРИЙНЫЙ СЛУЧАЙ. У заявки, поданной САМИМ назначаемым сервером, идёт обратный отсчёт
+   12 часов; по его истечении здесь же появляется «Принять в одностороннем порядке» — без
+   неё организация с физически потерянным дирижёром осталась бы без дирижёра навсегда. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 420px;" data-conductor-dialog="1">
+            <MudAlert Severity="Severity.Info" Dense="true">@L["conductor.hint"]</MudAlert>
+
+            <MudSimpleTable Dense="true" Elevation="0">
+                <tbody>
+                    <tr>
+                        <td>@L["conductor.target"]</td>
+                        <td data-conductor-target><b>@Describe(TargetId, TargetName, TargetCode)</b></td>
+                    </tr>
+                    <tr>
+                        <td>@L["conductor.from"]</td>
+                        <td>@(FromDescription.Length > 0 ? FromDescription : "—")</td>
+                    </tr>
+                    <tr>
+                        <td>@L["servers.org"]</td>
+                        <td>@OrgName</td>
+                    </tr>
+                    @if (_request is { } current)
+                    {
+                        <tr>
+                            <td>@L["conductor.state"]</td>
+                            <td data-conductor-status="@current.Status">
+                                <MudText Typo="Typo.body2" Color="@StatusColor(current.Status)">
+                                    @L["conductor.status." + current.Status]
+                                    @(current.Unilateral ? " · " + L["conductor.unilateral"] : "")
+                                </MudText>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>@L["servers.requestedBy"]</td>
+                            <td>@(current.RequestedBy.Length > 0 ? current.RequestedBy : "—")</td>
+                        </tr>
+                        <tr>
+                            <td>@L["servers.requestedAt"]</td>
+                            <td>@current.CreatedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm")</td>
+                        </tr>
+                        @if (current.Note.Length > 0)
+                        {
+                            <tr>
+                                <td>@L["conductor.note"]</td>
+                                <td>@current.Note</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </MudSimpleTable>
+
+            @* --- ПОДАЧА: записка и объяснение, что будет дальше --- *@
+            @if (_request is null)
+            {
+                @if (_problem.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true"
+                              data-conductor-problem="1">@_problem</MudAlert>
+                }
+                else
+                {
+                    <MudTextField @bind-Value="_note" Label="@L["conductor.note"]"
+                                  HelperText="@L["conductor.noteHint"]" Lines="3"
+                                  data-conductor-note="1" />
+                    <MudText Typo="Typo.caption">@L["conductor.sendHint"]</MudText>
+                }
+            }
+            else
+            {
+                @* --- РЕШЕНИЕ и обратный отсчёт --- *@
+                @if (ConductorRequestStatus.IsOpen(_request.Status) && _request.ByTarget)
+                {
+                    <MudAlert Severity="@(_request.CanTakeOver ? Severity.Warning : Severity.Normal)"
+                              Dense="true" data-conductor-countdown="@_request.CountdownSec">
+                        @(_request.CanTakeOver
+                            ? L["conductor.takeover.ready"]
+                            : L["conductor.takeover.wait"] + " " + Countdown(_request.CountdownSec))
+                    </MudAlert>
+                }
+                @if (ConductorRequestStatus.IsOpen(_request.Status) && !_request.CanDecide
+                     && !_request.Mine)
+                {
+                    <MudText Typo="Typo.caption">@L["conductor.otherSide"]</MudText>
+                }
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        @if (_request is { } request)
+        {
+            @if (ConductorRequestStatus.IsOpen(request.Status) && request.CanDecide)
+            {
+                <MudButton Color="Color.Error" Disabled="@_busy" data-conductor-reject="1"
+                           OnClick="@(() => DecideAsync("reject"))">@L["conductor.reject"]</MudButton>
+            }
+            @if (ConductorRequestStatus.IsOpen(request.Status) && request.Mine)
+            {
+                <MudButton Color="Color.Error" Disabled="@_busy" data-conductor-withdraw="1"
+                           OnClick="@(() => DecideAsync("withdraw"))">@L["conductor.withdraw"]</MudButton>
+            }
+            <MudSpacer />
+            <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.close"]</MudButton>
+            @if (ConductorRequestStatus.IsOpen(request.Status) && request.CanTakeOver)
+            {
+                <MudButton Color="Color.Warning" Variant="Variant.Filled" Disabled="@_busy"
+                           data-conductor-takeover="1"
+                           OnClick="@(() => DecideAsync("takeover"))">@L["conductor.takeover"]</MudButton>
+            }
+            @if (ConductorRequestStatus.IsOpen(request.Status) && request.CanDecide)
+            {
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@_busy"
+                           data-conductor-accept="1"
+                           OnClick="@(() => DecideAsync("accept"))">@L["conductor.accept"]</MudButton>
+            }
+        }
+        else
+        {
+            <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" data-conductor-send="1"
+                       Disabled="@(_busy || _problem.Length > 0)"
+                       OnClick="SendAsync">@L["conductor.send"]</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Сервер, которого назначают дирижёром.</summary>
+    [Parameter] public string TargetId { get; set; } = "";
+
+    [Parameter] public string TargetName { get; set; } = "";
+
+    [Parameter] public string TargetCode { get; set; } = "";
+
+    /// <summary>Сегодняшний дирижёр организации словами; пусто — его нет.</summary>
+    [Parameter] public string FromDescription { get; set; } = "";
+
+    /// <summary>Организация, в которой меняется дирижёр: заявка принадлежит именно ей.</summary>
+    [Parameter] public string OrgName { get; set; } = "";
+
+    /// <summary>Уже идущая заявка; null — форма подачи. Передаётся, когда форму открыли
+    /// со строки заявки внизу списка серверов.</summary>
+    [Parameter] public ConductorRequestDto? Request { get; set; }
+
+    /// <summary>Почему подать заявку нельзя (текст с сервера); пусто — можно.</summary>
+    [Parameter] public string Problem { get; set; } = "";
+
+    private ConductorRequestDto? _request;
+    private string _problem = "";
+    private string _note = "";
+    private bool _busy;
+
+    protected override void OnInitialized()
+    {
+        _request = Request;
+        _problem = Problem;
+    }
+
+    private string Describe(string id, string name, string code)
+    {
+        var shown = name.Length > 0 ? name : id;
+        return code.Length > 0 ? $"{code} ({shown})" : shown;
+    }
+
+    private static Color StatusColor(string status) => status switch
+    {
+        ConductorRequestStatus.Accepted => Color.Success,
+        ConductorRequestStatus.Rejected => Color.Error,
+        ConductorRequestStatus.Withdrawn => Color.Default,
+        _ => Color.Warning,
+    };
+
+    /// <summary>Остаток обратного отсчёта словами: «11 ч 20 мин».</summary>
+    private string Countdown(long seconds)
+    {
+        var left = TimeSpan.FromSeconds(Math.Max(0, seconds));
+        return L["conductor.takeover.left", (int)left.TotalHours, left.Minutes];
+    }
+
+    private async Task SendAsync()
+    {
+        _busy = true;
+        try
+        {
+            _request = await Api.RequestConductorAsync(TargetId, _note);
+            Snackbar.Add(L["conductor.sent"], Severity.Success);
+            Dialog.Close(DialogResult.Ok(_request));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DecideAsync(string decision)
+    {
+        if (_request is null)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _request = await Api.DecideConductorRequestAsync(_request.Id, decision);
+            Snackbar.Add(L["conductor.done." + _request.Status], Severity.Success);
+            Dialog.Close(DialogResult.Ok(_request));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

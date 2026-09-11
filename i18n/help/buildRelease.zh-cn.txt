@@ -1,0 +1,45 @@
+AI2P — buildRelease：把服务器的发布部署包生成到单独的目录
+
+一套自足的文件，无需源码、也无需 dotnet run 即可运行（技术规格 4.2 章）。这是
+**开发者**脚本：它在构建机器上、从代码仓库中运行，它自己的输出目前是混合的
+（俄文和英文） — 这属于 T-64-S0 分析中的 B 层，还没有通过 i18n 翻译。
+[在 T-285 之前叫做 publish.*]
+
+用法（Windows）
+  buildRelease.cmd                       生成到 builds\windows\release
+  buildRelease.cmd D:\AI2P_v1.45         生成到指定目录
+  buildRelease.cmd D:\out Release        目录和配置
+  buildRelease.cmd full                  **内含运行时**，生成到 releasefull
+  buildRelease.ps1 -Output D:\out -Clean 清空目录（数据除外）后重新生成
+  buildRelease.cmd --help                本帮助
+  buildRelease.cmd --help -Lang ru       本帮助的语言
+
+用法（Linux / macOS）
+  ./buildRelease.sh                      生成到 builds/<OS>/release
+  ./buildRelease.sh --self-contained     **内含运行时**
+  ./buildRelease.sh --help               本帮助
+  ./buildRelease.sh --help --lang ru     本帮助的语言
+
+两种部署包
+  普通           — 不含运行时：体积小，但要求机器上已安装
+                   ASP.NET Core 8.x（它的 install.* 会检查并提议安装）；
+  -SelfContained — 运行时就在部署包内部，机器上无需安装任何东西，
+                   但部署包与平台绑定（-Runtime，默认 win-x64），
+                   体积也大一个数量级。
+两者目录不同，**不会**混在一起。
+
+操作系统目录。在 builds 与 release/releasefull 之间，还有一层该部署包所针对的
+操作系统的子目录 — windows、linux 或 macos：
+  builds/windows/release      — 不含运行时
+  builds/windows/releasefull  — 含运行时
+  builds/linux/releasefull    — 同上，为 Linux 构建（-Runtime linux-x64）
+  builds/macos/releasefull    — 为 macOS 构建（-Runtime osx-x64 / osx-arm64）
+不同系统的部署包不再在同一个目录里互相覆盖：它们的安装脚本不同，内部的运行时
+不同，可执行文件也不同。
+
+安装包由**单独的**一步、并且从现成的部署包构建：部署包中会放入
+MakePackage.ps1/.cmd（Linux/macOS 为 MakePackage.sh），必须**从**部署目录运行它，
+结果放到 ../../packages。
+
+数据目录**不会**复制到这里：data、logs、config.json、secrets.json 和 secrets
+（模型密钥，每个密钥一个 json）要手动迁移，重新生成部署包时不会被触动。

@@ -1,0 +1,239 @@
+{
+  "seedVersion": 2,
+  "roles": [
+    {
+      "id": "rd710000-0000-4000-9000-000000000001",
+      "name": "менеджер"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000002",
+      "name": "программист"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000003",
+      "name": "тестировщик"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000004",
+      "name": "арт-директор"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000005",
+      "name": "художник"
+    },
+    {
+      "id": "rd710000-0000-4000-9000-000000000006",
+      "name": "аналитик"
+    }
+  ],
+  "codeSkills": [
+    {
+      "name": "code-write",
+      "description": "написание кода"
+    },
+    {
+      "name": "code-review",
+      "description": "ревью кода"
+    },
+    {
+      "name": "code-debug",
+      "description": "поиск и исправление ошибок"
+    },
+    {
+      "name": "code-test",
+      "description": "написание и прогон тестов"
+    },
+    {
+      "name": "code-refactor",
+      "description": "рефакторинг"
+    }
+  ],
+  "skills": [
+    {
+      "name": "text-write",
+      "description": "написание текстов"
+    },
+    {
+      "name": "text-docs",
+      "description": "техническая документация"
+    },
+    {
+      "name": "text-edit",
+      "description": "редактура и корректура"
+    },
+    {
+      "name": "text-translate",
+      "description": "перевод"
+    },
+    {
+      "name": "text-summarize",
+      "description": "суммаризация и анализ текста"
+    },
+    {
+      "name": "analyze-requirements",
+      "description": "анализ требований"
+    },
+    {
+      "name": "analyze-plan",
+      "description": "планирование и декомпозиция работ"
+    },
+    {
+      "name": "analyze-data",
+      "description": "анализ данных"
+    },
+    {
+      "name": "image-generate",
+      "description": "генерация изображений по тексту (t2i)"
+    },
+    {
+      "name": "image-edit",
+      "description": "редактирование изображений (i2i)"
+    },
+    {
+      "name": "image-inpaint",
+      "description": "правка изображения по маске (inpaint)"
+    },
+    {
+      "name": "image-concept",
+      "description": "концепт-арт"
+    },
+    {
+      "name": "image-photo",
+      "description": "фотореализм"
+    },
+    {
+      "name": "image-text",
+      "description": "изображения с текстом (типографика, надписи)"
+    },
+    {
+      "name": "video-generate",
+      "description": "видео по тексту (t2v)"
+    },
+    {
+      "name": "video-animate",
+      "description": "оживление изображения (i2v)"
+    },
+    {
+      "name": "video-edit",
+      "description": "правка готового видео (v2v)"
+    },
+    {
+      "name": "video-extend",
+      "description": "продление готового ролика (v2v, extend)"
+    },
+    {
+      "name": "video-keyframes",
+      "description": "видео по первому и последнему кадру (flf2v)"
+    },
+    {
+      "name": "video-restyle",
+      "description": "стилизация видео по образцу (v2v, restyle)"
+    },
+    {
+      "name": "video-lipsync",
+      "description": "липсинк под звуковую дорожку (a2v)"
+    },
+    {
+      "name": "audio-song",
+      "description": "песни с вокалом (t2a)"
+    },
+    {
+      "name": "audio-music",
+      "description": "инструментальная музыка (t2a)"
+    },
+    {
+      "name": "audio-speech",
+      "description": "озвучка речи (t2s)"
+    },
+    {
+      "name": "3d-generate",
+      "description": "3D-модель по тексту (t23d)"
+    },
+    {
+      "name": "3d-image",
+      "description": "3D-модель по изображению (i23d)"
+    },
+    {
+      "name": "3d-texture",
+      "description": "текстурирование и материалы"
+    },
+    {
+      "name": "3d-animation",
+      "description": "создание анимаций"
+    },
+    {
+      "name": "3d-environment",
+      "description": "создание 3D-окружения (ландшафта)"
+    }
+  ],
+  "ioFormats": [
+    {
+      "name": "text/plain",
+      "description": "простой текст"
+    },
+    {
+      "name": "text/markdown",
+      "description": "текст Markdown"
+    },
+    {
+      "name": "text/html",
+      "description": "HTML"
+    },
+    {
+      "name": "text/source-code",
+      "description": "исходный код"
+    },
+    {
+      "name": "application/json",
+      "description": "JSON-данные"
+    },
+    {
+      "name": "application/pdf",
+      "description": "документ PDF"
+    },
+    {
+      "name": "image/*",
+      "description": "изображения (любые)"
+    },
+    {
+      "name": "image/png",
+      "description": "изображение PNG"
+    },
+    {
+      "name": "image/jpeg",
+      "description": "изображение JPEG"
+    },
+    {
+      "name": "image/webp",
+      "description": "изображение WebP"
+    },
+    {
+      "name": "audio/*",
+      "description": "аудио (любое)"
+    },
+    {
+      "name": "audio/wav",
+      "description": "звук WAV"
+    },
+    {
+      "name": "audio/mpeg",
+      "description": "звук MP3"
+    },
+    {
+      "name": "video/*",
+      "description": "видео (любое)"
+    },
+    {
+      "name": "video/mp4",
+      "description": "видео MP4"
+    },
+    {
+      "name": "model/3d",
+      "description": "3D-модель"
+    },
+    {
+      "name": "model/glb",
+      "description": "3D-модель glTF/GLB"
+    }
+  ]
+}

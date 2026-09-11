@@ -1,0 +1,62 @@
+AI2P — install: INSTALAÇÃO E ATUALIZAÇÃO da distribuição de release (ET cap. 4.3)
+
+O script é colocado NO DIRETÓRIO DA DISTRIBUIÇÃO pelo próprio buildRelease e trabalha
+«daqui para lá»: a origem é o diretório onde o próprio script está, e o destino é o
+único parâmetro.
+
+USO (Windows)
+  install.cmd D:\AI2P                 instalar ou atualizar a instalação em D:\AI2P
+  install.cmd D:\AI2P -Force          não perguntar nem conferir versões
+  install.cmd D:\AI2P -WhatIf         apenas mostrar o que será feito
+  install.cmd D:\AI2P -NoRuntimeCheck não verificar o runtime .NET
+  install.cmd D:\AI2P -Lang pt        idioma das mensagens
+  install.cmd --help                  esta ajuda
+  install.ps1 …                       o mesmo, sem o invólucro .cmd
+
+USO (Linux / macOS)
+  ./install.sh ~/ai/AI2P                    instalar ou atualizar
+  ./install.sh ~/ai/AI2P --force            não perguntar nem conferir versões
+  ./install.sh ~/ai/AI2P --what-if          apenas mostrar o que será feito
+  ./install.sh ~/ai/AI2P --no-runtime-check não verificar o runtime .NET
+  ./install.sh ~/ai/AI2P --lang pt          idioma das mensagens
+  ./install.sh --help                       esta ajuda
+
+IDIOMA DAS MENSAGENS
+  --lang / -Lang, depois a variável de ambiente AI2P_LANG, e por padrão en. A chave
+  "language" do config.json NÃO é consultada de propósito: o idioma da interface do
+  aplicativo e o idioma do console de instalação são coisas diferentes. Os textos ficam
+  em i18n/scripts.<idioma>.txt, esta ajuda em i18n/help/install.<idioma>.txt; o próprio
+  script não é duplicado por idioma.
+
+O QUE FAZ
+  * o destino não existe ou está vazio -> INSTALAÇÃO INICIAL: tudo é copiado;
+  * o destino já tem uma instalação    -> ATUALIZAÇÃO: as versões são conferidas pelo
+    version.json, os arquivos do programa são substituídos e os DADOS DO USUÁRIO NÃO
+    SÃO TOCADOS.
+
+  Nunca são sobrescritos: data, logs, secrets.json, secrets, config.json.
+  A configuração da nova versão é colocada ao lado como config.new.json — o aplicativo
+  a mescla no primeiro início: a base é a nova (todos os parâmetros novos com padrões)
+  e por cima ficam os valores de trabalho do usuário (ConfigMerge). A estrutura do banco
+  o aplicativo ajusta sozinho no mesmo momento.
+
+RUNTIME .NET
+  A distribuição comum (builds/<SO>/release) é montada SEM o runtime: para executá-la a
+  máquina precisa do ASP.NET Core Runtime 8.x — o script o verifica e oferece instalá-lo
+  (winget no Windows, apt/dnf ou o dotnet-install.sh oficial nos demais). A distribuição
+  completa (builds/<SO>/releasefull) não precisa do runtime de forma alguma: ele está
+  dentro dela, e a verificação é ignorada pela marca selfContained do version.json.
+
+SERVIÇO DO SO
+  Se a instalação foi transformada em serviço (makeAsServise, nome do serviço AI2P), o
+  script o para sozinho antes da cópia e o inicia de volta depois. Ele pergunta ao
+  SISTEMA, e não à marca no arquivo de configuração: só o sistema conhece a situação
+  real. Um serviço alheio, que aponta para outra instalação, o script nunca toca.
+
+PULAR VERSÕES
+  A distribuição é COMPLETA, e não um remendo sobre a anterior: instalar a 1.79 sobre a
+  1.70 funciona exatamente como sobre a 1.78. Para que a atualização por cima de várias
+  versões não deixe lixo, o script mantém um INVENTÁRIO (installed.json): o que esta
+  versão colocou no destino. Na instalação seguinte, os arquivos do inventário anterior
+  que não existem mais na nova distribuição são removidos, enquanto os acrescentados
+  pela pessoa (um idioma próprio em i18n) não constam do inventário e por isso ficam.

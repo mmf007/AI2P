@@ -1,0 +1,268 @@
+{
+  "seedVersion": 21,
+  "actions": [
+    {
+      "id": "ac710000-0000-4000-9000-000000000001",
+      "code": "AI2P.Files.List",
+      "tool": "list_files",
+      "title": "Lista de archivos del proyecto",
+      "hint": "Lista recursiva de los archivos de la carpeta del proyecto con sus tamaños. El agente la usa para ver la composición del proyecto y encontrar un archivo por su nombre.",
+      "prompt": "Lista de archivos de una carpeta (recursiva, con tamaños). Úsala para entender la composición del proyecto y encontrar el archivo que necesitas por su nombre. El parámetro path es una subcarpeta relativa a la raíz del proyecto; vacío, todo el proyecto; para una carpeta abierta por las reglas de seguridad, su ruta completa."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000002",
+      "code": "AI2P.Files.Search",
+      "tool": "search_files",
+      "title": "Búsqueda en los archivos del proyecto",
+      "hint": "Búsqueda de una subcadena en el contenido de los archivos del proyecto (sin distinguir mayúsculas); devuelve archivos, números de línea y fragmentos.",
+      "prompt": "Búsqueda de texto en el contenido de los archivos (por subcadena, sin distinguir mayúsculas). Devuelve archivos, números de línea y fragmentos. Úsala para encontrar un archivo por su contenido. Parámetros: query, la cadena buscada; path, la subcarpeta donde buscar, vacío para todo el proyecto; para una carpeta abierta por las reglas de seguridad, su ruta completa."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000003",
+      "code": "AI2P.Files.Read",
+      "tool": "read_file",
+      "title": "Lectura de un archivo del proyecto",
+      "hint": "Lee un archivo de texto del proyecto por su ruta relativa (los binarios no se leen, los largos se recortan).",
+      "prompt": "Leer un archivo de texto. Úsalo antes de modificar un archivo, para ver su contenido. El parámetro path es la ruta del archivo relativa a la raíz del proyecto; para un archivo de una carpeta abierta por las reglas de seguridad, la ruta completa."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000004",
+      "code": "AI2P.Files.Write",
+      "tool": "write_file",
+      "title": "Escritura de un archivo del proyecto",
+      "hint": "Crea o sobrescribe un archivo de texto del proyecto; en la respuesta va el enlace externo al archivo. No hay eliminación.",
+      "prompt": "Crear un archivo de texto nuevo o sobrescribir uno existente. path es la ruta relativa a la raíz del proyecto (puede ser un archivo nuevo junto al original); en una carpeta abierta por las reglas de seguridad, escribe por ruta completa. content es el contenido completo. En la respuesta se devuelve el enlace externo al archivo: usa precisamente ese si hace falta dar un enlace al usuario."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000005",
+      "code": "AI2P.Files.Url",
+      "tool": "file_url",
+      "title": "Enlace externo a un archivo",
+      "hint": "Devuelve la URL externa de un archivo del proyecto; protege frente a enlaces inventados.",
+      "prompt": "Obtener el enlace externo (URL) de un archivo. Úsalo cuando haya que dar al usuario un enlace a un archivo. NO te inventes los enlaces: toma sólo el que devuelva esta herramienta o write_file. El parámetro path es la ruta del archivo relativa a la raíz del proyecto; para un archivo de una carpeta abierta por las reglas de seguridad, la ruta completa (el enlace será del tipo file:)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000006",
+      "code": "AI2P.Tasks.GetParent",
+      "tool": "get_parent_task",
+      "title": "Encargo padre",
+      "hint": "Devuelve el encargo padre de la tarea actual: enunciado, criterios de aceptación, estado y artefactos de resultado.",
+      "prompt": "Obtener el encargo padre de la tarea actual: enunciado, criterios de aceptación, estado y resultados de la ejecución (artefactos). Úsalo cuando en el encargo se mencione la «tarea padre» o haya que comprobar su resultado."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000007",
+      "code": "AI2P.Tasks.GetByCode",
+      "tool": "get_task_by_code",
+      "title": "Encargo por código",
+      "hint": "Devuelve un encargo de este mismo proyecto por su código corto (T-15). El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_GET_TASK en la respuesta (el encargo llega junto con el chat), y esta acción también lo controla a él.",
+      "prompt": "Obtener un encargo por su código corto (por ejemplo T-15 o P-3): enunciado, criterios de aceptación, estado y resultados (artefactos). Están disponibles las tareas de este mismo proyecto. El parámetro code es el código corto de la tarea."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000008",
+      "code": "AI2P.Tasks.GetByUrl",
+      "tool": "get_task_by_url",
+      "title": "Encargo por enlace",
+      "hint": "Devuelve un encargo por su URL (…/task/<id>): la persona suele responder con un enlace. El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_GET_TASK en la respuesta (el encargo llega junto con el chat), y esta acción también lo controla a él.",
+      "prompt": "Obtener un encargo por el enlace a él (URL del tipo …/task/<id>): enunciado, criterios de aceptación, estado y resultados (artefactos). Úsalo cuando la persona haya enviado un enlace a una tarea. Están disponibles las tareas de este mismo proyecto. El parámetro url es el enlace a la tarea."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000009",
+      "code": "AI2P.Tasks.FindByTitle",
+      "tool": "find_tasks_by_title",
+      "title": "Búsqueda de encargos por título",
+      "hint": "Busca encargos del proyecto por una subcadena del título; devuelve código, título, estado y padre. El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_GET_TASK en la respuesta, y esta acción también lo controla a él.",
+      "prompt": "Encontrar encargos de este proyecto por su título (subcadena, sin distinguir mayúsculas). Devuelve una lista: código, título, estado, padre. Después lee el encargo que necesites con get_task_by_code. El parámetro title es una parte del título de la tarea."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000010",
+      "code": "AI2P.Tasks.GetChat",
+      "tool": "get_task_chat",
+      "title": "Chat de un encargo",
+      "hint": "Devuelve el chat de un encargo: mensajes de personas y agentes, preguntas y respuestas (los últimos 100 mensajes). El agente CLI no tiene herramientas de AI2P: el chat le llega junto con el encargo pedido con el marcador AI2P_GET_TASK, y esta acción también lo controla a él.",
+      "prompt": "Leer el chat de un encargo: mensajes de personas y agentes, preguntas y respuestas. Sin el parámetro code, el chat de la tarea actual; con code, el chat de otro encargo de este proyecto. Úsalo cuando importe el contexto del debate (aclaraciones, acuerdos, respuestas de la persona)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000011",
+      "code": "AI2P.Chat.AskQuestion",
+      "tool": "ask_question",
+      "title": "Pregunta a una persona",
+      "hint": "El agente hace una pregunta a una persona y espera: el encargo se detiene hasta la respuesta y luego continúa desde el mismo punto.",
+      "prompt": "Hacer una pregunta a una persona y esperar la respuesta: el trabajo se detendrá hasta la respuesta y después continuará. Úsalo sólo cuando sin respuesta no se pueda continuar. Parámetros: question, el texto de la pregunta; options, las opciones de respuesta (opcional); la persona puede elegir una opción o responder con texto libre."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000012",
+      "code": "AI2P.Tasks.Create",
+      "tool": "create_task",
+      "title": "Crear una subtarea",
+      "hint": "El agente crea una subtarea de la tarea actual (título, descripción, habilidades, prioridad numérica); el ejecutor se elige automáticamente «primero la IA, luego una persona». La primera llamada marca la tarea como dividida (no volver a dividirla). El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_SUBTASK en la respuesta, y esta acción también lo controla a él.",
+      "prompt": "Crear una subtarea de la tarea actual. Parámetros: title, el título; description, la descripción autosuficiente del trabajo (Markdown); skills, las habilidades (qué hay que hacer en la práctica), con los nombres del catálogo de habilidades (la lista está en el prompt del sistema); priority, la prioridad numérica (más importante = mayor: baja 0–10, normal 11–20, alta a partir de 21); acceptance, los criterios de aceptación (opcional); startAfterMinutes, arranque aplazado: dentro de cuántos minutos se puede lanzar la subtarea (0 o vacío, como siempre; máximo un día). El arranque aplazado hace falta para una subtarea de comprobación, cuando el resultado de un trabajo largo (ejecución de pruebas, compilación) aparecerá más tarde: esa subtarea esperará su momento y se lanzará sola. El ejecutor de la subtarea se elige automáticamente: primero la IA, luego una persona. No ejecutes tú las subtareas: sólo créalas."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000023",
+      "code": "AI2P.Tasks.Move",
+      "tool": "move_task",
+      "title": "Trasladar una tarea por la jerarquía",
+      "hint": "El agente cambia el padre de una tarea o la lleva a la raíz, dentro de su propio proyecto. Hace falta para que la decisión de la persona «publicar sin esta subtarea, pasarla a la siguiente versión» tenga con qué ejecutarse: hasta T-2-S0 el agente sólo podía escribir en el informe «debe recolocarla una persona». El agente no traslada su propia tarea. El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_MOVE_TASK en la respuesta, y esta acción también lo controla a él. Una regla de seguridad deny/confirm sobre este código cierra el traslado de tareas por parte de los agentes.",
+      "prompt": "Trasladar una tarea por la jerarquía: cambiarle el padre o convertirla en raíz. Parámetros: code, el código de la tarea que se traslada (por ejemplo T-241); parent, el código de la nueva tarea padre, y vacío o «root» para que la tarea pase a ser raíz. Están disponibles las tareas de este mismo proyecto (no se puede trasladar a otro proyecto). La tarea propia no se puede trasladar, y no se puede poner como padre una tarea de su propio subárbol. Usa esto cuando la persona haya ordenado sacar una subtarea de la jerarquía; si no hay adónde trasladarla (la tarea de destino todavía no existe), no dejes la decisión sin cumplir: vuelve a preguntar a la persona qué hacer."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000032",
+      "code": "AI2P.Tasks.Update",
+      "tool": "update_task",
+      "title": "Cambiar los campos de una tarea",
+      "hint": "El agente edita los campos de OTRA tarea del mismo proyecto: el ejecutor, la lista «pueden sustituir al ejecutor», el responsable, las habilidades y las etiquetas. Existe porque no había NADA con que asignar un ejecutor a una tarea dentro de una jerarquía ya lanzada: el agente solo podía crear una copia de la tarea, y la selección automática le daba a la copia el mismo ejecutor ocupado. El agente no edita así su propia tarea. Una regla de seguridad deny/confirm sobre este código cierra la posibilidad por completo. El agente CLI tiene lo mismo: el comando «ai2p update».",
+      "prompt": "Cambiar los campos de OTRA tarea del mismo proyecto. Parámetros: code — el código de la tarea (por ejemplo T-241); executor — el alias del ejecutor (una cadena vacía quita el ejecutor); altExecutors — la lista de alias que pueden sustituir al ejecutor; responsible — el alias del responsable (solo puede serlo una persona); skills — las habilidades de la tarea (nombres del catálogo de habilidades); tags — las etiquetas de la tarea. El campo que no se nombra no cambia; el campo nombrado vacío se limpia. Los campos de tu propia tarea no se cambian así. Úsalo cuando una persona te haya dicho que asignes o cambies el ejecutor, el responsable, las habilidades o las etiquetas de otra tarea: no hace falta crear una copia de la tarea para eso."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000013",
+      "code": "AI2P.Tasks.AutoStart",
+      "tool": null,
+      "title": "Arranque automático de subtareas",
+      "hint": "Acción-política (el agente no tiene herramienta): una regla de seguridad deny o confirm sobre este código prohíbe el lanzamiento automático de los ejecutores de IA de las subtareas tras la división automática; el lanzamiento queda en manos de la persona.",
+      "prompt": ""
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000014",
+      "code": "AI2P.Experience.Create",
+      "tool": "create_experience",
+      "title": "Añadir un registro de experiencia",
+      "hint": "El agente añade un registro de experiencia: sobre el nodo de plantilla de la tarea actual o sobre todo el proyecto (bloque «Experiencia del proyecto» del encargo). Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la creación de experiencia por parte de los agentes. El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_EXPERIENCE en la respuesta, y esta acción también lo controla a él.",
+      "prompt": "Añadir un registro de experiencia. Parámetros: text, una lección o conclusión breve, útil para futuras ejecuciones (qué funcionó, escollos, qué hacer de otra manera); scope, el ámbito del registro: «project» (experiencia de todo el proyecto, bloque «Experiencia del proyecto» del encargo) o «template» (experiencia de un nodo de plantilla); por defecto, en una tarea creada a partir de una plantilla se toma su nodo, y en las demás, el proyecto; template, el código del nodo de plantilla o su título (sólo para scope=template, si hace falta un nodo que no sea el propio); skill, el código de una habilidad del catálogo: ese registro sólo lo recibirán los ejecutores con esa habilidad, y sin él el registro es general. Anota sólo observaciones comprobadas y no dupliques lo que ya está en los bloques de experiencia. La experiencia DEL PROYECTO y la de nodos ajenos amplíala sólo si el encargo lo pide expresamente o si la conclusión es importante para todas las tareas del proyecto."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000015",
+      "code": "AI2P.Experience.Update",
+      "tool": "update_experience",
+      "title": "Modificar un registro de experiencia",
+      "hint": "El agente edita un registro de experiencia existente de su proyecto o de sus plantillas. Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la edición de experiencia por parte de los agentes. En el agente CLI es el mismo marcador AI2P_EXPERIENCE con el parámetro id.",
+      "prompt": "Modificar un registro de experiencia. Parámetros: id, el identificador del registro del bloque «Experiencia del proyecto» o «Experiencia de ejecución» del texto del encargo; text, el nuevo texto COMPLETO del registro; skill, el código de una habilidad (si se pasa, la habilidad del registro cambia; si no, se queda como estaba). Aplícalo cuando el registro esté obsoleto o contradiga el curso real de la ejecución; en los demás casos añade un registro nuevo con create_experience."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000016",
+      "code": "AI2P.Tasks.ImportFromUrl",
+      "tool": "import_task_from_url",
+      "title": "Importar un encargo por URL",
+      "hint": "El agente importa una tarjeta de Trello por su enlace: se crea una tarea-borrador del proyecto actual y los archivos adjuntos se descargan a uploads/ del proyecto. Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la importación.",
+      "prompt": "Importar un encargo de un sistema externo por su enlace (por ahora sólo está soportado Trello: https://trello.com/c/<código>). Crea en el proyecto actual una tarea-borrador: título y descripción de la tarjeta, y los archivos adjuntos se descargan y se añaden como enlaces. Volver a importar la misma tarjeta no crea un duplicado. El parámetro url es el enlace a la tarjeta."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000017",
+      "code": "AI2P.Tasks.GetSiblings",
+      "tool": "get_sibling_tasks",
+      "title": "Encargos vecinos",
+      "hint": "Devuelve las demás subtareas del mismo padre que la tarea actual: código, título, estado, ejecutor, enlace y resultado de cada una (los enunciados no van: se leen por el código). El agente CLI no tiene herramientas de AI2P: los vecinos se le insertan como un bloque en el prompt del encargo, y esta acción también lo controla a él.",
+      "prompt": "Obtener los encargos vecinos de la tarea actual, es decir, las demás subtareas del mismo padre. De cada uno se devuelven el código, el título, el estado, el ejecutor, el enlace y los resultados de la ejecución (artefactos); los enunciados no están en la lista: el texto completo del vecino que necesites léelo aparte por su código (get_task_by_code). Úsalo cuando el trabajo esté dividido en subtareas y la tuya se apoye en lo que ya han hecho los demás."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000018",
+      "code": "AI2P.Templates.List",
+      "tool": "list_templates",
+      "title": "Lista de plantillas del proyecto",
+      "hint": "El agente obtiene la lista de los nodos de plantillas del proyecto con sus códigos: por ahí empieza cualquier edición de plantillas. Una regla de seguridad deny/confirm sobre este código cierra la lista.",
+      "prompt": "Lista de los nodos de plantillas del proyecto actual: código, título, nodo padre y número de registros de experiencia. No tiene parámetros. Los códigos de aquí hacen falta para update_template, para parent en create_template y para template en create_experience; el enunciado del nodo léelo con get_task_by_code."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000019",
+      "code": "AI2P.Templates.Create",
+      "tool": "create_template",
+      "title": "Crear un nodo de plantilla",
+      "hint": "El agente crea un nodo de plantilla del proyecto (las plantillas son plantillas de trabajos repetitivos). Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la edición de plantillas por parte de los agentes. En el agente CLI es el marcador AI2P_TEMPLATE en la respuesta. Las plantillas sólo se editan en el director de la organización.",
+      "prompt": "Crear un nodo de plantilla del proyecto actual. Parámetros: title, el título; description, el enunciado del trabajo (Markdown); acceptance, los criterios de aceptación (opcional); parent, el código (o el título) del nodo padre, y sin él el nodo es raíz; skills, las habilidades, con los nombres del catálogo. Crea una plantilla sólo si el encargo pide expresamente crear una plantilla o describir un trabajo repetitivo."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000020",
+      "code": "AI2P.Templates.Update",
+      "tool": "update_template",
+      "title": "Modificar un nodo de plantilla",
+      "hint": "El agente edita un nodo de plantilla existente del proyecto. Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la edición de plantillas por parte de los agentes.",
+      "prompt": "Modificar un nodo de plantilla del proyecto actual. Parámetros: code, el código del nodo (o su título); title, description, acceptance, lo que se cambia; el campo que no se pase se queda como estaba. La lista de nodos es list_templates y el enunciado actual, get_task_by_code."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000021",
+      "code": "AI2P.Chat.Send",
+      "tool": "send_chat_message",
+      "title": "Mensaje al chat de la tarea",
+      "hint": "El agente escribe a la persona en el chat de la tarea actual, sobre todo para responder a un mensaje que le ha llegado durante el trabajo (interrupción por chat). Una regla de seguridad deny sobre este código deja al agente sin posibilidad de responder en el chat.",
+      "prompt": "Escribir a la persona en el chat de la tarea ACTUAL. Responde obligatoriamente con esta herramienta a los mensajes que te lleguen del chat durante el trabajo: la persona espera la respuesta ahora y el resultado final lo verá sólo al terminar. Sirve también para una nota breve sobre la marcha («el trabajo está durando más de lo normal»). El parámetro text es el texto del mensaje. El resultado final del encargo no hace falta escribirlo aquí."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000022",
+      "code": "AI2P.Files.Fetch",
+      "tool": "fetch_file",
+      "title": "Obtener un archivo por enlace",
+      "hint": "El agente obtiene un archivo (por ejemplo, una imagen adjunta a la tarea al importarla de Trello, GitHub o GitLab) por el enlace del texto del encargo: el archivo se deja en la caché del agente (cache/agent-files de la carpeta de datos) y el agente lo lee como un archivo normal. Un archivo ya obtenido se toma de la caché; si no, del almacenamiento de AI2P o de internet (con las credenciales de la fuente de importación activa de ese mismo sistema). Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la obtención de archivos; la regla de acceso a carpetas no le afecta, porque la carpeta de caché es siempre propia.",
+      "prompt": "Obtener un archivo por su enlace y dejarlo en el disco para poder leerlo. Sirven: una dirección externa http(s):// (incluidos adjuntos de Trello, GitHub o GitLab: las credenciales las pone el sistema), nuestro enlace a un archivo (api/files/raw?path=…, api/files/project?projectId=…&path=…) y la ruta del archivo en la carpeta de datos tal como esté escrita en la descripción de la tarea. En la respuesta va la ruta del archivo en el disco, su nombre, su tamaño, su tipo y su origen (caché, almacenamiento de AI2P o internet). El parámetro url es el enlace al archivo."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000024",
+      "code": "AI2P.Tasks.GetChildren",
+      "tool": "get_child_tasks",
+      "title": "Subtareas de una tarea",
+      "hint": "El agente obtiene la lista de subtareas (las suyas o las de la tarea indicada del mismo proyecto): código, título, estado, ejecutor y enlace de cada una; los enunciados y los resultados no van en la lista, se leen por el código. El agente CLI tiene para eso el comando «ai2p children» y la forma del marcador AI2P_GET_TASK con el campo children, y esta acción también los controla.",
+      "prompt": "Obtener las subtareas de una tarea: código, título, estado, ejecutor y enlace de cada una. Parámetros: code, el código de la tarea cuyas subtareas se piden (vacío, las subtareas de la tarea ACTUAL); depth, la profundidad de recorrido, 1 (por defecto) sólo las subtareas directas, máximo 3. Los enunciados y los resultados no están en la lista a propósito: el texto completo de la subtarea que necesites léelo aparte por su código (get_task_by_code). Úsalo cuando haya que ver la composición de la rama: qué está ya hecho, qué queda y de qué se ocupa cada uno."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000025",
+      "code": "AI2P.Tasks.SetStatus",
+      "tool": "set_task_status",
+      "title": "Estado de una tarea ajena",
+      "hint": "El agente cambia el estado de OTRA tarea del mismo proyecto, con la marca de relanzamiento (se quitan los intentos consumidos de la cola y el arranque aplazado, y el modo de lanzamiento pasa a ser automático). Le hace falta a la tarea que ejecuta las pruebas de toda la rama y devuelve al trabajo aquellas a las que les han fallado. Su propia tarea el agente no la toca así: su estado lo pone el sistema según el resultado del encargo. Una regla de seguridad deny/confirm sobre este código cierra la posibilidad por completo. En el agente CLI es lo mismo: el comando «ai2p status» y el marcador AI2P_SET_STATUS.",
+      "prompt": "Cambiar el estado de OTRA tarea del mismo proyecto. Parámetros: code, el código de la tarea; status, el código del estado (draft, pending, in_progress, paused, error, review, needs_fix, done, cancelled); restart, true si hay que RELANZAR la tarea: entonces se le quitan los intentos consumidos de la cola y el arranque aplazado y el modo de lanzamiento pasa a ser automático; de lo contrario, una tarea devuelta al trabajo puede no moverse del sitio. El estado de la tarea propia no se cambia así: lo pone el sistema según el resultado del encargo. Usa esto cuando, tras una ejecución general, haya que devolver a corrección las tareas en las que algo ha fallado; asígnatelas primero como bloqueantes y cámbiales después el estado."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000026",
+      "code": "AI2P.Tasks.Recheck",
+      "tool": "restart_task_for_recheck",
+      "title": "Relanzar una tarea para una nueva comprobación",
+      "hint": "Una sola acción en lugar de cuatro para la tarea que ejecuta las pruebas de toda la rama: la tarea indicada pasa a «corrección», su «estado al terminar» se pone en «terminada» (para una bloqueante, «terminada» significa sólo «terminada»), se le quitan los intentos consumidos de la cola y el arranque aplazado, el modo de lanzamiento pasa a ser automático y la propia tarea se asigna como bloqueante de la actual, es decir, la tarea actual la esperará. Si la cola de lanzamiento jerárquico está abierta, además se le levanta la marca «lanzar también las tareas en corrección», porque de lo contrario el recorrido pasaría de largo. La tarea propia y las de sus antecesores no se pueden relanzar así. Una regla de seguridad deny/confirm sobre este código cierra la posibilidad por completo, y de la negativa el agente escribe en el chat de la tarea. En el agente CLI es lo mismo: el comando «ai2p restart» y el marcador AI2P_RESTART_TASK.",
+      "prompt": "Relanzar OTRA tarea del mismo proyecto para volver a comprobarla tú: pasa a «corrección» con «terminada» como estado al terminar, se le quitan los intentos consumidos de la cola y el arranque aplazado, y a ti se te asigna como bloqueante, o sea, tu tarea la esperará. Parámetros: code, el código de la tarea; comment, una nota opcional al chat de esa tarea (escribe QUÉ ha fallado exactamente: el nombre de la comprobación y la línea del error, si no el ejecutor tendrá que adivinarlo). Úsalo después de una ejecución general de las pruebas: relanza todas las tareas cuyas comprobaciones no hayan pasado y sólo entonces ponte a esperar (wait_for_recheck). La tarea propia y una tarea antecesora no se pueden relanzar así."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000027",
+      "code": "AI2P.Tasks.WaitRecheck",
+      "tool": "wait_for_recheck",
+      "title": "Ponerse a esperar las tareas relanzadas",
+      "hint": "La tarea que ejecuta las pruebas termina su trabajo y pasa a «en espera» en lugar de a su «estado al terminar»: el ejecutor queda libre (y puede tomar precisamente esas tareas relanzadas), y la cola levantará la ejecución de nuevo cuando todas las relanzadas hayan terminado. La negativa llega en dos casos: no hay nada que esperar (no hay bloqueantes sin terminar) o se ha agotado el límite de rondas de comprobación, que se define en los ajustes del proyecto y por defecto es tres. En el agente CLI es lo mismo: el comando «ai2p wait» y el marcador AI2P_WAIT_RECHECK.",
+      "prompt": "Ponerte a esperar las tareas relanzadas: al terminar este encargo, tu tarea pasará a «en espera» y se lanzará sola otra vez cuando todas las tareas que hayas relanzado estén terminadas. No tiene parámetros. Llámalo UNA sola vez y DESPUÉS de todos los relanzamientos (restart_task_for_recheck), cuando el análisis de la ejecución esté terminado; en la propia respuesta escribe qué ha fallado exactamente y a quién has relanzado. Si llega una negativa (no hay nada que esperar o se ha agotado el límite de rondas de comprobación del proyecto), no repitas la llamada: termina el trabajo y cuéntale a la persona qué ha quedado en rojo."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000028",
+      "code": "AI2P.Archives.AutoRun",
+      "title": "Lanzar el archivado automático",
+      "hint": "Seleccionar según las reglas del archivo ACTUAL todo lo que toca llevarse y trasladarlo al archivo. Se pone en la programación (tipo de disparo «acción del sistema») y se llama con un botón del formulario de creación de archivos. Funciona SÓLO en el servidor director de la organización: el archivo actual de la organización es uno solo, y lanzarlo en cada servidor significaría trasladar lo mismo varias veces. La jerarquía de tareas se archiva entera: en la tarea raíz se comprueban el estado y la antigüedad, y en cada tarea hija sólo si su estado entra en la lista de la regla, y una hija que no encaje anula el archivado de toda la rama. En la respuesta va un resumen: cuántos se han seleccionado, trasladado, omitido y fallado.",
+      "prompt": "Lanzar el archivado automático: seleccionar según las reglas del archivo actual todo lo que toca llevarse y trasladarlo al archivo. No tiene parámetros. Funciona sólo en el servidor director de la organización; en la respuesta va un resumen de cuántos registros se han seleccionado, trasladado, omitido y no se han podido trasladar."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000029",
+      "code": "AI2P.Media.Add",
+      "tool": "media_add",
+      "title": "Añadir un recurso a la biblioteca multimedia del proyecto",
+      "hint": "Pone en la biblioteca multimedia del proyecto un ENLACE a un archivo existente (no se copian bytes): ruta, tipo, pie, escena, toma, orden, duración y la tarea de origen. Una entrada es un objeto del proyecto del tipo «recurso multimedia»; la ruta debe ser relativa (a la carpeta del proyecto o una ruta store: del directorio de datos). Llamarlo otra vez con la misma ruta actualiza la entrada en vez de duplicarla.",
+      "prompt": "Poner un archivo en la biblioteca multimedia del proyecto COMO ENLACE (el archivo no se copia). path — la ruta del archivo, SOLO RELATIVA: a la carpeta del proyecto o una ruta store: del directorio de datos de la organización; una ruta absoluta se rechaza. kind — video, audio, image, subtitle o project (video por omisión). Además: name (nombre de la entrada; vacío — el nombre del archivo), caption (pie), scene (escena; también se convierte en la etiqueta scene:<nombre>), take (toma, número), order (posición en la lista de montaje, número), durationSec (segundos), tags, parent (código del objeto padre), sourceTask (tarea de origen; por omisión la tarea actual). Después los proyectos de los editores de vídeo se construyen a partir de esta biblioteca, así que rellena escena, toma, orden y duración cuando los conozcas."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000030",
+      "code": "AI2P.Media.List",
+      "tool": "media_list",
+      "title": "Biblioteca multimedia del proyecto",
+      "hint": "Muestra la biblioteca multimedia del proyecto como una tabla, con filtro por escena, tipo y etiqueta: código, tipo, escena, toma, orden, duración, ruta, pie, tarea de origen. Las filas van en el orden en que los clips se colocarán en la pista.",
+      "prompt": "Mostrar la biblioteca multimedia del proyecto. El filtro es opcional: scene — escena, kind — tipo (video, audio, image, subtitle, project), tag — etiqueta. Las filas van en orden de montaje: escena, orden, toma, código. Columnas: código | tipo | escena | toma | orden | duración, s | ruta | pie | tarea de origen."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000031",
+      "code": "AI2P.Media.Remove",
+      "tool": "media_remove",
+      "title": "Retirar un recurso de la biblioteca multimedia",
+      "hint": "Retira una entrada de la biblioteca multimedia del proyecto por código de objeto o por ruta. EL ARCHIVO EN SÍ NO SE TOCA: la biblioteca guarda enlaces, y ese mismo archivo suele ser un artefacto de una tarea.",
+      "prompt": "Retirar una entrada de la biblioteca multimedia del proyecto. code — el código del objeto (por ejemplo OBJ-7); en su lugar puedes indicar path — la ruta del archivo tal como está escrita en la biblioteca. El archivo NO se borra, solo se retira la entrada."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000033",
+      "code": "AI2P.Software.Run",
+      "tool": null,
+      "title": "Lanzamiento de una tarea de ejecutor de software",
+      "hint": "Acción-política (el agente no tiene herramienta): una regla de seguridad deny o confirm sobre este código prohíbe lanzar tareas del ejecutor «software», es decir, el trabajo de un programa externo del complemento (entrenamiento de LoRA y otras ejecuciones largas). La decisión se consulta antes de CADA lanzamiento, incluso cuando la tarea la creó y lanzó un agente de IA. Qué complemento puede lanzarse se indica con otro tipo de regla: «complementos y MCP».",
+      "prompt": ""
+    }
+  ]
+}

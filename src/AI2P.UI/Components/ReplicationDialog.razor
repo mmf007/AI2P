@@ -1,0 +1,294 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+@* ЭКРАН ДИАГНОСТИКИ РЕПЛИКАЦИИ (ТЗ гл. 6, этап 43).
+
+   Распределённая работа — это новый класс ошибок: расхождение реплик, «висящее» задание
+   на недоступном сервере, застрявший курсор. Разбираться с ними без цифр нечем, поэтому
+   здесь показано всё состояние пары «организация ↔ сервер»: курсоры обеих баз, отставание
+   (сколько наших изменений партнёр ещё не забрал), число конфликтов и последний из них,
+   время последнего удачного сеанса и текст последней ошибки.
+
+   Строк столько, в скольких организациях есть эта пара: репликация идёт ПО ОРГАНИЗАЦИИ —
+   сначала одна целиком, потом другая. *@
+<MudDialog>
+    <DialogContent>
+        @if (_rows.Count == 0)
+        {
+            <MudText Typo="Typo.body2">@L["repl.none"]</MudText>
+        }
+        else
+        {
+            <MudText Typo="Typo.caption" Class="mb-2">@L["repl.diagnostics.hint"]</MudText>
+            @foreach (var row in _rows)
+            {
+                <MudPaper Class="pa-3 mb-3" Outlined="true">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                        <MudText Typo="Typo.subtitle2">@row.OrgName (@row.OrgCode) ↔ @row.ServerCode</MudText>
+                        <MudSpacer />
+                        @if (row.Status == ReplicationStatuses.Running)
+                        {
+                            <MudText Typo="Typo.caption">@L["repl.phase." + Phase(row)] · @row.Percent%</MudText>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                     Color="@(row.Status == ReplicationStatuses.Error ? Color.Error : Color.Default)">
+                                @L["repl.state." + row.Status]
+                            </MudChip>
+                        }
+                    </MudStack>
+                    @if (row.Status == ReplicationStatuses.Running)
+                    {
+                        <MudProgressLinear Color="Color.Primary" Value="@row.Percent" Class="mb-2" />
+                    }
+                    @if (row.LastError.Length > 0)
+                    {
+                        <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@row.LastError</MudAlert>
+                    }
+                    <MudSimpleTable Dense="true" Bordered="false" Striped="true">
+                        <tbody>
+                            <tr>
+                                <td>@L["repl.interval"]</td>
+                                <td>@(row.IntervalSec is { } i ? AI2P.Core.Units.Seconds(i) : L["repl.manual"])</td>
+                                <td>@L["repl.retry"]</td>
+                                <td>@(row.RetrySec is { } r ? AI2P.Core.Units.Seconds(r) : "—")</td>
+                            </tr>
+                            <tr>
+                                <td>@L["repl.cursor.pull"]</td>
+                                <td>@row.PullCursor</td>
+                                <td>@L["repl.cursor.push"]</td>
+                                <td>@row.PushCursor</td>
+                            </tr>
+                            <tr>
+                                <td>@L["repl.cursor.srvPull"]</td>
+                                <td>@row.ServerPullCursor</td>
+                                <td>@L["repl.cursor.srvPush"]</td>
+                                <td>@row.ServerPushCursor</td>
+                            </tr>
+                            <tr>
+                                <td>@L["repl.lag"]</td>
+                                <td><b>@row.OutgoingLag</b></td>
+                                <td>@L["repl.counts"]</td>
+                                <td>↓ @row.Received · ↑ @row.Sent</td>
+                            </tr>
+                            @* файлы (этап 44): каталог данных организации и папки Common *@
+                            <tr>
+                                <td>@L["repl.files"]</td>
+                                <td>↓ @row.FilesReceived · ↑ @row.FilesSent</td>
+                                <td>@L["repl.bytes"]</td>
+                                <td>↓ @Human(row.BytesReceived) · ↑ @Human(row.BytesSent)</td>
+                            </tr>
+                            <tr>
+                                <td>@L["repl.lastOk"]</td>
+                                <td>@(row.LastOkAt is { } ok ? ok.ToLocalTime().ToString("g") : "—")</td>
+                                <td>@L["repl.lastRun"]</td>
+                                <td>
+                                    @(row.LastRunAt is { } run ? run.ToLocalTime().ToString("g") : "—")
+                                    @* ЗВОНИМ НЕ МЫ (T-20-S1): у сервера за NAT адрес петлевой,
+                                       и сеансы с ним начинает он сам. Без этой строчки время
+                                       «последней попытки» выглядит бессмыслицей — попыток-то
+                                       мы не делаем *@
+                                    @if (row.CannotCall.Length > 0)
+                                    {
+                                        <MudText Typo="Typo.caption" data-repl-cannotcall="1">
+                                            @row.CannotCall
+                                        </MudText>
+                                    }
+                                </td>
+                            </tr>
+                            @* КОНФЛИКТОВ ДВА РОДА, И ПУТАТЬ ИХ НЕЛЬЗЯ (T-61-S0).
+                               Здесь — конфликты СТРОК БАЗЫ: правку, проигравшую по правилу
+                               «выиграл последний», просто пересчитывают, решать в них нечего
+                               и формы у них нет. А форма разрешения есть у конфликтов ФАЙЛОВ,
+                               ключей API и записей справочника моделей — они реплицироваться
+                               не будут, пока человек не выберет версию. Раньше на этом экране
+                               стояло одно слово «Конфликтов» с числом строковых, и человек
+                               искал кнопку, которой тут и не могло быть *@
+                            <tr>
+                                <td>@L["repl.conflicts"]</td>
+                                <td colspan="3">
+                                    @* число отдельной строкой: рядом с текстом последнего
+                                       конфликта они слипались в «10ai_models …» *@
+                                    <MudText Typo="Typo.body2" data-repl-conflicts="@row.Conflicts">@row.Conflicts</MudText>
+                                    @if (row.LastConflict.Length > 0)
+                                    {
+                                        <MudText Typo="Typo.caption">@row.LastConflict</MudText>
+                                    }
+                                    <MudText Typo="Typo.caption">@L["repl.conflicts.auto"]</MudText>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>@L["repl.conflicts.wait"]</td>
+                                <td colspan="3">
+                                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                        <MudText Typo="Typo.body2"
+                                                 Color="@(row.FileConflicts > 0 ? Color.Error : Color.Default)"
+                                                 data-repl-fileconflicts="@row.FileConflicts">@row.FileConflicts</MudText>
+                                        @* кнопка стоит ВСЕГДА, а не только при ненулевом счёте:
+                                           человек, увидевший конфликты, должен иметь возможность
+                                           открыть форму и убедиться, что решать нечего *@
+                                        <MudButton Size="Size.Small" Variant="Variant.Text"
+                                                   StartIcon="@Icons.Material.Filled.CompareArrows"
+                                                   Color="@(row.FileConflicts > 0 ? Color.Error : Color.Default)"
+                                                   data-repl-resolve="1"
+                                                   OnClick="ShowConflictsAsync">@L["repl.conflicts.open"]</MudButton>
+                                    </MudStack>
+                                </td>
+                            </tr>
+                            @* очередь повтора (T-160): строки, которые база не приняла.
+                               Репликация из-за них больше не останавливается, но человек
+                               обязан видеть, что часть данных ещё не доехала *@
+                            @if (row.Pending > 0)
+                            {
+                                <tr>
+                                    <td>@L["repl.pending"]</td>
+                                    <td colspan="3">
+                                        <MudText Color="Color.Warning" Typo="Typo.body2"
+                                                 data-repl-pending="@row.Pending">@row.Pending</MudText>
+                                        @* ВСЯ ОЧЕРЕДЬ, А НЕ ТОЛЬКО ПОСЛЕДНЯЯ ПРИЧИНА (T-20-S1):
+                                           по одной строчке «org_servers …: FOREIGN KEY (попыток
+                                           1597)» человек не мог понять, три это разные строки
+                                           или одна, и что именно у него не доехало *@
+                                        @foreach (var stuck in row.PendingRows)
+                                        {
+                                            <MudText Typo="Typo.caption" data-repl-pending-row="@stuck.Pk">
+                                                @L["repl.scope." + (stuck.Scope == "server" ? "srv" : "org")]
+                                                · @stuck.Table @stuck.Pk: @stuck.Reason
+                                                (@L["repl.tries"] @stuck.Tries)
+                                            </MudText>
+                                        }
+                                        @if (row.PendingRows.Count == 0 && row.LastPending.Length > 0)
+                                        {
+                                            <MudText Typo="Typo.caption">@row.LastPending</MudText>
+                                        }
+                                        @* очередь чистится «первичной репликацией»: журнал
+                                           перечитывается с нуля, и отложенное приезжает заново *@
+                                        <MudText Typo="Typo.caption">@L["repl.pending.hint"]</MudText>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </MudPaper>
+            }
+        }
+    </DialogContent>
+    <DialogActions>
+        @* «первичная репликация»: забыть курсоры и перечитать всё заново. Лечение
+           расхождения реплик без правки базы руками — журнал наполнен существующими
+           строками, поэтому «изменения после 0» это снимок целиком (ТЗ п. 6.1) *@
+        <MudButton StartIcon="@Icons.Material.Filled.RestartAlt" Disabled="@_busy"
+                   OnClick="ResetAsync">@L["repl.reset"]</MudButton>
+        @* ЗВОНИТЬ БЫВАЕТ НЕКУДА (T-61-S0): к серверу, назвавшемуся петлевым адресом, мы
+           не обратимся никогда — сеансы с ним начинает он сам. В списке серверов кнопка
+           ручного пуска в этом случае погашена (T-50-S0), а здесь горела и выдавала отказ *@
+        <MudTooltip Text="@(CannotCall.Length > 0 ? CannotCall : L["repl.run"])">
+            <MudButton StartIcon="@Icons.Material.Filled.Sync" Color="Color.Primary"
+                       Disabled="@(_busy || CannotCall.Length > 0)" data-repl-run="1"
+                       OnClick="RunAsync">@L["repl.run"]</MudButton>
+        </MudTooltip>
+        <MudSpacer />
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Сервер-партнёр, состояние пар с которым показывается.</summary>
+    [Parameter] public string ServerId { get; set; } = "";
+
+    [Parameter] public string ServerName { get; set; } = "";
+
+    private List<ReplicationStatusDto> _rows = [];
+    private Timer? _timer;
+    private bool _busy;
+
+    private static string Phase(ReplicationStatusDto row) => row.Phase.Length > 0 ? row.Phase : "pull";
+
+    /// <summary>Почему сеанс начинаем не мы, а партнёр (петлевой адрес, нет встречного токена);
+    /// пусто — звонить можно. Причина у пар этого сервера одна на всех — она про его адрес,
+    /// а не про организацию, — поэтому берётся первая непустая.</summary>
+    private string CannotCall =>
+        _rows.Select(r => r.CannotCall).FirstOrDefault(s => s.Length > 0) ?? "";
+
+    /// <summary>Форма разрешения конфликтов файлов, ключей API и записей справочника (todo44,
+    /// этап 45, T-227). Она же открывается кнопкой с числом в списке серверов.</summary>
+    private async Task ShowConflictsAsync()
+    {
+        var parameters = new DialogParameters<FileConflictsDialog> { { d => d.ServerId, ServerId } };
+        var dialog = await Dialogs.ShowAsync<FileConflictsDialog>(L["repl.conflicts.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true });
+        await dialog.Result;
+        await LoadAsync();
+    }
+
+    /// <summary>Байты по-человечески: у медиа папки Common счёт идёт на гигабайты.
+    /// Единицы — из словарей (T-180).</summary>
+    private static string Human(long bytes) => AI2P.Core.Units.Bytes(bytes);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        // пока сеанс идёт, цифры должны двигаться сами
+        _timer = new Timer(async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _rows = (await Api.GetReplicationAsync()).Where(r => r.ServerId == ServerId).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        _busy = true;
+        try
+        {
+            _rows = (await Api.ReplicateAsync(ServerId)).Where(r => r.ServerId == ServerId).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.ResetReplicationAsync(ServerId);
+            Snackbar.Add(L["repl.reset.done"], Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

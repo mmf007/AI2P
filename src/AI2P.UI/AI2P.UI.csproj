@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="8.0.28" />
+    <!-- личность вошедшего в circuit'е Blazor Server (ТЗ гл. 12, todo39):
+         AuthenticationStateProvider отдаёт пользователя из cookie-аутентификации -->
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.0.28" />
+    <PackageReference Include="MudBlazor" Version="9.7.0" />
+    <!-- предпросмотр Markdown в редакторе описания и карточке задачи (ТЗ гл. 11) -->
+    <PackageReference Include="Markdig" Version="0.37.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AI2P.Core\AI2P.Core.csproj" />
+  </ItemGroup>
+
+</Project>

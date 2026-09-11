@@ -1,0 +1,342 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+@* КАДР ДАТАСЕТА LoRA (T-12-S1) — форма «Датасет → добавить» и она же «изменить».
+
+   ДОБАВЛЕНИЕ идёт в два приёма, и это не лишний шаг: сначала исходник кладётся в хранилище
+   (по адресу его качает сервер, с диска — читает), и только потом человек тянет рамку кропа.
+   Иначе никак: рамку тянут в БРАУЗЕРЕ, а исходник лежит либо на чужом сервере (браузеру не
+   дадут прочитать его в canvas — чужое происхождение), либо на диске сервера, куда браузер
+   не ходит вовсе.
+
+   Сама резка, ужимание и перевод формата делаются холстом браузера (ai2p.loraCropResult):
+   картинка там уже разобрана, а на сервере ради того же пришлось бы завести библиотеку
+   работы с изображениями. Пределы — из настроек приложения, и сервер проверяет их ещё раз
+   по присланным байтам: проверка на присылающей стороне проверкой не считается.
+
+   ИЗМЕНЕНИЕ кадра — только подпись и название: перерезать уже положенный кадр незачем,
+   для этого его удаляют и добавляют заново из того же исходника. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 320px;">
+            @if (Frame is null)
+            {
+                @* --- ОТКУДА БЕРЁМ КАРТИНКУ --- *@
+                <MudPaper Outlined="true" Elevation="0" Class="pa-3" data-loraframe-source="1">
+                    <MudStack Spacing="2">
+                        <MudRadioGroup T="string" Value="@_source" ValueChanged="OnSourceChanged">
+                            <MudRadio T="string" Value="@("url")" data-loraframe-src-url="1">
+                                @L["lora.frame.byUrl"]
+                            </MudRadio>
+                            <MudRadio T="string" Value="@("local")" data-loraframe-src-local="1">
+                                @L["lora.frame.byFile"]
+                            </MudRadio>
+                        </MudRadioGroup>
+                        @if (_source == "url")
+                        {
+                            <MudTextField T="string" @bind-Value="_url" Immediate="true"
+                                          Label="@L["lora.frame.url"]" data-loraframe-url="1"
+                                          HelperText="@L["lora.frame.url.hint"]" />
+                        }
+                        else
+                        {
+                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                                <MudTextField T="string" @bind-Value="_localPath" Immediate="true"
+                                              Label="@L["lora.frame.file"]" Class="flex-grow-1"
+                                              data-loraframe-file="1" />
+                                <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary"
+                                               data-loraframe-browse="1" title="@L["lora.frame.browse"]"
+                                               OnClick="BrowseAsync" />
+                            </MudStack>
+                        }
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.CloudDownload"
+                                       data-loraframe-load="1" Disabled="@(_busy || !CanLoad)"
+                                       OnClick="LoadAsync">
+                                @L["lora.frame.load"]
+                            </MudButton>
+                            @if (_busy)
+                            {
+                                <MudProgressCircular Indeterminate="true" Size="Size.Small"
+                                                     data-loraframe-busy="1" />
+                            }
+                        </MudStack>
+                    </MudStack>
+                </MudPaper>
+            }
+
+            @* --- РАМКА КРОПА: тянутся левый верхний и правый нижний углы --- *@
+            @if (Frame is null && _stage is not null)
+            {
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["lora.frame.crop.hint"]</MudText>
+                    <div id="@_cropId" class="ai2p-lora-crop" data-lora-crop="1">
+                        <img data-lora-img src="@_stageUrl" alt="@_stage.Name" />
+                        <div data-lora-frame class="ai2p-lora-frame">
+                            <div data-lora-handle="tl" class="ai2p-lora-handle"></div>
+                            <div data-lora-handle="br" class="ai2p-lora-handle"></div>
+                        </div>
+                    </div>
+                    <MudText Typo="Typo.caption" data-loraframe-limits="1">
+                        @string.Format(L["lora.frame.limits"], _limits.MaxWidth, _limits.MaxHeight,
+                            _limits.MaxKb, _limits.Format.ToUpperInvariant())
+                    </MudText>
+                </MudStack>
+            }
+
+            @* --- уже положенный кадр: показываем, что правим --- *@
+            @if (Frame is not null)
+            {
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <img src="@FrameUrl" alt="@Frame.Name" data-loraframe-preview="1"
+                         style="max-width: 160px; max-height: 160px; object-fit: contain;" />
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@Frame.PathOrUrl</MudText>
+                </MudStack>
+                <MudTextField T="string" @bind-Value="_name" Label="@L["objects.name"]"
+                              data-loraframe-name="1" />
+            }
+
+            @* ПОДПИСЬ КАДРА: она уедет в обучение файлом .txt рядом с картинкой — то есть
+               это не заметка для себя, а то, чему модель учится вместе с картинкой *@
+            <MudTextField T="string" @bind-Value="_description" Label="@L["lora.frame.caption"]"
+                          Lines="3" Variant="Variant.Outlined" data-loraframe-caption="1"
+                          HelperText="@L["lora.frame.caption.hint"]" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" data-loraframe-save="1"
+                   Disabled="@(_busy || (Frame is null && _stage is null))" OnClick="SaveAsync">
+            @L["common.save"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Объект LoRA, чей это датасет.</summary>
+    [Parameter, EditorRequired] public ObjectItem Owner { get; set; } = default!;
+
+    /// <summary>Правимый кадр; null — добавляется новый.</summary>
+    [Parameter] public ObjectItem? Frame { get; set; }
+
+    /// <summary>Пределы кадра — СВОИ У ДАТАСЕТА (T-274), а не общие настройки приложения:
+    /// по ним форма и режет картинку холстом браузера.</summary>
+    [Parameter] public LoraImageLimitsDto Limits { get; set; } = new();
+
+    /// <summary>Датасет, в который ложится кадр (T-274); пусто — текущий датасет объекта.</summary>
+    [Parameter] public string DatasetId { get; set; } = "";
+
+    private readonly string _cropId = "lora-crop-" + Guid.NewGuid().ToString("N")[..8];
+    private string _source = "url";
+    private string _url = "";
+    private string _localPath = "";
+    private string _name = "";
+    private string _description = "";
+    private bool _busy;
+    private LoraStageResultDto? _stage;
+    private bool _cropReady;
+
+    /// <summary>Папка проекта: null — ещё не спрашивали, пусто — спросили, папки нет (T-273).</summary>
+    private string? _projectFolder;
+
+    private LoraImageLimitsDto _limits => Limits;
+
+    private bool CanLoad => _source == "url" ? _url.Trim().Length > 0 : _localPath.Trim().Length > 0;
+
+    private string _stageUrl => _stage is null
+        ? ""
+        : FileLinks.Relative(new FileLink(FileLinks.Raw, "", _stage.Path));
+
+    /// <summary>Кадр датасета лежит в каталоге данных организации (T-98-S0), кадр прежних
+    /// версий — в папке проекта; откуда его брать, говорит сам путь.</summary>
+    private string FrameUrl => Frame is null
+        ? ""
+        : ObjectFiles.Link(Frame.PathOrUrl, Owner.ProjectId) is { } link
+            ? FileLinks.Relative(link)
+            : "";
+
+    protected override void OnInitialized()
+    {
+        if (Frame is not null)
+        {
+            _name = Frame.Name;
+            _description = Frame.Description;
+        }
+    }
+
+    /// <summary>
+    /// Рамку заводит JS, и только ПОСЛЕ того, как разметка нарисована: размеры картинки
+    /// знает один браузер. Повторно не заводим — движок сам об этом помнит, но лишний
+    /// вызов на каждую перерисовку формы всё равно ни к чему.
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_stage is not null && !_cropReady)
+        {
+            _cropReady = await Js.InvokeAsync<bool>("ai2p.initLoraCrop", _cropId);
+        }
+    }
+
+    private void OnSourceChanged(string value) => _source = value;
+
+    /// <summary>
+    /// ВЫБОР ФАЙЛА НА ДИСКЕ. Откуда начинать обход (T-273): набранный путь → каталог прошлого
+    /// выбора (его помнит сам выбор файла) → ПАПКА ПРОЕКТА. От корня файловой системы обход
+    /// начинается только тогда, когда ни одного из этих каталогов нет: картинки, из которых
+    /// собирают датасет, почти всегда лежат в папке проекта, а не «где-то на диске C».
+    /// </summary>
+    private async Task BrowseAsync()
+    {
+        var parameters = new DialogParameters<LocalFilePickerDialog>
+        {
+            { d => d.StartPath, _localPath.Trim().Length > 0 ? DirOf(_localPath) : null },
+            { d => d.FallbackPath, await ProjectFolderAsync() },
+        };
+        var dialog = await Dialogs.ShowAsync<LocalFilePickerDialog>(L["lora.frame.browse"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string picked })
+        {
+            _localPath = picked;
+        }
+    }
+
+    private static string? DirOf(string path)
+    {
+        var at = path.LastIndexOfAny(['/', '\\']);
+        return at <= 0 ? null : path[..at];
+    }
+
+    /// <summary>Папка проекта НА ЭТОМ СЕРВЕРЕ (она пер-серверная, гл. 6): спрашивается один
+    /// раз и только когда открывают выбор файла — форме кадра она больше ни для чего не нужна.
+    /// Проект без папки (или её нет вовсе) — не беда: обход просто начнётся как раньше.</summary>
+    private async Task<string?> ProjectFolderAsync()
+    {
+        if (_projectFolder is not null)
+        {
+            return _projectFolder.Length > 0 ? _projectFolder : null;
+        }
+        _projectFolder = "";
+        if (Owner.ProjectId is not { Length: > 0 } project)
+        {
+            return null;
+        }
+        try
+        {
+            _projectFolder = (await Api.GetProjectAsync(project)).FolderPath ?? "";
+        }
+        catch (ApiException)
+        {
+            // проект не прочитался — молча начинаем обход как раньше: это подсказка,
+            // а не действие человека, и снэкбар об ошибке тут только мешал бы
+        }
+        return _projectFolder.Length > 0 ? _projectFolder : null;
+    }
+
+    /// <summary>Положить исходник в хранилище и показать рамку кропа.</summary>
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        try
+        {
+            _stage = await Api.StageLoraImageAsync(
+                _source == "url" ? _url.Trim() : null,
+                _source == "local" ? _localPath.Trim() : null);
+            _cropReady = false;
+            if (_name.Trim().Length == 0)
+            {
+                _name = System.IO.Path.GetFileNameWithoutExtension(_stage.Name);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Frame is not null)
+        {
+            await SaveEditAsync();
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var crop = await Js.InvokeAsync<CropResult?>("ai2p.loraCropResult", _cropId,
+                _limits.MaxWidth, _limits.MaxHeight, _limits.MaxKb, _limits.Format);
+            if (crop is null || crop.Data.Length == 0)
+            {
+                Snackbar.Add(L["lora.frame.cropFailed"], Severity.Error);
+                return;
+            }
+            if (crop.Bytes > _limits.MaxKb * 1024L)
+            {
+                // ужимали двенадцать раз и всё равно не влезли: честно говорим об этом,
+                // а не отправляем на сервер заведомый отказ
+                Snackbar.Add(string.Format(L["lora.frame.tooBig"], crop.Bytes / 1024, _limits.MaxKb),
+                    Severity.Error);
+                return;
+            }
+            var added = await Api.AddLoraFrameAsync(Owner.Id, new LoraDatasetAddDto
+            {
+                FileName = _name.Trim().Length > 0 ? _name.Trim() : _stage!.Name,
+                Description = _description,
+                DataBase64 = crop.Data,
+                StagePath = _stage!.Path,
+                DatasetId = DatasetId,
+            });
+            Dialog.Close(DialogResult.Ok(added));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Правка кадра — обычное сохранение объекта: кадр это объект вида
+    /// «эталонный кадр», и своего вызова ему не нужно.</summary>
+    private async Task SaveEditAsync()
+    {
+        _busy = true;
+        try
+        {
+            Frame!.Name = _name.Trim();
+            Frame.Description = _description;
+            var saved = await Api.UpdateObjectAsync(Frame);
+            Dialog.Close(DialogResult.Ok(saved));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Что вернул холст браузера: готовая картинка (base64) и её размеры.</summary>
+    private sealed class CropResult
+    {
+        public string Data { get; set; } = "";
+        public int Width { get; set; }
+        public int Height { get; set; }
+        public long Bytes { get; set; }
+    }
+}

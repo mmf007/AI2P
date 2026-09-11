@@ -1,0 +1,55 @@
+@inject I18nService L
+
+@* Предупреждение о лимите агента (T-121): показывается перед запуском задачи, когда
+   у ИИ-исполнителя почти не осталось лимита за окно. Исходов три — перенести старт
+   на сброс окна, разбить задачу на подзадачи, запустить сейчас принудительно. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.body1">
+                @string.Format(L["limit.used"], Limit.Nick, Limit.Used, Limit.Limit,
+                    Limit.WindowHours.ToString("0.#"), Limit.Remaining, Limit.Percent.ToString("0.#"))
+            </MudText>
+            @if (Limit.ResetAt is { } reset)
+            {
+                <MudText Typo="Typo.body2">
+                    @string.Format(L["limit.resetAt"], reset.ToLocalTime().ToString("dd.MM HH:mm"))
+                </MudText>
+            }
+            <MudText Typo="Typo.body2">@L["limit.offHint"]</MudText>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Warning"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(Choice.Force)))">@L["limit.force"]</MudButton>
+        <MudButton Color="Color.Primary"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(Choice.Split)))">@L["limit.split"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(Choice.Defer)))">@DeferText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Остаток лимита исполнителя задачи (T-121).</summary>
+    [Parameter] public AgentLimitDto Limit { get; set; } = new();
+
+    /// <summary>Что выбрал человек.</summary>
+    public enum Choice
+    {
+        /// <summary>Перенести старт на момент сброса окна лимита.</summary>
+        Defer,
+        /// <summary>Разбить задачу на подзадачи (часть выполнится на остатке).</summary>
+        Split,
+        /// <summary>Запустить сейчас, не глядя на остаток.</summary>
+        Force,
+    }
+
+    /// <summary>Кнопка переноса называет время старта — его же увидят в чате задачи.</summary>
+    private string DeferText =>
+        Limit.ResetAt is { } reset
+            ? string.Format(L["limit.defer.at"], reset.ToLocalTime().ToString("dd.MM HH:mm"))
+            : L["limit.defer"];
+}

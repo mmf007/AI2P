@@ -1,0 +1,77 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Диалог выбора папки проекта на локальном компьютере (ТЗ гл. 11, форма ввода проекта):
+   навигация по каталогам сервера (приложение локальное — диски пользователя). *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                               Disabled="@(_list is null || _list.Path.Length == 0)" OnClick="UpAsync" />
+                <MudTextField T="string" @bind-Value="_pathInput" Immediate="true"
+                              OnKeyDown="OnPathKeyDown" Margin="Margin.Dense" Class="flex-grow-1" />
+                <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small"
+                               OnClick="@(() => LoadAsync(_pathInput))" />
+            </MudStack>
+            <MudPaper Outlined="true" Elevation="0" Style="height: 320px; overflow-y: auto;">
+                @if (_list is null)
+                {
+                    <MudProgressLinear Indeterminate="true" />
+                }
+                else
+                {
+                    <MudList T="string" Dense="true">
+                        @foreach (var dir in _list.Dirs)
+                        {
+                            <MudListItem T="string" OnClick="@(() => LoadAsync(dir.Path))">
+                                <MudIcon Icon="@Icons.Material.Filled.Folder" Size="Size.Small" Class="mr-2" />
+                                @dir.Name
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_list is null || _list.Path.Length == 0)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_list!.Path)))">
+            @L["folders.select"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Начальный каталог; пусто — список дисков.</summary>
+    [Parameter] public string? StartPath { get; set; }
+
+    private DirListDto? _list;
+    private string _pathInput = "";
+
+    protected override Task OnInitializedAsync() =>
+        LoadAsync(string.IsNullOrWhiteSpace(StartPath) ? null : StartPath);
+
+    private async Task LoadAsync(string? path)
+    {
+        try
+        {
+            _list = await Api.GetDirsAsync(string.IsNullOrWhiteSpace(path) ? null : path);
+            _pathInput = _list.Path;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private Task UpAsync() => LoadAsync(_list?.Parent);
+
+    private Task OnPathKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? LoadAsync(_pathInput) : Task.CompletedTask;
+}

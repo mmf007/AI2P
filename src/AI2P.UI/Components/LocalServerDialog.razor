@@ -1,0 +1,417 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject UiState State
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+@* Форма ЛОКАЛЬНОГО сервера (ТЗ гл. 10, гл. 12; todo41 пп. 2–3).
+
+   Здесь собрано всё, что относится к САМОМУ серверу: адрес и порт, интерфейс прослушивания,
+   каталоги этого компьютера и пароль администратора сервера. Пишется это в config.json,
+   а не в БД: от этих значений зависит запуск приложения, и исправить их нужно уметь
+   снаружи системы — например, когда порт занят и сервер не поднимается.
+
+   Править может только администратор сервера (отдельный локальный логин): менять настройки
+   сервера вправе лишь физический хозяин компьютера. Остальным поля видны для чтения.
+   Код сервера в организации (S0, S1, …) и внутренний ключ — всегда только для чтения. *@
+<MudDialog>
+    <DialogContent>
+        @if (_dto is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudStack Spacing="3" Style="min-width: 440px;">
+                @if (!State.IsServerAdmin)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        @L["settings.server.hint"]
+                    </MudAlert>
+                }
+                <MudStack Row="true" Spacing="2">
+                    <MudTextField T="string" Value="@_dto.Code" Label="@L["servers.code"]"
+                                  ReadOnly="true" Disabled="true" Style="max-width: 110px;" />
+                    <MudTextField T="string" Value="@ConductorText" Label="@L["servers.conductor"]"
+                                  ReadOnly="true" Disabled="true" Style="max-width: 150px;" />
+                    <MudTextField T="string" Value="@_dto.ServerId" Label="@L["servers.unid"]"
+                                  ReadOnly="true" Disabled="true" HelperText="@L["servers.unidHint"]" />
+                </MudStack>
+
+                <MudDivider />
+                <MudStack Row="true" Spacing="2">
+                    <MudSelect T="string" @bind-Value="_dto.Protocol" Label="@L["servers.protocol"]"
+                               Disabled="@ReadOnly" Style="max-width: 120px;">
+                        <MudSelectItem T="string" Value="@("http")">http</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("https")">https</MudSelectItem>
+                    </MudSelect>
+                    <MudTextField @bind-Value="_dto.Hostname" Label="@L["servers.hostname"]"
+                                  HelperText="@L["servers.hostnameHint"]" Disabled="@ReadOnly"
+                                  autocomplete="off" />
+                    <MudNumericField T="int" @bind-Value="_dto.Port" Label="@L["settings.port"]"
+                                     Min="1" Max="65535" Disabled="@ReadOnly"
+                                     HelperText="@L["settings.portHint"]" Style="max-width: 140px;" />
+                </MudStack>
+                @* ВТОРОЙ АДРЕС — КАКИМ СЕРВЕР ВИДНО СНАРУЖИ (T-2-S1). Пусто — второго адреса
+                   нет, ссылки строятся по первой паре, как раньше. Порт без имени ничего не
+                   значит: поле погашено, пока имя не заполнено. *@
+                <MudStack Row="true" Spacing="2">
+                    <MudTextField @bind-Value="_dto.Hostname2" Label="@L["servers.hostname2"]"
+                                  HelperText="@L["servers.hostname2Hint"]" Disabled="@ReadOnly"
+                                  autocomplete="off" Immediate="true" />
+                    <MudNumericField T="int?" @bind-Value="_dto.Port2" Label="@L["servers.port2"]"
+                                     Min="1" Max="65535" Clearable="true"
+                                     Disabled="@(ReadOnly || !HasHostname2)"
+                                     HelperText="@L["servers.port2Hint"]" Style="max-width: 140px;" />
+                </MudStack>
+                <MudTextField @bind-Value="_dto.BindAddress" Label="@L["servers.bindAddress"]"
+                              HelperText="@L["servers.bindAddressHint"]" Disabled="@ReadOnly"
+                              autocomplete="off" />
+                <MudTextField T="string" Value="@_dto.BasePath" Label="@L["servers.basePath"]"
+                              ReadOnly="true" Disabled="true" />
+
+                @* СЕРТИФИКАТ HTTPS (T-206). Раздела нет вовсе, пока протокол «http»:
+                   сертификат нужен только https, и держать эти поля перед глазами у всех
+                   остальных незачем. Выбор протокола выше — Immediate, поэтому раздел
+                   появляется сразу, не дожидаясь сохранения. *@
+                @if (IsHttps)
+                {
+                    <MudDivider />
+                    <MudText Typo="Typo.subtitle2" data-https-section="1">@L["servers.https.title"]</MudText>
+                    <MudText Typo="Typo.caption">@L["servers.https.hint"]</MudText>
+                    @if (_dto.HttpsCertInfo.Length > 0)
+                    {
+                        <MudAlert Severity="@(_dto.HttpsCertOk ? Severity.Success : Severity.Warning)"
+                                  Dense="true" data-https-state="1">
+                            @string.Format(L[_dto.HttpsCertOk ? "servers.https.ok" : "servers.https.bad"],
+                                _dto.HttpsCertInfo)
+                        </MudAlert>
+                    }
+                    @* сертификат читается, но браузеру не годится (T-315): помечен как
+                       сертификат УЦ или выписан не на то имя *@
+                    @if (_dto.HttpsCertWarning.Length > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" data-https-warning="1">
+                            @_dto.HttpsCertWarning
+                        </MudAlert>
+                    }
+                    <MudSelect T="string" @bind-Value="_dto.HttpsSource" Label="@L["servers.https.source"]"
+                               Disabled="@ReadOnly" data-https-source="1">
+                        <MudSelectItem T="string" Value="@("file")">@L["servers.https.source.file"]</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("store")">@L["servers.https.source.store"]</MudSelectItem>
+                    </MudSelect>
+                    @if (_dto.HttpsSource == "store")
+                    {
+                        <MudStack Row="true" Spacing="2">
+                            <MudSelect T="string" @bind-Value="_dto.HttpsStoreLocation"
+                                       Label="@L["servers.https.storeLocation"]" Disabled="@ReadOnly"
+                                       HelperText="@L["servers.https.storeHint"]" data-https-storeloc="1">
+                                <MudSelectItem T="string" Value="@("CurrentUser")">CurrentUser</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("LocalMachine")">LocalMachine</MudSelectItem>
+                            </MudSelect>
+                            <MudTextField @bind-Value="_dto.HttpsStoreName" Label="@L["servers.https.storeName"]"
+                                          Disabled="@ReadOnly" autocomplete="off"
+                                          data-https-storename="1" Style="max-width: 160px;" />
+                        </MudStack>
+                        <MudTextField @bind-Value="_dto.HttpsSubject" Label="@L["servers.https.subject"]"
+                                      HelperText="@L["servers.https.subjectHint"]" Disabled="@ReadOnly"
+                                      autocomplete="off" data-https-subject="1" />
+                        <MudTextField @bind-Value="_dto.HttpsThumbprint" Label="@L["servers.https.thumbprint"]"
+                                      HelperText="@L["servers.https.thumbprintHint"]" Disabled="@ReadOnly"
+                                      autocomplete="off" data-https-thumbprint="1" />
+                    }
+                    else
+                    {
+                        @* СЕРТИФИКАТ КНОПКОЙ (T-315). Рецепт с openssl человек делает руками,
+                           и ошибиться в нём проще, чем сделать верно: сертификат УЦ вместо
+                           серверного браузер отвергает молча. Здесь программа выписывает
+                           себе центр и подписанный им серверный сертификат сама, а поля формы
+                           заполняются готовыми путями — остаётся сохранить. *@
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.Shield"
+                                       Disabled="@(ReadOnly || _making)" data-https-make="1"
+                                       OnClick="MakeCertAsync">@L["servers.https.make"]</MudButton>
+                            @if (_made is not null)
+                            {
+                                <MudLink Href="@ApiClient.HttpsCaUrl" Target="_blank"
+                                         data-https-ca="1">@L["servers.https.ca"]</MudLink>
+                            }
+                        </MudStack>
+                        <MudText Typo="Typo.caption">@L["servers.https.makeHint"]</MudText>
+                        @if (_made is not null)
+                        {
+                            <MudAlert Severity="Severity.Success" Dense="true" data-https-made="1">
+                                @_made.Info
+                            </MudAlert>
+                        }
+                        <MudTextField @bind-Value="_dto.HttpsCertFile" Label="@L["servers.https.certFile"]"
+                                      HelperText="@L["servers.https.certFileHint"]" Disabled="@ReadOnly"
+                                      autocomplete="off" data-https-certfile="1" />
+                        <MudTextField @bind-Value="_dto.HttpsKeyFile" Label="@L["servers.https.keyFile"]"
+                                      HelperText="@L["servers.https.keyFileHint"]" Disabled="@ReadOnly"
+                                      autocomplete="off" data-https-keyfile="1" />
+                        @* пароль .pfx: значение наружу не отдаётся никогда, пустое поле
+                           означает «не менять» — то же правило, что у пароля почты (T-272) *@
+                        <MudTextField @bind-Value="_certPassword" InputType="InputType.Password"
+                                      Label="@L["servers.https.password"]" Disabled="@ReadOnly"
+                                      HelperText="@PasswordHint" autocomplete="new-password"
+                                      data-https-password="1" />
+                    }
+                }
+
+                @* ДОВЕРИЕ СЕРТИФИКАТУ СОСЕДЕЙ — ВСЕГДА, А НЕ ТОЛЬКО ПРИ СВОЁМ https (T-315,
+                   третий проход). Настройка про ИСХОДЯЩИЕ вызовы: сервер, который сам
+                   работает по http, точно так же звонит соседу по https и точно так же
+                   упирается в его самодельный сертификат («UntrustedRoot»). Пока флажок
+                   стоял внутри раздела сертификата, на таком сервере его не было видно
+                   ВОВСЕ, и включить его можно было только правкой config.json руками. *@
+                <MudDivider />
+                <MudSwitch T="bool" @bind-Value="_dto.HttpsTrustAnyPeer" Color="Color.Primary"
+                           Disabled="@ReadOnly" data-https-trustpeer="1"
+                           Label="@L["servers.https.trustAnyPeer"]" />
+                <MudText Typo="Typo.caption">@L["servers.https.trustAnyPeerHint"]</MudText>
+
+                @* каталоги ЭТОГО компьютера (ТЗ v1.40, v1.42): их правит только администратор
+                   сервера — они про железо, а не про организацию (todo41, замечание 2) *@
+                @* autocomplete="off" здесь обязателен: ниже есть поле пароля, и браузер
+                   считает ближайшее к нему текстовое поле «логином» — без запрета он
+                   подставлял сюда сохранённое значение (например код организации) *@
+                <MudDivider />
+                @* КАКОЙ ЭТО КАТАЛОГ НА САМОМ ДЕЛЕ (T-291): умолчания стали ОТНОСИТЕЛЬНЫМИ
+                   («./models» — рядом с установкой), и одно только значение поля человеку
+                   уже ничего не говорит. Поэтому подсказка каждого поля заканчивается тем,
+                   во что путь разворачивается на этом компьютере прямо сейчас. *@
+                <MudTextField @bind-Value="_dto.ModelsRepo" Label="@L["settings.modelsRepo"]"
+                              HelperText="@DirHint("settings.modelsRepoHint", _dto.ModelsRepoPath)"
+                              Disabled="@ReadOnly" autocomplete="off" />
+                <MudTextField @bind-Value="_dto.DistDir" Label="@L["settings.distDir"]"
+                              HelperText="@DirHint("settings.distDirHint", _dto.DistDirPath)"
+                              Disabled="@ReadOnly" autocomplete="off" />
+                <MudTextField @bind-Value="_dto.PackagesDir" Label="@L["settings.packagesDir"]"
+                              HelperText="@DirHint("settings.packagesDirHint", _dto.PackagesDirPath)"
+                              Disabled="@ReadOnly" autocomplete="off" />
+
+                @* ВРЕМЁН РЕПЛИКАЦИИ ЗДЕСЬ НЕТ (T-50-S0). Это настройка не сервера, а ПАРЫ
+                   «этот сервер ↔ выбранный», и пары с самим собой не бывает: в своей форме
+                   такие поля значили бы «как часто я обмениваюсь с собой». Задаются они
+                   в форме ЧУЖОГО сервера — того, с кем идёт обмен (ServerDialog). *@
+
+                @* СМЕНА ДИРИЖЁРА (T-21-S1): раздел есть, только пока ЭТОТ сервер дирижёром
+                   не является. Заявку «назначить дирижёром меня» подаёт сам назначаемый
+                   сервер — это вторая из двух допустимых сторон (первая, дирижёр, подаёт её
+                   из формы рядового сервера). У сервера с петлевым адресом кнопка погашена
+                   с объяснением: по «localhost» остальные попадут к себе *@
+                @if (_conductor is { Applicable: true })
+                {
+                    <MudDivider />
+                    <MudText Typo="Typo.subtitle2">@L["conductor.title"]</MudText>
+                    <MudText Typo="Typo.caption">@L["conductor.assignHint"]</MudText>
+                    @if (_conductor.Problem.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning"
+                                 data-conductor-problem="1">@_conductor.Problem</MudText>
+                    }
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Star" data-conductor-assign="1"
+                                   Disabled="@(!(_conductor.CanRequest && State.IsServerAdmin))"
+                                   OnClick="AssignConductorAsync">@L["conductor.assign"]</MudButton>
+                        @if (_conductor.Request is not null)
+                        {
+                            <MudButton Variant="Variant.Text" Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.OpenInNew"
+                                       data-conductor-open="1"
+                                       OnClick="AssignConductorAsync">@L["conductor.row.open"]</MudButton>
+                        }
+                    </MudStack>
+                    @if (!State.IsServerAdmin)
+                    {
+                        <MudText Typo="Typo.caption">@L["account.serverAdmin.needed"]</MudText>
+                    }
+                }
+
+                @if (State.IsServerAdmin)
+                {
+                    @* "new-password": это НЕ форма входа — браузер не должен ни подставлять
+                       сюда сохранённый пароль, ни искать рядом поле логина *@
+                    <MudDivider />
+                    <MudTextField @bind-Value="_adminPassword" InputType="InputType.Password"
+                                  Label="@L["settings.server.newAdminPassword"]"
+                                  HelperText="@L["settings.server.adminPasswordHint"]"
+                                  autocomplete="new-password" />
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.close"]</MudButton>
+        @if (State.IsServerAdmin)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveAsync">
+                @L["common.save"]
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    private ServerSettingsDto? _dto;
+    private string _adminPassword = "";
+
+    /// <summary>Пароль файла .pfx (T-206): наружу не отдаётся, пустое поле — «не менять».</summary>
+    private string _certPassword = "";
+
+    /// <summary>Что получилось у кнопки «Создать сертификат» (T-315): пути готовых файлов.
+    /// null — в этот раз сертификат не выписывали.</summary>
+    private HttpsSelfCertDto? _made;
+
+    /// <summary>Сертификат сейчас выписывается: ключ на 2048 бит считается не мгновенно,
+    /// и вторым нажатием человек получил бы второй центр.</summary>
+    private bool _making;
+
+    /// <summary>Смена дирижёра (T-21-S1): правило «кому можно подать заявку» считает сервер,
+    /// а не форма — иначе кнопка и API разойдутся.</summary>
+    private ConductorInfoDto? _conductor;
+
+    /// <summary>Без логина администратора сервера поля видны, но не правятся (ТЗ гл. 12).</summary>
+    private bool ReadOnly => !State.IsServerAdmin;
+
+    /// <summary>Второе имя задано (T-2-S1) — только тогда есть смысл и во втором порте.</summary>
+    private bool HasHostname2 => (_dto?.Hostname2 ?? "").Trim().Length > 0;
+
+    /// <summary>Выбран протокол https (T-206): только тогда показывается раздел сертификата.</summary>
+    private bool IsHttps => string.Equals(_dto?.Protocol, "https", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Подсказка поля пароля .pfx: пустое поле означает «не менять», поэтому
+    /// человеку надо видеть, задан ли пароль вообще (значение наружу не отдаётся).</summary>
+    private string PasswordHint => _dto?.HttpsCertPasswordSet == true
+        ? $"{L["servers.https.passwordHint"]} ({L["servers.https.passwordSet"]})"
+        : L["servers.https.passwordHint"];
+
+    /// <summary>Подсказка каталога плюс его ФАКТИЧЕСКИЙ путь (T-291). Путь приходит с
+    /// сервера — считать его в браузере нечем, а относительное значение поля само по себе
+    /// человеку ничего не говорит. Пустой путь (у дистрибутивов это «временный каталог»,
+    /// у пакетов «&lt;репозиторий&gt;/packages») в подсказку не добавляется: там уже
+    /// сказано словами, что означает пустое поле.</summary>
+    private string DirHint(string key, string path) =>
+        path.Length > 0 ? $"{L[key]} {string.Format(L["settings.dirNow"], path)}" : L[key];
+
+    private string ConductorText =>
+        _dto?.IsConductor == true ? L["servers.conductor.yes"] : L["servers.conductor.no"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _dto = await Api.GetLocalServerAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        if (_dto is not { ServerId.Length: > 0 } || State.NoOrg)
+        {
+            return;
+        }
+        try
+        {
+            _conductor = await Api.GetConductorInfoAsync(_dto.ServerId);
+        }
+        catch (ApiException)
+        {
+            // раздела просто не будет: смена дирижёра — не то, ради чего форма открыта
+        }
+    }
+
+    /// <summary>Открыть форму смены дирижёра: подать заявку «назначить дирижёром меня»
+    /// либо посмотреть уже идущую (T-21-S1).</summary>
+    private async Task AssignConductorAsync()
+    {
+        if (_dto is null || _conductor is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ConductorRequestDialog>
+        {
+            { d => d.TargetId, _dto.ServerId },
+            { d => d.TargetName, L["servers.local"] },
+            { d => d.TargetCode, _dto.Code },
+            { d => d.FromDescription, _conductor.Request?.FromServerName ?? "" },
+            { d => d.OrgName, State.Org.Name },
+            { d => d.Request, _conductor.Request },
+            { d => d.Problem, _conductor.Problem },
+        };
+        var result = await Dialogs.ShowAsync<ConductorRequestDialog>(L["conductor.title"],
+            parameters, FormDialogs.Options(MaxWidth.Small));
+        if (await result.Result is { Canceled: false })
+        {
+            _conductor = await Api.GetConductorInfoAsync(_dto.ServerId);
+        }
+    }
+
+    /// <summary>
+    /// ВЫПИСАТЬ СЕРТИФИКАТ САМИМ (T-315): сервер делает свой удостоверяющий центр и
+    /// подписанный им серверный сертификат, а форма кладёт готовые пути в свои поля.
+    /// Настройки при этом НЕ сохраняются: сохранение остаётся отдельным нажатием, как
+    /// и у всех прочих полей формы.
+    /// </summary>
+    private async Task MakeCertAsync()
+    {
+        if (_dto is null)
+        {
+            return;
+        }
+        _making = true;
+        try
+        {
+            _made = await Api.MakeHttpsCertAsync(new HttpsSelfCertDto
+            {
+                Hostname = _dto.Hostname.Trim(),
+                Hostname2 = _dto.Hostname2.Trim(),
+            });
+            _dto.HttpsSource = "file";
+            _dto.HttpsCertFile = _made.CertFile;
+            _dto.HttpsKeyFile = _made.KeyFile;
+            Snackbar.Add(string.Format(L["servers.https.made"], _made.CaPath), Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _making = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_dto is null)
+        {
+            return;
+        }
+        try
+        {
+            _dto.AdminPassword = _adminPassword.Length > 0 ? _adminPassword : null;
+            // пароль сертификата (T-206): пустое поле означает «не менять» — так же,
+            // как у пароля почты и у пароля администратора сервера
+            _dto.HttpsCertPassword = _certPassword.Length > 0 ? _certPassword : null;
+            // порт без имени — не адрес (T-2-S1): имя стёрли, значит второго адреса нет вовсе
+            if (!HasHostname2)
+            {
+                _dto.Port2 = null;
+            }
+            await Api.SaveLocalServerAsync(_dto);
+            // адрес и порт применяются после перезапуска — процесс уже слушает прежний порт
+            Snackbar.Add(L["servers.savedRestart"], Severity.Success);
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

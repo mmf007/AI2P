@@ -1,0 +1,56 @@
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+
+@* Ссылка на задачу, файл или страницу документации (ТЗ гл. 11, «URL и ссылки на задачи»):
+   отдельное окно по кнопке из правого верхнего угла карточки — просмотр и копирование
+   в буфер обмена.
+
+   Типов ссылки ТРИ, и называются они по типу, а не по тому, куда ведут (T-207-S0):
+   краткая (от корня сайта), полная внутренняя (петлевая) и полная публичная (по имени
+   сервера из настроек). Куда ведёт ссылка, сказано ЗАГОЛОВКОМ окна. Собирает строки
+   общий с окном объекта LinkRows.Build — там же описано, почему полная бывает одна. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            @foreach (var row in Rows())
+            {
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudTextField T="string" Value="@row.Url" Label="@row.Label" HelperText="@row.Hint"
+                                  ReadOnly="true" Margin="Margin.Dense" Class="flex-grow-1"
+                                  data-task-link-url="@row.Key" />
+                    <MudTooltip Text="@L["common.copy"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Primary"
+                                       OnClick="@(() => CopyAsync(row.Url))" />
+                    </MudTooltip>
+                </MudStack>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close(DialogResult.Ok(true)))">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Полная ПУБЛИЧНАЯ ссылка — по имени сервера из настроек.</summary>
+    [Parameter] public string Url { get; set; } = "";
+
+    /// <summary>Полная ВНУТРЕННЯЯ (петлевая) ссылка; пусто — показывается одна полная.</summary>
+    [Parameter] public string LocalUrl { get; set; } = "";
+
+    /// <summary>КРАТКАЯ ссылка (T-196-S0) — от корня сайта, начинается с «/»: она
+    /// не зависит ни от протокола, ни от имени сервера. Пусто — строка не показывается
+    /// (ссылка не наша).</summary>
+    [Parameter] public string RelativeUrl { get; set; } = "";
+
+    private List<LinkRow> Rows() => LinkRows.Build(L, Url, LocalUrl, RelativeUrl);
+
+    private async Task CopyAsync(string url)
+    {
+        await Js.InvokeVoidAsync("ai2p.copyText", url);
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+}

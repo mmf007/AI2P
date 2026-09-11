@@ -1,0 +1,374 @@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Форма источника справочника импортов (ТЗ v1.28, todo30). Вид задаёт, КАКИЕ поля
+   показывать: Trello — логин и фильтр по имени доски, GitLab (T-249) — адрес сервера,
+   путь проекта и метки. Секреты (ТЗ v1.65, T-123) вводятся КНОПКАМИ — каждая спрашивает
+   ровно одно поле, старое значение не показывается, — и лежат в БД организации
+   зашифрованными, как ключи API моделей. Кнопок бывает две (Trello: ключ API и токен)
+   либо одна (GitLab, GitHub: только личный токен) — решает признак NeedsKey. Ссылки на
+   секреты (keyRef/tokenRef) пользователю не показываются: они хранятся в params_json,
+   у нового источника — свои, чтобы два аккаунта не делили одну пару. Неизвестные поля
+   params_json сохраняются как есть. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_source.Name" Label="@L["imports.name"]" Immediate="true"
+                          Error="@NameTaken" ErrorText="@L["imports.nameTaken"]" />
+            @* вид источника и документ по нему (ТЗ гл. 14, todo47_2): как получить ключи
+               внешней системы, нужно знать ДО того, как запись сохранена, поэтому кнопка
+               «i» привязана к ВИДУ, а не к записи справочника *@
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudSelect T="string" Value="_source.Kind" ValueChanged="KindChanged"
+                           Label="@L["imports.kind"]" Class="flex-grow-1">
+                    <MudSelectItem T="string" Value="@("trello")">Trello</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("github")">GitHub</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("gitlab")">GitLab</MudSelectItem>
+                </MudSelect>
+                <MudTooltip Text="@L["imports.doc"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.Info" Variant="Variant.Outlined"
+                                   Color="Color.Info" OnClick="ShowDocAsync" />
+                </MudTooltip>
+            </MudStack>
+            @* поля источника — СВОИ у каждого вида (T-249): у Trello это логин и фильтр
+               по имени доски, у GitLab — адрес сервера, путь проекта и отбор по меткам.
+               Значения хранятся в одном params_json, каждый вид читает свои ключи *@
+            @if (IsGitLab)
+            {
+                <MudTextField @bind-Value="_host" Label="@L["imports.gitlab.host"]"
+                              Placeholder="https://gitlab.com" data-import-field="host"
+                              HelperText="@L["imports.gitlab.hostHint"]" />
+                <MudTextField @bind-Value="_project" Label="@L["imports.gitlab.project"]"
+                              Placeholder="group/project" data-import-field="project"
+                              HelperText="@L["imports.gitlab.projectHint"]" />
+                <MudTextField @bind-Value="_labels" Label="@L["imports.gitlab.labels"]"
+                              data-import-field="labels"
+                              HelperText="@L["imports.gitlab.labelsHint"]" />
+            }
+            else
+            {
+                @* у GitHub те же два поля, но названы они по-своему (T-247): владелец
+                   репозиториев (пользователь или организация) и отбор по имени репозитория *@
+                <MudTextField @bind-Value="_login"
+                              Label="@L[IsGitHub ? "imports.github.owner" : "imports.login"]"
+                              data-import-field="login"
+                              HelperText="@L[IsGitHub ? "imports.github.ownerHint" : "imports.loginHint"]" />
+                <MudTextField @bind-Value="_filter"
+                              Label="@L[IsGitHub ? "imports.github.repo" : "imports.filter"]"
+                              data-import-field="filter"
+                              HelperText="@L[IsGitHub ? "imports.github.repoHint" : "imports.filterHint"]" />
+            }
+
+            @* ключ API и токен (ТЗ v1.65): значения вводятся здесь, а не в secrets.json.
+               Кнопки работают у СОХРАНЁННОЙ записи — как ключ у модели: значение кладётся
+               сразу, поэтому знать, какому источнику оно принадлежит, нужно до ввода *@
+            @if (Source is null)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">@L["imports.secretsSaveFirst"]</MudAlert>
+            }
+            else
+            {
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    @* отдельный ключ API есть не у всякой внешней системы (T-249): у GitLab
+                       и GitHub одно значение — личный токен, и кнопка ключа там лишняя *@
+                    @if (_keys?.NeedsKey != false)
+                    {
+                        <MudButton StartIcon="@Icons.Material.Filled.Key" Variant="Variant.Filled"
+                                   Color="@(_keys?.HasKey == true ? Color.Default : Color.Primary)"
+                                   data-import-key="1"
+                                   OnClick="@(() => EditSecretAsync("key"))">
+                            @(_keys?.HasKey == true ? L["imports.keyUpdate"] : L["imports.keySet"])
+                        </MudButton>
+                    }
+                    <MudButton StartIcon="@Icons.Material.Filled.VpnKey" Variant="Variant.Filled"
+                               data-import-token="1"
+                               Color="@(_keys?.HasToken == true ? Color.Default : Color.Primary)"
+                               OnClick="@(() => EditSecretAsync("token"))">
+                        @(_keys?.HasToken == true ? L["imports.tokenUpdate"] : L["imports.tokenSet"])
+                    </MudButton>
+                    @* проверка подключения (T-134): отказ внешней системы виден ЗДЕСЬ,
+                       где значения вводятся, а не при первом импорте задачи *@
+                    <MudButton StartIcon="@Icons.Material.Filled.NetworkCheck" Variant="Variant.Outlined"
+                               Disabled="@(_checking || _keys is not { HasKey: true, HasToken: true })"
+                               OnClick="CheckAsync">
+                        @(_checking ? L["imports.checking"] : L["imports.check"])
+                    </MudButton>
+                </MudStack>
+                @if (_keys is not null)
+                {
+                    @if (_keys.NeedsKey)
+                    {
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                            @L["imports.keyState"]:
+                            @(_keys.HasKey ? $"{L["imports.secretPresent"]} ({_keys.KeySource})" : L["imports.secretMissing"])
+                        </MudText>
+                        @if (_keys.HasKey && _keys.KeyHint.Length > 0)
+                        {
+                            <MudAlert Severity="Severity.Warning" Dense="true">@_keys.KeyHint</MudAlert>
+                        }
+                    }
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        @L["imports.tokenState"]:
+                        @(_keys.HasToken ? $"{L["imports.secretPresent"]} ({_keys.TokenSource})" : L["imports.secretMissing"])
+                    </MudText>
+                    @if (_keys.HasToken && _keys.TokenHint.Length > 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">@_keys.TokenHint</MudAlert>
+                    }
+                }
+                @if (_check is not null)
+                {
+                    <MudAlert Severity="@(_check.Ok ? Severity.Success : Severity.Error)" Dense="true">
+                        @_check.Message
+                    </MudAlert>
+                }
+            }
+
+            @* источник импорта без ключа и токена активным быть не может (ТЗ v1.65):
+               после ввода последнего из двух он активируется сам, дальше выбор за человеком *@
+            @* уже включённый источник, у которого значения пропали, выключить всё-таки дают:
+               иначе он остался бы активным навсегда *@
+            <MudSwitch T="bool" @bind-Value="_source.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" Disabled="@(NoSecrets && !_source.IsActive)" />
+            @if (NoSecrets)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["imports.activeNeedsSecrets"]</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_source.Name.Trim().Length == 0 || !RequiredFilled || NameTaken)"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — добавление нового источника.</summary>
+    [Parameter] public ImportSource? Source { get; set; }
+
+    /// <summary>Существующие источники — проверка уникальности имени в UI.</summary>
+    [Parameter] public List<ImportSource> Existing { get; set; } = [];
+
+    private ImportSource _source = new();
+    private JsonObject _params = new();
+    private string _login = "";
+    private string _filter = "";
+    // поля источника GitLab (T-249): адрес сервера, путь проекта и отбор по меткам
+    private string _host = "";
+    private string _project = "";
+    private string _labels = "";
+    private string _keyRef = "";
+    private string _tokenRef = "";
+    private ImportKeyStatusDto? _keys;
+    private ImportCheckDto? _check;
+    private bool _checking;
+
+    /// <summary>Источник GitLab (T-249): у него свои поля и один токен вместо пары.</summary>
+    private bool IsGitLab =>
+        string.Equals(_source.Kind, "gitlab", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Источник GitHub (T-247): поля те же, что у Trello (владелец и отбор
+    /// по имени репозитория), но секрет один — токен.</summary>
+    private bool IsGitHub =>
+        string.Equals(_source.Kind, "github", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Ссылки на секреты вида «trello.*» полагаются ТОЛЬКО источнику Trello:
+    /// у остальных видов свой токен, и класть его по чужому адресу нельзя.</summary>
+    private bool IsTrello =>
+        string.Equals(_source.Kind, "trello", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Обязательное поле вида: у Trello — логин, у GitLab — путь проекта. Без него
+    /// массовому импорту неоткуда брать задачи, и «Сохранить» заблокировано.</summary>
+    private bool RequiredFilled =>
+        IsGitLab ? _project.Trim().Length > 0 : _login.Trim().Length > 0;
+
+    /// <summary>У вида источника есть ОТДЕЛЬНЫЙ ключ API (T-249). Сервер отвечает то же
+    /// самое полем NeedsKey состояния секретов, но у ещё не сохранённой записи спрашивать
+    /// некого — вид известен и здесь. Слой UI на AI2P.Connectors не ссылается, поэтому
+    /// правило повторено кодом вида, а не общей функцией.</summary>
+    private bool NeedsKey => !IsGitLab && !IsGitHub;
+
+    private bool NameTaken => Existing.Any(s =>
+        s.Id != _source.Id &&
+        s.Name.Trim().Equals(_source.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Ключ либо токен не заполнен — активным источник быть не может (ТЗ v1.65).</summary>
+    private bool NoSecrets => _keys is not { HasKey: true, HasToken: true };
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            // редактируем копию, чтобы отмена не портила кэш состояния
+            _source = new ImportSource
+            {
+                Id = Source.Id,
+                Name = Source.Name,
+                Kind = Source.Kind,
+                ParamsJson = Source.ParamsJson,
+                IsActive = Source.IsActive,
+            };
+            try
+            {
+                _params = JsonNode.Parse(Source.ParamsJson) as JsonObject ?? new JsonObject();
+            }
+            catch (JsonException)
+            {
+                _params = new JsonObject();
+            }
+            _login = (string?)_params["login"] ?? "";
+            _filter = (string?)_params["filter"] ?? "";
+            // поля GitLab (T-249) лежат в том же params_json под своими именами
+            _host = (string?)_params["host"] ?? "";
+            _project = (string?)_params["project"] ?? "";
+            _labels = (string?)_params["labels"] ?? "";
+            // ссылки на секреты (ТЗ v1.65) у существующей записи НЕ переписываем: значение
+            // уже лежит по этому адресу. Ссылок нет — запись заведена до v1.65, у неё они
+            // общие; ровно так же их подставляет сервер (TrelloImporter.SourceParams)
+            // ссылок нет — либо запись заведена до v1.65 (у неё они общие, trello.*), либо
+            // источник другого вида, заведённый мимо формы: чужую ссылку Trello ему давать
+            // НЕЛЬЗЯ — это чужой токен, ему полагается своя (T-249)
+            var (defaultKey, defaultToken) = IsTrello
+                ? (ImportSource.LegacyKeyRef, ImportSource.LegacyTokenRef)
+                : ImportSource.DefaultRefs(_source.Kind, _source.Id);
+            _keyRef = (string?)_params["keyRef"] is { Length: > 0 } key ? key : defaultKey;
+            _tokenRef = (string?)_params["tokenRef"] is { Length: > 0 } token ? token : defaultToken;
+        }
+        else
+        {
+            // новый источник — активность включает не пользователь, а ввод ключа и токена,
+            // а ссылки на секреты у него СВОИ: два аккаунта Trello не делят одну пару
+            _source.IsActive = false;
+            (_keyRef, _tokenRef) = ImportSource.DefaultRefs(_source.Kind, _source.Id);
+        }
+    }
+
+    /// <summary>
+    /// Смена вида источника (T-249). У НОВОЙ записи ссылки на секреты строятся от вида
+    /// (<c>gitlab.&lt;хвост&gt;.token</c>), поэтому их надо пересчитать: иначе токен GitLab
+    /// лёг бы по ссылке «trello.*». У СОХРАНЁННОЙ записи ссылки не трогаются вовсе —
+    /// значение уже лежит по своему адресу, и переписать ссылку значило бы его потерять.
+    /// </summary>
+    private void KindChanged(string kind)
+    {
+        _source.Kind = kind;
+        _check = null; // прежний вердикт относился к прежней внешней системе
+        if (Source is null)
+        {
+            (_keyRef, _tokenRef) = ImportSource.DefaultRefs(kind, _source.Id);
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Source is not null)
+        {
+            await RefreshKeysAsync();
+        }
+    }
+
+    private async Task RefreshKeysAsync()
+    {
+        try
+        {
+            _keys = await Api.GetImportKeysAsync(_source.Id);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Документ вида источника (ТЗ гл. 14, todo47_2): как получить ключи.</summary>
+    private async Task ShowDocAsync()
+    {
+        var parameters = new DialogParameters<ModelDocDialog>
+        {
+            { d => d.ImportKind, _source.Kind },
+            { d => d.Current, L.Lang },
+        };
+        var dialog = await Dialogs.ShowAsync<ModelDocDialog>($"{L["imports.doc"]}: {_source.Kind}",
+            parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+    }
+
+    /// <summary>Ввод ключа API либо токена (ТЗ v1.65): одна кнопка — одно поле. Введено
+    /// последнее из двух — сервер активировал источник, форма это подхватывает.</summary>
+    private async Task EditSecretAsync(string field)
+    {
+        var isKey = field == "key";
+        var parameters = new DialogParameters<ImportKeyDialog>
+        {
+            { d => d.SourceId, _source.Id },
+            { d => d.Field, field },
+            { d => d.Label, L[isKey ? "imports.keyValue" : "imports.tokenValue"] },
+            { d => d.SecretRef, isKey ? _keyRef : _tokenRef },
+            { d => d.HasValue, isKey ? _keys?.HasKey == true : _keys?.HasToken == true },
+            { d => d.HasOrgKey, _keys?.HasOrgKey ?? true },
+        };
+        var dialog = await Dialogs.ShowAsync<ImportKeyDialog>(
+            L[isKey ? "imports.keyTitle" : "imports.tokenTitle"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: ImportKeyStatusDto status })
+        {
+            _keys = status;
+            _source.IsActive = status.IsActive;
+            _check = null; // прежний вердикт относился к прежнему значению
+        }
+    }
+
+    /// <summary>Проверка подключения (T-134): вердикт внешней системы словами — принят ключ,
+    /// принят токен, чей это аккаунт. Ответ сервера — всегда 200: отказ Trello не ошибка
+    /// запроса, а результат проверки.</summary>
+    private async Task CheckAsync()
+    {
+        _checking = true;
+        _check = null;
+        try
+        {
+            _check = await Api.CheckImportAsync(_source.Id);
+        }
+        catch (ApiException ex)
+        {
+            _check = new ImportCheckDto { Ok = false, Message = ex.Message };
+        }
+        finally
+        {
+            _checking = false;
+        }
+    }
+
+    private void Save()
+    {
+        // каждый вид пишет СВОИ поля; чужие остаются в params_json нетронутыми — человек
+        // мог завести источник как Trello, переключить на GitLab и передумать (T-249)
+        if (IsGitLab)
+        {
+            _params["host"] = _host.Trim();
+            _params["project"] = _project.Trim();
+            _params["labels"] = _labels.Trim();
+        }
+        else
+        {
+            _params["login"] = _login.Trim();
+            _params["filter"] = _filter.Trim();
+        }
+        // ключа у источника с одним токеном нет — и ссылки на него в параметрах быть не должно
+        if (NeedsKey)
+        {
+            _params["keyRef"] = _keyRef.Trim();
+        }
+        _params["tokenRef"] = _tokenRef.Trim();
+        _source.ParamsJson = _params.ToJsonString();
+        Dialog.Close(DialogResult.Ok(_source));
+    }
+}

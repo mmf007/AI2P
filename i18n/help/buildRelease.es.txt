@@ -1,0 +1,47 @@
+AI2P — buildRelease: PUBLICACIÓN DE RELEASE DEL SERVIDOR EN UNA CARPETA APARTE
+
+Un conjunto de archivos autosuficiente que se ejecuta sin las fuentes y sin
+dotnet run (ET, cap. 4.2). Este es un script de DESARROLLADOR: se ejecuta en la máquina
+de compilación, desde el repositorio, y su propia salida es de momento mixta (ruso e
+inglés): es el nivel B del análisis de T-64-S0, todavía no está traducido vía i18n.
+[antes de T-285 se llamaba publish.*]
+
+USO (Windows)
+  buildRelease.cmd                       en builds\windows\release
+  buildRelease.cmd D:\AI2P_v1.45         en la carpeta indicada
+  buildRelease.cmd D:\out Release        carpeta y configuración
+  buildRelease.cmd full                  CON EL RUNTIME DENTRO, en releasefull
+  buildRelease.ps1 -Output D:\out -Clean limpiar la carpeta (salvo los datos) y rehacerla
+  buildRelease.cmd --help                esta ayuda
+  buildRelease.cmd --help -Lang ru       idioma de esta ayuda
+
+USO (Linux / macOS)
+  ./buildRelease.sh                      en builds/<SO>/release
+  ./buildRelease.sh --self-contained     CON EL RUNTIME DENTRO
+  ./buildRelease.sh --help               esta ayuda
+  ./buildRelease.sh --help --lang ru     idioma de esta ayuda
+
+DOS PUBLICACIONES
+  normal         — sin runtime: pequeña, pero exige que en la máquina esté instalado
+                   ASP.NET Core 8.x (su install.* lo comprueba y ofrece instalarlo);
+  -SelfContained — el runtime va dentro de la propia publicación, no hay que instalar
+                   nada en la máquina, pero la publicación queda atada a la plataforma
+                   (-Runtime, por defecto win-x64) y pesa un orden de magnitud más.
+Las carpetas son distintas y NO se mezclan.
+
+CARPETA DEL SISTEMA OPERATIVO. Entre builds y release/releasefull hay una subcarpeta
+del SO para el que está compilada la publicación: windows, linux o macos:
+  builds/windows/release      — sin runtime
+  builds/windows/releasefull  — con runtime
+  builds/linux/releasefull    — lo mismo, compilado para Linux (-Runtime linux-x64)
+  builds/macos/releasefull    — para macOS (-Runtime osx-x64 / osx-arm64)
+Las publicaciones de sistemas distintos ya no se pisan unas a otras en una misma carpeta:
+tienen scripts de instalación distintos, runtime distinto dentro y ejecutables distintos.
+
+EL PAQUETE DE INSTALACIÓN se compila en un paso APARTE y ya a partir de la publicación
+terminada: en ella se deja MakePackage.ps1/.cmd (para Linux/macOS, MakePackage.sh), hay
+que ejecutarlo DESDE la carpeta de publicación y el resultado va a ../../packages.
+
+La carpeta de datos NO se copia aquí: data, logs, config.json, secrets.json y secrets
+(las claves de los modelos, un json por clave) se trasladan a mano y no se tocan al
+volver a publicar.

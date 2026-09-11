@@ -1,0 +1,177 @@
+@inject I18nService L
+@inject UiState State
+@inject ApiClient Api
+
+@* Запись опыта (ТЗ п. 2.11): текст — урок/вывод, полезный при повторной работе, и НАВЫК,
+   к которому этот вывод относится (todo48). Навык решает, кто запись прочитает: агент
+   получает в промпт только опыт по своим навыкам — медиа-моделям незачем читать выводы
+   кодировщиков.
+
+   С T-24-S0 у записи есть ещё две вещи, обе про то же самое — что попадёт в промпт:
+   * ЗАГРУЖАТЬ ВСЕГДА — запись идёт в задание мимо любого отбора (по умолчанию выключено);
+   * ТЭГИ — те же ключевые слова, что у задач и шаблонов (общий набор, справочника нет):
+     ими запись привязывается к ТЕМЕ работы, а не к навыку исполнителя. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudSelect T="string" @bind-Value="_skillId" Label="@L["exp.skill"]" Clearable="true"
+                       ToStringFunc="@SkillById" HelperText="@L["exp.skill.hint"]">
+                @foreach (var skill in State.Skills)
+                {
+                    <MudSelectItem T="string" Value="@skill.Id">@SkillLabel(skill)</MudSelectItem>
+                }
+            </MudSelect>
+            @* ТЭГИ (T-24-S0): поле множественного выбора из уже заведённых тэгов организации
+               (у опыта и у задач набор общий) плюс ввод нового — как в форме задачи.
+               Запятая — разделитель, «сборка, выпуск» даёт два тэга.
+               РАЗМЕЩЕНИЕ (T-300): ввод нового тэга стоит НАД списком тэгов, отдельной
+               строкой с небольшим отступом слева, — в одной строке на узком экране
+               телефона список тэгов сжимался до нечитаемого *@
+            <MudStack Spacing="2">
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="pl-4">
+                    <MudTextField T="string" @bind-Value="_newTag" Immediate="true"
+                                  Label="@L["task.tags.new"]" Class="flex-grow-1"
+                                  data-exp-tag-new="1" OnKeyDown="OnNewTagKeyDown" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary"
+                                   title="@L["task.tags.add"]" data-exp-tag-add="1"
+                                   Disabled="@(_newTag.Trim().Length == 0)" OnClick="AddNewTag" />
+                </MudStack>
+                <MudSelect T="string" MultiSelection="true" SelectedValues="@_tags"
+                           SelectedValuesChanged="OnTagsChanged"
+                           Label="@L["exp.tags"]" Clearable="true"
+                           HelperText="@L["exp.tags.hint"]" data-exp-tags="1"
+                           MultiSelectionTextFunc="@(list => string.Join(", ", list))">
+                    @foreach (var tag in _allTags)
+                    {
+                        <MudSelectItem T="string" Value="@tag">@tag</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+            @* ЗАГРУЖАТЬ ВСЕГДА (T-24-S0): по умолчанию выключено — иначе отбор, ради
+               которого признак и заведён, не отсекал бы ничего *@
+            <MudCheckBox T="bool" @bind-Value="_alwaysLoad" Dense="true"
+                         Label="@L["exp.alwaysLoad"]" data-exp-always="1" />
+            <MudText Typo="Typo.caption" Style="opacity:.7">@L["exp.alwaysLoad.hint"]</MudText>
+            <MudTextField T="string" @bind-Value="_text" Lines="6" AutoFocus="true"
+                          Label="@L["exp.text"]" Placeholder="@L["exp.placeholder"]"
+                          Immediate="true" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_text.Trim().Length == 0)" OnClick="Save">
+            @L["common.save"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Текст записи; пусто — новая запись.</summary>
+    [Parameter] public string Text { get; set; } = "";
+
+    /// <summary>Навык записи (todo48); пусто — запись общая.</summary>
+    [Parameter] public string SkillId { get; set; } = "";
+
+    /// <summary>«Загружать всегда» (T-24-S0); у новой записи — выключено.</summary>
+    [Parameter] public bool AlwaysLoad { get; set; }
+
+    /// <summary>Тэги записи (T-24-S0).</summary>
+    [Parameter] public IReadOnlyCollection<string> Tags { get; set; } = [];
+
+    private string _text = "";
+    private string? _skillId;
+    private bool _alwaysLoad;
+    private IReadOnlyCollection<string> _tags = [];
+
+    /// <summary>Тэги, предлагаемые в списке: все заведённые в организации (у опыта и у задач
+    /// набор общий) плюс те, что уже стоят у этой записи — её тэг мог остаться только
+    /// у неё, а список читается с сервера.</summary>
+    private List<string> _allTags = [];
+
+    /// <summary>Поле ввода нового тэга — того, которого в списке ещё нет.</summary>
+    private string _newTag = "";
+
+    protected override void OnInitialized()
+    {
+        _text = Text;
+        _skillId = SkillId.Length > 0 ? SkillId : null;
+        _alwaysLoad = AlwaysLoad;
+        _tags = Tags.ToList();
+        _allTags = _tags.ToList();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var known = await Api.GetExperienceTagsAsync();
+            _allTags = known.Concat(_tags).Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+        catch (ApiException)
+        {
+            // без общего списка форма работает: свои тэги видны, новые вводятся полем
+            _allTags = _tags.ToList();
+        }
+    }
+
+    private void OnTagsChanged(IEnumerable<string> values) => _tags = values.ToList();
+
+    /// <summary>Enter в поле нового тэга добавляет его — как «+» (приём формы задачи).</summary>
+    private void OnNewTagKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            AddNewTag();
+        }
+    }
+
+    /// <summary>
+    /// Добавить введённые тэги: приведение то же, что в хранилище и в форме задачи (запятая —
+    /// разделитель, пробелы по краям снимаются, повтор без учёта регистра не заводится).
+    /// Новый тэг попадает и в список выбора — иначе выбранное значение осталось бы без пункта.
+    /// </summary>
+    private void AddNewTag()
+    {
+        var added = TaskTags.Normalize(_newTag);
+        if (added.Count == 0)
+        {
+            return;
+        }
+        var selected = _tags.ToList();
+        foreach (var tag in added)
+        {
+            if (!_allTags.Any(t => TaskTags.Same(t, tag)))
+            {
+                _allTags.Add(tag);
+                _allTags.Sort(StringComparer.CurrentCultureIgnoreCase);
+            }
+            if (!selected.Any(t => TaskTags.Same(t, tag)))
+            {
+                selected.Add(tag);
+            }
+        }
+        _tags = selected;
+        _newTag = "";
+    }
+
+    /// <summary>Набранный, но не добавленный кнопкой тэг тоже сохраняется — иначе человек
+    /// теряет его молча (то же правило в форме задачи).</summary>
+    private void Save() => Dialog.Close(DialogResult.Ok(new ExperienceSaveDto
+    {
+        Text = _text.Trim(),
+        SkillId = _skillId,
+        AlwaysLoad = _alwaysLoad,
+        Tags = TaskTags.Normalize(_tags.Concat([_newTag])),
+    }));
+
+    private string SkillLabel(Skill skill) => skill.IsCustom ? skill.Name : L["skill." + skill.Name];
+
+    /// <summary>Выбранный навык в поле — название вместо id (ToStringFunc, багфикс todo34_3).</summary>
+    private string SkillById(string? id) =>
+        id is null or "" ? "" :
+        State.Skills.FirstOrDefault(s => s.Id == id) is { } skill ? SkillLabel(skill) : id;
+}

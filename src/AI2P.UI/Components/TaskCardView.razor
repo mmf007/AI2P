@@ -1,0 +1,2454 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+@inject NavigationManager Nav
+
+@* Карточка задачи (ТЗ гл. 5, экран 2): описание .md, исполнители, действия,
+   история (журнал), артефакты, чат по задаче. *@
+@* удаление задачи и подзадачи спрашивается формой выбора «перенести в архив или удалить
+   совсем» (T-44-S0) — простого переспроса здесь больше нет *@
+@* переспрос перед авторазбиением (ТЗ v1.26): для шаблона и обычной задачи — разные тексты *@
+<MudMessageBox @ref="_splitBox" Title="@L["task.split"]"
+               Message="@(_details?.Task.IsTemplate == true ? L["task.split.confirmTemplate"] : L["task.split.confirm"])"
+               YesText="@L["task.split.yes"]" CancelText="@L["common.cancel"]" />
+@* переспрос перед запуском всей иерархии (T-159): за одной кнопкой уходит в работу
+   всё поддерево задачи. Галочки — перезапускать и подзадачи, вставшие с ошибкой (T-186),
+   и запускать подзадачи в состоянии «доработка» (T-210): без них очередь такие задачи
+   не трогает и ждёт человека *@
+<MudMessageBox @ref="_hierarchyBox" Title="@L["task.startHierarchy"]"
+               YesText="@L["task.startHierarchy.yes"]" CancelText="@L["common.cancel"]">
+    <MessageContent>
+        <MudText Typo="Typo.body2">@L["task.startHierarchy.confirm"]</MudText>
+        <MudCheckBox T="bool" @bind-Value="_hierarchyWithErrors" Dense="true" Class="mt-2"
+                     Color="Color.Primary" Label="@L["task.startHierarchy.withErrors"]"
+                     data-task-hierarchy-errors="1" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @L["task.startHierarchy.withErrors.hint"]
+        </MudText>
+        <MudCheckBox T="bool" @bind-Value="_hierarchyWithNeedsFix" Dense="true" Class="mt-2"
+                     Color="Color.Primary" Label="@L["task.startHierarchy.withNeedsFix"]"
+                     data-task-hierarchy-needsfix="1" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @L["task.startHierarchy.withNeedsFix.hint"]
+        </MudText>
+    </MessageContent>
+</MudMessageBox>
+@* переспрос кнопки «выключить автозапуск» (T-54-S0): выключение закрывает ВСЕ
+   автоматические старты поддерева — потомков выполненной задачи, задач, ждавших её
+   как блокирующую, и очередь авторазбиения, — а заодно закрывает открытую очередь
+   иерархии. Исходов три: «да» — снять и уже идущие задания потомков, «нет» — только
+   выключить автозапуск, «отмена» — не трогать ничего *@
+<MudMessageBox @ref="_autoStartBox" Title="@L["task.autostart.off"]"
+               YesText="@L["task.stop.withChildren"]" NoText="@L["task.autostart.offOnly"]"
+               CancelText="@L["common.cancel"]">
+    <MessageContent>
+        <MudText Typo="Typo.body2" data-task-autostart-confirm="1">
+            @L["task.autostart.off.confirm"]
+        </MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @L["task.autostart.off.hint"]
+        </MudText>
+    </MessageContent>
+</MudMessageBox>
+@* переспрос кнопки «обновить» у задачи со ссылкой импорта (T-246): три исхода —
+   обновить из источника, обновить только здесь, отменить. Кнопки MudMessageBox
+   ровно для этого и предназначены: «да» — из источника, «нет» — внутреннее *@
+<MudMessageBox @ref="_refreshBox" Title="@L["task.refresh.title"]"
+               YesText="@L["task.refresh.fromImport"]" NoText="@L["task.refresh.internal"]"
+               CancelText="@L["common.cancel"]">
+    <MessageContent>
+        <MudText Typo="Typo.body2">@L["task.refresh.confirm"]</MudText>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary" data-task-refresh-url="1">
+            @ImportUrl
+        </MudText>
+    </MessageContent>
+</MudMessageBox>
+@if (_details is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    var task = _details.Task;
+    @* Шапка карточки в ДВЕ строки (T-130): длинный заголовок переносится по словам и больше
+       не сжимает тулбар — код и заголовок отдельной строкой, состояние и кнопки — своей.
+       Слева от кода — НАЗВАНИЕ ПРОЕКТА (T-136), отделённое стилистически: мелкий шрифт,
+       своя подложка и вертикальная черта — проект виден сразу, но заголовок задачи собой
+       не перебивает. Цвета — только из палитры MudBlazor (работают обе темы). *@
+    <MudText Typo="Typo.h5" Class="mb-1" Style="overflow-wrap:anywhere;">
+        @if (ProjectName is { Length: > 0 } projectName)
+        {
+            <MudTooltip Text="@L["task.project"]">
+                <span class="ai2p-task-project">@projectName</span>
+            </MudTooltip>
+        }
+        <b>@task.DisplayId</b> @task.Title
+    </MudText>
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        @* фон надписи — цвет состояния из справочника состояний (ТЗ v1.37) *@
+        <MudChip T="string" Size="Size.Small" Style="@State.StatusStyle(task.Status)">
+            @State.StatusName(task.Status)
+        </MudChip>
+        @* В АРХИВЕ СМЕНЫ СОСТОЯНИЯ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат,
+           и погашенная кнопка здесь читалась бы как «прав не хватает», а не как «так устроено» *@
+        @if (!task.IsTemplate && !State.InArchive)
+        {
+            @* смена статуса вручную — кнопка рядом со статусом (ТЗ v1.14) *@
+            <MudTooltip Text="@L["task.changeStatus"]">
+                <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
+                               Disabled="@(!CanEditTask)" OnClick="ChangeStatusAsync" />
+            </MudTooltip>
+        }
+        @if (task.IsTemplate)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning">@L["task.isTemplate"]</MudChip>
+        }
+        @* сервер-владелец задачи (ТЗ гл. 6, этап 42): чужая задача правится только у себя,
+           здесь она в режиме просмотра — об этом и говорит надпись рядом с состоянием.
+           С T-36-S0 то же и у ШАБЛОНА: у него тоже есть сервер, и он тоже передаётся *@
+        @if (State.IsCluster)
+        {
+            <MudTooltip Text="@(task.IsReadOnly
+                                  ? L["task.server.readOnlyHint"] + " " + ServerTitle(task)
+                                  : L["task.server.ownHint"])">
+                <MudChip T="string" Size="Size.Small"
+                         Color="@(task.IsReadOnly ? Color.Default : Color.Info)"
+                         Icon="@(task.IsReadOnly ? Icons.Material.Filled.Lock : Icons.Material.Filled.Dns)">
+                    @ServerTitle(task)
+                </MudChip>
+            </MudTooltip>
+        }
+        @* задача «в работе» (T-117): рядом со статусом видно, у кого задание, в каком оно
+           состоянии и не занят ли сам исполнитель (лимит провайдера) — без захода во
+           вкладки «Задания» и «Исполнители» *@
+        @if (!task.IsTemplate && task.Status == TaskStatuses.InProgress && CurrentJob is { } currentJob)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Info" Variant="Variant.Outlined">
+                @Nick(currentJob.ExecutorId): @L["jobstate." + currentJob.State.ToDb()]@BusyHint(currentJob.ExecutorId)
+            </MudChip>
+        }
+        @* чего ждёт агент (T-187): за статусом задачи — та же надпись, что в представлении
+           «в работе у ИИ». Отложенный старт по лимиту (T-121) писался здесь и раньше: задача
+           ждёт сброса окна и запустится сама, в том числе после выключения компьютера; теперь
+           так же названы и два других ожидания — вопросы в чате и подзадачи (T-185).
+           С T-224 сюда же попадает «запуск иерархии»: очередь запуска поддерева открыта,
+           а сама задача ждёт своей очереди и остаётся в «ожидает» *@
+        @if (_details.Pause is { } pause)
+        {
+            <MudTooltip Text="@PauseHint(pause)">
+                <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Outlined"
+                         Icon="@AiPauseText.Icon(pause)" data-task-pause="@pause.Kind">
+                    @AiPauseText.Of(L, pause)
+                </MudChip>
+            </MudTooltip>
+        }
+        @* вопросы отдельной меткой — когда причина паузы уже названа вопросами, второй раз
+           их не пишем *@
+        @if (task.PendingQuestions > 0 && _details.Pause is not { Kind: AiPauseKinds.Question })
+        {
+            @* висящие вопросы агентов — хорошо заметны на задаче (ТЗ v1.17) *@
+            <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                     Icon="@Icons.Material.Filled.HelpOutline">
+                @L["task.questions.pending"]: @task.PendingQuestions
+            </MudChip>
+        }
+        <MudSpacer />
+        @* Кнопки справа — иконки с подсказками одного стиля (гл. 11, эргономика; todo37):
+           порядок — запустить/остановить, изменить, авто создание подзадач, удалить,
+           все файлы, ссылка, обновить. Запуск/останов рисуется так же, как у команды
+           (обычная иконка с цветом), а не залитой кнопкой. *@
+        @* ПРОСМОТР АРХИВА (T-45-S0): весь блок действий над задачей — запуск, остановка,
+           правка, смена сервера, разбиение, удаление — в архиве не показывается вовсе.
+           Ниже остаются только те кнопки, которые ничего не меняют: переход к родителю,
+           файлы, ссылка, обновить *@
+        @if (!State.InArchive)
+        {
+        @if (task.IsTemplate)
+        {
+            @* шаблон не исполняется (ТЗ п. 2.3) — вместо запуска создание процесса (п. 2.4) *@
+            <MudTooltip Text="@L["task.instantiate"]">
+                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Success"
+                               Disabled="@(!CanEditTask)" OnClick="InstantiateAsync" />
+            </MudTooltip>
+        }
+        else if (ActiveJob is null)
+        {
+            @* ручной запуск исполнителя; для ИИ при активном задании — «остановить» (ТЗ v1.14).
+               Чужая задача (T-196) кнопку не гасит: запуск передаётся её серверу заявкой,
+               и подсказка прямо говорит, куда он уйдёт *@
+            <MudTooltip Text="@(task.IsReadOnly
+                                  ? L["task.run.remote", ServerTitle(task)]
+                                  : L["task.start"])">
+                <MudIconButton Icon="@Icons.Material.Filled.PlayArrow"
+                               Color="Color.Success" Disabled="@(!CanStart || !CanRunTask)"
+                               OnClick="StartAsync" data-task-start="1" />
+            </MudTooltip>
+        }
+        else
+        {
+            @if (_details.StalledJobId is not null)
+            {
+                @* задание зависло «в работе» без живого вызова (T-117): ручное продолжение *@
+                <MudTooltip Text="@L["task.continue"]">
+                    <MudIconButton Icon="@Icons.Material.Filled.PlayCircle" Color="Color.Success"
+                                   Disabled="@(!CanEditTask)" OnClick="ContinueAsync" />
+                </MudTooltip>
+            }
+        }
+        @* ВЫКЛЮЧЕНИЕ РАБОТЫ ОДНОЙ КНОПКОЙ (T-73-S0). Прежде их было две — «остановить
+           задание» (T-263) и «остановить запуск иерархии», — да ещё переспрос с тремя
+           исходами; теперь кнопка одна, а всё, что можно выключить ПРЯМО СЕЙЧАС, стоит
+           пунктами её меню. Невозможный вариант не показывается вовсе: нет задания —
+           нет пункта про задание, нет открытой очереди — нет пунктов про очередь; когда
+           выключать нечего, нет и самой кнопки.
+           Чужая задача (T-196, T-263) кнопку не гасит: нажатие превращается в заявку её
+           серверу, и об этом говорит подпись кнопки.
+           ДОРАБОТКА T-73-S0: в тулбаре оставалась ВТОРАЯ кнопка выключения — «выключить
+           автозапуск подзадач» (T-54-S0, значок «запрещено»): она тоже гасит работу, только
+           не идущую сейчас, а будущие автоматические старты ветки. Теперь и она пункт
+           этого меню, а отдельной кнопкой осталось лишь ОБРАТНОЕ действие — «включить
+           автозапуск» (зелёный значок пуска): это включение, а не выключение, и в меню
+           выключения ему не место. Поэтому меню показывается и тогда, когда снимать нечего,
+           но автозапуск ещё можно выключить.
+           Активатор — ВСТРОЕННАЯ иконка MudMenu: свой активатор с MudTooltip внутри
+           ActivatorContent не пробрасывает клик (todo21). Но ОБЁРТКА снаружи клик не
+           перехватывает (так же сделано меню аккаунта в шапке), поэтому подсказка у кнопки
+           всё-таки есть — её отсутствие заказчик отметил отдельно *@
+        @if (!task.IsTemplate && (ActiveJob is not null || InHierarchyRun || CanAutoStartOff))
+        {
+            <MudTooltip Text="@StopHint">
+                <MudMenu Icon="@Icons.Material.Filled.StopCircle" IconColor="Color.Warning"
+                         Dense="true" Disabled="@(!CanRunTask)"
+                         AriaLabel="@StopHint"
+                         data-task-stop="1">
+                    @if (ActiveJob is not null)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.Stop"
+                                     OnClick="@(() => SendStopAsync(false, false))"
+                                     data-task-stop-job="1">
+                            @L["task.stop.job"]
+                        </MudMenuItem>
+                    }
+                    @if (InHierarchyRun)
+                    {
+                        <MudMenuItem Icon="@Icons.Material.Filled.StopCircle"
+                                     OnClick="@(() => SendStopAsync(true, false))"
+                                     data-task-hierarchy-stop="1">
+                            @L["task.stop.queue", HierarchyRoot]
+                        </MudMenuItem>
+                        <MudMenuItem Icon="@Icons.Material.Filled.Block"
+                                     OnClick="@(() => SendStopAsync(true, true))"
+                                     data-task-stop-all="1">
+                            @L["task.stop.queueWithChildren", HierarchyRoot]
+                        </MudMenuItem>
+                    }
+                    @if (CanAutoStartOff)
+                    {
+                        @* примета живой проверки прежняя (data-task-autostart="on" —
+                           «автозапуск сейчас включён, нажатие выключит»), сменилось только
+                           место: была кнопка тулбара, стал пункт меню *@
+                        <MudMenuItem Icon="@Icons.Material.Filled.Block"
+                                     OnClick="ToggleAutoStartAsync"
+                                     data-task-autostart="on">
+                            @L["task.autostart.off.tip"]
+                        </MudMenuItem>
+                    }
+                </MudMenu>
+            </MudTooltip>
+        }
+        @* запуск всей иерархии (T-159): есть только у задачи с подзадачами — очередь идёт
+           снизу вверх по приоритету, корневой родитель запускается последним. data-* —
+           опора живой проверки в браузере: у иконки нет текста *@
+        @if (!task.IsTemplate && _subtasks.Count > 0)
+        {
+            <MudTooltip Text="@(task.IsReadOnly
+                                  ? L["task.run.remote", ServerTitle(task)]
+                                  : L["task.startHierarchy"])">
+                <MudIconButton Icon="@Ai2pIcons.TripleArrowRight"
+                               Color="Color.Success" Disabled="@(!CanRunTask)"
+                               OnClick="StartHierarchyAsync" data-task-hierarchy="1" />
+            </MudTooltip>
+        }
+        @* АВТОЗАПУСК ПОДЗАДАЧ (T-54-S0). Кнопки остановки выше мало: очередь иерархии —
+           не единственный источник автоматических стартов. Завершение задачи само поднимает
+           её потомков (todo22), задачи, ждавшие её как блокирующую (ТЗ п. 2.12), и очередь
+           авторазбиения, — поэтому человек, переводивший разобранные подзадачи в «готово»,
+           каждым переводом запускал работу заново, и остановить это было нечем.
+           Пометка живёт у задачи и действует на всё её поддерево.
+           У ЧУЖОЙ задачи (T-196) кнопки нет: автозапуск ведёт сервер-владелец, и решение
+           принимается там же — заявки на этот случай не заводилось.
+           ЗДЕСЬ ОСТАЛОСЬ ТОЛЬКО ВКЛЮЧЕНИЕ (T-73-S0): выключение уехало пунктом в меню
+           выключения работы выше — заказчик просил одну кнопку выключения в тулбаре *@
+        @if (!task.IsTemplate && !task.IsReadOnly && AutoStartOff)
+        {
+            <MudTooltip Text="@L["task.autostart.on.hint"]">
+                <MudIconButton Icon="@Icons.Material.Filled.PlayCircle" Color="Color.Success"
+                               Disabled="@(!CanRunTask)" OnClick="ToggleAutoStartAsync"
+                               data-task-autostart="off" />
+            </MudTooltip>
+        }
+        @* автозапуск выключен ВЫШЕ по дереву — или у чужой задачи, где кнопки нет (T-54-S0):
+           стартов здесь всё равно не будет, и молчать об этом нельзя *@
+        @if (!task.IsTemplate && (!AutoStartOff || task.IsReadOnly)
+             && AutoStartOffRoot is { Length: > 0 } offRoot)
+        {
+            <MudTooltip Text="@L["task.autostart.offAbove", offRoot]">
+                <MudIcon Icon="@Icons.Material.Filled.Block" Color="Color.Error"
+                         Class="mt-2 ml-1" data-task-autostart="above" />
+            </MudTooltip>
+        }
+        <MudTooltip Text="@L["common.edit"]">
+            @* data-* — опора живой проверки в браузере (T-196): у иконки нет текста, а
+               проверять надо именно то, что ПРАВКА чужой задачи осталась закрытой *@
+            <MudIconButton Icon="@Icons.Material.Filled.Edit" data-task-edit="1"
+                           Disabled="@(!CanEditTask)" OnClick="EditAsync" />
+        </MudTooltip>
+        @* «сменить сервер» (ТЗ гл. 6, этап 42): доступна на сервере, которому задача
+           принадлежит сейчас, и на дирижёре — если сервер у задачи не указан. После смены
+           задача здесь становится только для чтения, а её номер не меняется.
+           У ШАБЛОНА кнопка та же (T-36-S0): шаблон уезжает всем своим поддеревом *@
+        @if (State.IsCluster)
+        {
+            <MudTooltip Text="@L["task.server.change"]">
+                @* своя примета для живых проверок (T-1-S0): значков на карточке много,
+                   и перебор кнопок попутно открывает чужие окна *@
+                <MudIconButton Icon="@Icons.Material.Filled.Dns" data-task-server-change="1"
+                               Disabled="@(!CanEditTask)" OnClick="ChangeServerAsync" />
+            </MudTooltip>
+        }
+        @if (!task.IsNotSplit && task.Kind == TaskKind.Task && ActiveJob is null)
+        {
+            @* авто создание подзадач ИИ-агентом (ТЗ v1.26): с переспросом; скрыта после
+               разбиения (isNotSplit) *@
+            <MudTooltip Text="@L["task.split"]">
+                <MudIconButton Icon="@Icons.Material.Filled.AccountTree" Color="Color.Primary"
+                               Disabled="@(!CanEditTask)" OnClick="SplitAsync" />
+            </MudTooltip>
+        }
+        <MudTooltip Text="@L["common.delete"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                           Disabled="@(!CanEditTask)" OnClick="DeleteAsync" />
+        </MudTooltip>
+        }
+        @* ВОССТАНОВИТЬ (T-45-S0) — операция, обратная архивации: задача со всеми потомками,
+           файлами и ссылками возвращается в рабочую среду (механика — T-42-S0).
+           Только у ТЕКУЩЕГО архива: в остальных данные уже не меняются, и восстанавливать
+           оттуда нечем — перенос идёт только в текущий архив и только из него обратно.
+           Шаблон восстанавливается тем же вызовом, но своим видом переноса *@
+        @if (State.InCurrentArchive)
+        {
+            <MudTooltip Text="@L["arc.restore"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Unarchive" Color="Color.Primary"
+                               Disabled="@_restoring" OnClick="RestoreAsync"
+                               data-task-restore="1" />
+            </MudTooltip>
+        }
+        @* переход к родительской задаче (T-130): есть только у подзадачи; открывает родителя
+           в том же фрейме — как переход по подзадаче ниже и по карточке на доске *@
+        @if (task.ParentId is { } parentId)
+        {
+            <MudTooltip Text="@($"{L["task.parent.open"]}: {ParentLabel}")">
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward"
+                               OnClick="@(() => State.OpenTask(parentId, _details.ParentDisplayId ?? "",
+                                                              _details.ParentTitle ?? ParentLabel, FrameIndex))" />
+            </MudTooltip>
+        }
+        @* КОПИРОВАТЬ ЗАДАЧУ (T-67-S0): четыре закладки подряд — описание, критерии приёмки,
+           чат и результат, каждая своим заголовком; пустая закладка не копируется вовсе.
+           Кнопка есть и в архиве, и у чужой задачи: она ничего не меняет *@
+        <CopyMenuButton Parts="@CardParts" data-task-copy="1" />
+        @* все файлы, на которые есть ссылки в .md задачи и чате (ТЗ v1.28, todo30) *@
+        @* data-* — опора живой проверки в настоящем браузере (как data-board-col у доски):
+           у иконки нет текста, а подсказка рисуется только по наведению *@
+        <MudTooltip Text="@L["task.files"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Attachment" OnClick="ShowFilesAsync"
+                           data-task-files="1" />
+        </MudTooltip>
+        @* ссылка на задачу — отдельное окно по кнопке в правом верхнем углу (гл. 11) *@
+        <MudTooltip Text="@L["task.link"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Link" OnClick="@(() => ShowLinkAsync())"
+                           data-task-link="1" />
+        </MudTooltip>
+        @* ОБНОВИТЬ (T-246): у задачи со ссылкой импорта кнопка переспрашивает — обновить
+           из источника (перечитать карточку Trello) или просто перечитать задачу здесь.
+           У задачи без ссылки спрашивать нечего, кнопка работает как раньше *@
+        <MudTooltip Text="@(HasImportUrl ? L["task.refresh.title"] : L["common.refresh"])">
+            <MudIconButton Icon="@Icons.Material.Filled.Refresh" Disabled="@_refreshing"
+                           OnClick="RefreshAsync" data-task-refresh="1" />
+        </MudTooltip>
+    </MudStack>
+
+    <MudStack Row="true" Spacing="4" Class="mb-2">
+        <MudText Typo="Typo.body2">@L["task.executor"]: <b>@Nick(task.ExecutorIds.FirstOrDefault())</b></MudText>
+        @* работу взял не назначенный, а запасной из списка «могут заменить исполнителя»
+           (T-221) — иначе со стороны непонятно, почему в задаче трудится кто-то другой *@
+        @if (task.ActualExecutorId is { Length: > 0 } actual && actual != task.ExecutorIds.FirstOrDefault())
+        {
+            <MudText Typo="Typo.body2" data-task-actual-executor="1">
+                @L["task.actualExecutor"]: <b>@Nick(actual)</b>
+            </MudText>
+        }
+        @if (task.AltExecutorIds.Count > 0)
+        {
+            <MudTooltip Text="@L["task.altExecutors.hint"]">
+                <MudText Typo="Typo.body2" data-task-alt-executors="1">
+                    @L["task.altExecutors"]: <b>@string.Join(", ", task.AltExecutorIds.Select(Nick))</b>
+                </MudText>
+            </MudTooltip>
+        }
+        <MudText Typo="Typo.body2">@L["task.responsible"]: <b>@Nick(task.ResponsibleId)</b></MudText>
+        @if (task.DueDate is { } due)
+        {
+            <MudText Typo="Typo.body2">@L["task.dueDate"]: <b>@due.ToLocalTime().ToString("d")</b></MudText>
+        }
+        @if (task.PlannedHours is { } hours)
+        {
+            <MudText Typo="Typo.body2">@L["task.plannedHours"]: <b>@hours.ToString("0.##")</b></MudText>
+        }
+        <MudText Typo="Typo.body2">@L["task.priority"]: <b>@L[$"task.priority.{task.Priority}"] (@task.PriorityNum)</b></MudText>
+        @* ссылка импорта (T-246): откуда задача приехала — видно сразу и открывается
+           в новой вкладке; правится в разделе «Расширенное» формы задачи *@
+        @if (task.ImportUrl is { Length: > 0 } importUrl)
+        {
+            <MudTooltip Text="@L["task.importUrl.hint"]">
+                <MudText Typo="Typo.body2" data-task-import-url="1">
+                    @L["task.importUrl"]:
+                    <MudLink Href="@importUrl" Target="_blank">@importUrl</MudLink>
+                </MudText>
+            </MudTooltip>
+        }
+        @if (task.BlockerIds.Count > 0)
+        {
+            @* блокирующие задачи (ТЗ v1.35): без их завершения автозапуск не срабатывает *@
+            <MudText Typo="Typo.body2">@L["task.blockers"]: <b>@BlockerCodes(task)</b></MudText>
+        }
+    </MudStack>
+
+    @* @key: при переходе на другую задачу вкладки пересоздаются — иначе MudTabs
+       дорисовывает условные панели (чат) в конец списка *@
+    <MudTabs Elevation="1" Rounded="true" @key="@task.Id">
+        <MudTabPanel Text="@L["task.card.description"]">
+            @* описание — Markdown, показывается отрендеренным (ТЗ гл. 11).
+               Кнопка копирования — у КАЖДОГО поля .md (T-67-S0): только это поле,
+               простым текстом или разметкой *@
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                <MudSpacer />
+                <CopyMenuButton Size="Size.Small" data-field-copy="description"
+                                Parts="@(() => CopyText.One(_details!.Description))" />
+            </MudStack>
+            <MudPaper Elevation="0" Class="ai2p-md-preview">@((MarkupString)Md.ToHtml(_details.Description))</MudPaper>
+            @if (_details.Acceptance.Length > 0)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0" Class="mt-4">
+                    <MudText Typo="Typo.subtitle2">@L["task.acceptance"]</MudText>
+                    <MudSpacer />
+                    <CopyMenuButton Size="Size.Small" data-field-copy="acceptance"
+                                    Parts="@(() => CopyText.One(_details!.Acceptance))" />
+                </MudStack>
+                <MudPaper Elevation="0" Class="ai2p-md-preview">@((MarkupString)Md.ToHtml(_details.Acceptance))</MudPaper>
+            }
+        </MudTabPanel>
+
+        @* подзадачи (по parent_id, ТЗ гл. 11): кнопка «добавить» открывает ту же форму,
+           что и «новая задача» в списке задач (T-201) — выбор «пустая или из шаблона»,
+           дальше форма ввода с проставленным родителем либо создание из шаблона *@
+        @* ТРИ ПРЕДСТАВЛЕНИЯ списка подзадач (T-132-S0): таблица (как было), иерархия
+           (тем же деревом, что список задач проекта, но БЕЗ выноса в корень) и диаграмма
+           по образцу BPMN. Выбор — тем же полем «вид», что в списке задач *@
+        <MudTabPanel Text="@L["task.card.subtasks"]">
+            <MudStack Spacing="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center">
+                    <MudSelect T="string" @bind-Value="_subtasksView" Label="@L["common.view"]"
+                               Dense="true" Margin="Margin.Dense" Style="max-width: 160px;"
+                               data-subtasks-viewpick="1">
+                        <MudSelectItem T="string" Value="@("table")">@L["tasks.view.table"]</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("tree")">@L["tasks.view.tree"]</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("diagram")">@L["tasks.view.diagram"]</MudSelectItem>
+                    </MudSelect>
+                    <MudSpacer />
+                    <MudTooltip Text="@L["common.add"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add" Disabled="@(!CanEditTask)"
+                                       OnClick="AddSubtaskAsync" data-subtask-add="1" />
+                    </MudTooltip>
+                </MudStack>
+                @if (_subtasks.Count == 0)
+                {
+                    <MudText Typo="Typo.body2">@L["common.empty"]</MudText>
+                }
+                else if (_subtasksView == "tree")
+                {
+                    @* иерархия: то же дерево, что у задач проекта (T-132-S0). Перенос мышкой
+                       работает так же, но полос «в корень» здесь нет — из подзадач задачу
+                       вытаскивают в корень из общего списка задач *@
+                    <div data-subtasks-view="tree">
+                        <TaskTreeView Tasks="_subtree" AllowRoot="false" OnReload="ReloadAsync" />
+                    </div>
+                }
+                else if (_subtasksView == "diagram")
+                {
+                    <TaskDiagramView TaskId="@TaskId" OnAction="RunSubtaskActionAsync"
+                                     OnReload="ReloadAsync" />
+                }
+                else
+                {
+                    <MudSimpleTable Dense="true" Hover="true">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>@L["task.title"]</th>
+                                <th>@L["task.status"]</th>
+                                @* числовой приоритет (T-244): подзадачи приходят с сервера
+                                   отсортированными по нему (ORDER BY priority_num DESC),
+                                   поэтому колонка ещё и объясняет порядок строк *@
+                                <th style="white-space: nowrap;">@L["task.priorityNum"]</th>
+                                <th>@L["task.executor"]</th>
+                                <th>@L["task.dueDate"]</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var subtask in _subtasks)
+                            {
+                                <tr style="cursor: pointer;"
+                                    @onclick="@(() => State.OpenTask(subtask.Id, subtask.DisplayId, subtask.Title, FrameIndex))">
+                                    <td>@subtask.DisplayId</td>
+                                    <td>@subtask.Title</td>
+                                    <td><span class="ai2p-status" style="@State.StatusStyle(subtask.Status)">@State.StatusName(subtask.Status)</span></td>
+                                    <td style="white-space: nowrap;" data-subtask-prio="@subtask.PriorityNum">@subtask.PriorityNum</td>
+                                    <td>@Nick(subtask.ExecutorIds.FirstOrDefault())</td>
+                                    <td>@subtask.DueDate?.ToLocalTime().ToString("d")</td>
+                                    @* кнопки строки не должны открывать карточку — stopPropagation *@
+                                    <td style="white-space: nowrap;" @onclick:stopPropagation="true">
+                                        @* смена статуса подзадачи прямо из списка (T-136):
+                                           иконка та же, что у задачи рядом со статусом *@
+                                        <MudTooltip Text="@L["task.changeStatus"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
+                                                           Disabled="@(!CanEditTask)"
+                                                           OnClick="@(() => ChangeSubtaskStatusAsync(subtask))" />
+                                        </MudTooltip>
+                                        <MudTooltip Text="@L["common.edit"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                           Disabled="@(!CanEditTask)"
+                                                           OnClick="@(() => EditSubtaskAsync(subtask))" />
+                                        </MudTooltip>
+                                        @* ссылка на подзадачу (T-132-S0): то же окно, что у
+                                           кнопки «ссылка» в тулбаре карточки *@
+                                        <MudTooltip Text="@L["task.link"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small"
+                                                           data-subtask-link="1"
+                                                           OnClick="@(() => ShowLinkAsync(subtask.Id))" />
+                                        </MudTooltip>
+                                        <MudTooltip Text="@L["common.delete"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                           Color="Color.Error" Disabled="@(!CanEditTask)"
+                                                           OnClick="@(() => DeleteSubtaskAsync(subtask))" />
+                                        </MudTooltip>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            </MudStack>
+        </MudTabPanel>
+
+        @* у шаблона чата обычно нет (ТЗ п. 2.3), но комментарии авторазбиения (ТЗ v1.26)
+           пишутся в чат — при их наличии вкладка показывается и у шаблона *@
+        @if (!task.IsTemplate || _chat.Count > 0)
+        {
+        <MudTabPanel Text="@L["task.card.chat"]" BadgeData="@(task.PendingQuestions > 0 ? task.PendingQuestions : null)"
+                     BadgeColor="Color.Warning">
+            <MudStack Spacing="2">
+                @foreach (var message in _chat)
+                {
+                    @* вопросы агентов выделены (ТЗ v1.17): рамка, иконка, варианты ответа кнопками *@
+                    var isQuestion = message.Kind == ChatMessageKind.Question;
+                    var isPending = isQuestion && message.AnsweredAt is null;
+                    <MudPaper Class="pa-2" Elevation="1"
+                              Style="@(isQuestion
+                                         ? "border-left: 4px solid var(--mud-palette-warning); background: var(--mud-palette-background-gray);"
+                                         : message.Kind == ChatMessageKind.Answer
+                                             ? "border-left: 4px solid var(--mud-palette-success);"
+                                             : null)">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                        <MudText Typo="Typo.caption">
+                            @if (isQuestion)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.HelpOutline" Size="Size.Small"
+                                         Color="Color.Warning" Style="vertical-align: text-bottom;" />
+                                <b> @L["task.chat.question"]</b> <text>· </text>
+                            }
+                            else if (message.Kind == ChatMessageKind.Answer)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Reply" Size="Size.Small"
+                                         Color="Color.Success" Style="vertical-align: text-bottom;" />
+                                <b> @L["task.chat.answer"]</b> <text>· </text>
+                            }
+                            @* автор из внешней системы (T-152) «светится» так, как он назван
+                               там: «trello:<логин>» — исполнителя с таким именем у нас нет *@
+                            <b>@Author(message)</b> → @(Nick(message.ToExecutorId) is { Length: > 0 } to ? to : "*")
+                            · @message.CreatedAt.ToLocalTime().ToString("g")
+                        </MudText>
+                        <MudSpacer />
+                        @* копирование ОДНОГО сообщения чата (T-67-S0): разметку из чата
+                           иначе не достать — редактора у сообщения нет вовсе *@
+                        <CopyMenuButton Size="Size.Small" data-field-copy="chat"
+                                        Parts="@(() => CopyText.One(message.Text))" />
+                        </MudStack>
+                        @* сообщения чата — Markdown: картинки и ссылки (ТЗ п. 7.2) *@
+                        <div class="ai2p-md-preview">@((MarkupString)Md.ToHtml(message.Text))</div>
+                        @if (isPending && IsStaleQuestion(message))
+                        {
+                            @* агента, который спрашивал, уже нет: задание упало, остановлено
+                               или завершилось — ответ такой вопрос не примет (T-1-S1).
+                               Единственное, что осталось человеку, — снять его *@
+                            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-1"
+                                      data-task-question-stale="1">
+                                @L["task.chat.stale"]
+                            </MudAlert>
+                            <MudStack Row="true" Spacing="1" Class="mt-1">
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                           StartIcon="@Icons.Material.Filled.NotificationsOff"
+                                           data-task-question-dismiss="1"
+                                           Disabled="@(_answering || !CanEditTask)"
+                                           OnClick="@(() => DismissQuestionAsync(message.Id))">
+                                    @L["task.chat.dismiss"]
+                                </MudButton>
+                            </MudStack>
+                        }
+                        else if (isPending)
+                        {
+                            @* ответ на вопрос: варианты кнопками и/или свободный текст (ТЗ v1.17) *@
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" Class="mt-1">
+                                @foreach (var option in message.Options())
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                               Disabled="@_answering"
+                                               OnClick="@(() => AnswerQuestionAsync(message.Id, option))">
+                                        @option
+                                    </MudButton>
+                                }
+                            </MudStack>
+                            @* поле ответа — многострочное, черновик живёт в UiState (T-117):
+                               набранный текст переживает переключение закладок приложения *@
+                            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.End" Class="mt-1">
+                                <MudTextField T="string" @bind-Value="QuestionReply" Margin="Margin.Dense"
+                                              Sizing="InputSizing.Auto" MaxLines="8"
+                                              Placeholder="@L["task.chat.answerPlaceholder"]" Class="flex-grow-1" />
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Warning"
+                                           Disabled="@(_answering || QuestionReply.Trim().Length == 0)"
+                                           OnClick="@(() => AnswerQuestionAsync(message.Id, QuestionReply))">
+                                    @L["task.chat.answerSend"]
+                                </MudButton>
+                            </MudStack>
+                        }
+                        else if (isQuestion)
+                        {
+                            @* закрытый вопрос: отвеченный отличается от снятого (T-1-S1) —
+                               у снятого ответа нет и не будет, и написать «ответ получен»
+                               про него было бы неправдой *@
+                            <MudText Typo="Typo.caption" Class="mt-1">
+                                @(HasReply(message) ? L["task.chat.answered"] : L["task.chat.dismissed"])
+                            </MudText>
+                        }
+                    </MudPaper>
+                }
+                @* задача в работе — сообщение доедет до агента перебивкой (T-161):
+                   человеку важно знать, что писать можно прямо сейчас, а не «после» *@
+                @if (task.Status == TaskStatuses.InProgress)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="py-1"
+                              data-task-chat-to-agent="1">
+                        @L["task.chat.toAgent"]
+                    </MudAlert>
+                }
+                @* чат ОБЩИЙ на весь кластер (T-196): писать в чужую задачу можно, сообщение
+                   уедет её серверу репликацией и там дойдёт до работающего агента *@
+                @if (task.IsReadOnly)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" Class="py-1"
+                              data-task-chat-remote="1">
+                        @L["task.chat.remote", ServerTitle(task)]
+                    </MudAlert>
+                }
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.End">
+                    <div class="flex-grow-1">
+                        @* черновик сообщения — в UiState (T-117): переживает переключение закладок *@
+                        <MarkdownEditor @bind-Value="ChatText" ProjectId="@task.ProjectId"
+                                        Rows="2" MinHeightPx="60" />
+                    </div>
+                    <MudTooltip Text="@L["task.chat.send"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Send" Color="Color.Primary"
+                                       Variant="Variant.Filled"
+                                       Disabled="@(ChatText.Trim().Length == 0 || !CanChatTask)"
+                                       OnClick="SendChatAsync" data-task-chat-send="1" />
+                    </MudTooltip>
+                </MudStack>
+            </MudStack>
+        </MudTabPanel>
+        }
+
+        @* у шаблона результатов не бывает — шаблон не исполняется (ТЗ п. 2.3), вкладка скрыта *@
+        @if (!task.IsTemplate)
+        {
+        <MudTabPanel Text="@L["task.card.artifacts"]">
+            @* ПУСТОЙ результат (T-130-S0, повторный заход): у задачи, по которой ещё ничего
+               не сдано, во вкладке не было НИЧЕГО, кроме слова «пусто», — а значит не было
+               и карандаша, ради которого задача заводилась. Копировать при пустом результате
+               нечего, а писать есть что, поэтому блок правки печатается и здесь *@
+            @{
+                var textArtifacts = _details.Artifacts.Where(a => _artifactTexts.ContainsKey(a)).ToList();
+                var manualResult = ManualResultPath;
+            }
+            @if (_details.Artifacts.Count == 0 && manualResult is null)
+            {
+                <MudText Typo="Typo.body2">@L["common.empty"]</MudText>
+            }
+            else
+            {
+                <MudStack Spacing="2">
+                    @* блоком печатается только ТЕКСТОВЫЙ результат (T-127-S0): у картинки
+                       и видео в блоке не было ничего, кроме имени, — пустая рамка. Сами
+                       файлы, в том числе бинарные, стоят строками таблицы ниже *@
+                    @foreach (var artifact in textArtifacts)
+                    {
+                        <MudPaper Class="pa-2" Elevation="1" data-artifact-text="@System.IO.Path.GetFileName(artifact)">
+                            @* только имя файла без пути и расширения (todo17): J-1-result *@
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                                <MudText Typo="Typo.caption"><b>@System.IO.Path.GetFileNameWithoutExtension(artifact)</b></MudText>
+                                <MudSpacer />
+                                @if (_editingArtifact == artifact)
+                                {
+                                    @* правка текста результата (T-130-S0): как у закладки
+                                       «Основное» проекта — «Сохранить» и «Отмена» *@
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                               data-artifact-save="@System.IO.Path.GetFileName(artifact)"
+                                               OnClick="SaveArtifactTextAsync">@L["common.save"]</MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                               Class="ml-1" data-artifact-cancel="@System.IO.Path.GetFileName(artifact)"
+                                               OnClick="CancelArtifactEdit">@L["common.cancel"]</MudButton>
+                                }
+                                else
+                                {
+                                    @if (_artifactTexts.TryGetValue(artifact, out var artifactText))
+                                    {
+                                        @* копирование одного результата (T-67-S0) *@
+                                        <CopyMenuButton Size="Size.Small" data-field-copy="artifact"
+                                                        Parts="@(() => CopyText.One(artifactText))" />
+                                    }
+                                    @if (CanEditArtifact(artifact))
+                                    {
+                                        <MudTooltip Text="@L["common.edit"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                           Color="Color.Primary"
+                                                           data-artifact-edit="@System.IO.Path.GetFileName(artifact)"
+                                                           OnClick="@(() => StartArtifactEdit(artifact))" />
+                                        </MudTooltip>
+                                    }
+                                }
+                            </MudStack>
+                            @if (_editingArtifact == artifact)
+                            {
+                                <MarkdownEditor @bind-Value="_artifactDraft" ProjectId="@task.ProjectId"
+                                                Rows="12" />
+                            }
+                            else if (_artifactTexts.TryGetValue(artifact, out var text))
+                            {
+                                @if (artifact.EndsWith(".md"))
+                                {
+                                    <div class="ai2p-md-preview">@((MarkupString)Md.ToHtml(text))</div>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@text</MudText>
+                                }
+                            }
+                        </MudPaper>
+                    }
+                    @* ТЕКСТОВОГО результата нет вовсе (T-130-S0): пустой блок с одним
+                       карандашом — им человек заводит свой результат. Текстовый результат
+                       у задачи один, поэтому, как только он появился, блок исчезает:
+                       дальше правится сам файл (карандаш в его шапке) *@
+                    @if (textArtifacts.Count == 0 && manualResult is { } newResult)
+                    {
+                        <MudPaper Class="pa-2" Elevation="1"
+                                  data-artifact-text="@System.IO.Path.GetFileName(newResult)">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                                <MudText Typo="Typo.caption">
+                                    <b>@System.IO.Path.GetFileNameWithoutExtension(newResult)</b>
+                                </MudText>
+                                <MudSpacer />
+                                @if (_editingArtifact == newResult)
+                                {
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                               data-artifact-save="@System.IO.Path.GetFileName(newResult)"
+                                               OnClick="SaveArtifactTextAsync">@L["common.save"]</MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small"
+                                               Class="ml-1" data-artifact-cancel="@System.IO.Path.GetFileName(newResult)"
+                                               OnClick="CancelArtifactEdit">@L["common.cancel"]</MudButton>
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="@L["common.edit"]">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                       Color="Color.Primary"
+                                                       data-artifact-edit="@System.IO.Path.GetFileName(newResult)"
+                                                       OnClick="@(() => StartArtifactEdit(newResult))" />
+                                    </MudTooltip>
+                                }
+                            </MudStack>
+                            @if (_editingArtifact == newResult)
+                            {
+                                <MarkdownEditor @bind-Value="_artifactDraft" ProjectId="@task.ProjectId"
+                                                Rows="12" />
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.body2">@L["common.empty"]</MudText>
+                            }
+                        </MudPaper>
+                    }
+                </MudStack>
+                @* список файлов результата таблицей (T-127-S0): под описаниями результата —
+                   сами файлы артефактов с превью картинки и двумя кнопками-иконками
+                   («получить ссылку» и «удалить»). Берётся тот же список, что в окне всех
+                   файлов задачи, источник «результат» — это файлы каталога artifacts\ *@
+                @if (_artifactFiles.Count > 0)
+                {
+                    <MudSimpleTable Dense="true" Hover="true" Class="mt-3"
+                                    Style="width: 100%; table-layout: fixed;"
+                                    data-task-artifact-files="1">
+                        <thead>
+                            <tr>
+                                <th style="width:64px">@L["task.files.preview"]</th>
+                                <th>@L["task.files.name"]</th>
+                                <th style="width:96px"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var file in _artifactFiles)
+                            {
+                                <tr data-artifact-row="@file.Name">
+                                    <td style="width:64px">
+                                        @if (IsImageFile(file))
+                                        {
+                                            <img src="@FileOpenUrl(file)" alt="@file.Name"
+                                                 style="max-width: 56px; max-height: 40px; display: block; object-fit: cover;" />
+                                        }
+                                        else
+                                        {
+                                            <MudIcon Icon="@FileKindIcon(file)" Size="Size.Small" />
+                                        }
+                                    </td>
+                                    <td style="overflow-wrap: anywhere;">
+                                        <MudLink Href="@FileOpenUrl(file)" Target="_blank">@file.Name</MudLink>
+                                    </td>
+                                    <td style="white-space: nowrap;">
+                                        <MudTooltip Text="@L["task.files.copyLink"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small"
+                                                           data-artifact-link="@file.Name"
+                                                           OnClick="@(() => ShowFileLinkAsync(file))" />
+                                        </MudTooltip>
+                                        @if (file.CanDelete)
+                                        {
+                                            <MudTooltip Text="@L["task.files.delete"]">
+                                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                               Color="Color.Error" data-artifact-delete="@file.Name"
+                                                               OnClick="@(() => DeleteArtifactFileAsync(file))" />
+                                            </MudTooltip>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                }
+            }
+        </MudTabPanel>
+        }
+
+        @* Задания задачи и КОНСОЛЬ выбранного задания под списком (ТЗ v1.45, todo37_3):
+           живой вывод исполнителя — у медиа-модели это консоль самого ComfyUI с прогрессом
+           генерации, у текстовых — этапы вызова и вызовы инструментов. Строка задания
+           кликабельна: клик переключает консоль на это задание. *@
+        <MudTabPanel Text="@L["task.card.jobs"]">
+            <MudSimpleTable Dense="true" Hover="true">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>@L["task.executor"]</th>
+                        <th>@L["task.status"]</th>
+                        <th>@L["common.created"]</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var job in _details.Jobs)
+                    {
+                        <tr style="cursor: pointer;" @onclick="@(() => SelectJobAsync(job.Id))"
+                            class="@(job.Id == _consoleJobId ? "ai2p-row-selected" : null)">
+                            <td>@job.DisplayId</td>
+                            <td>@Nick(job.ExecutorId)</td>
+                            <td>@L["jobstate." + job.State.ToDb()]</td>
+                            <td>@job.CreatedAt.ToLocalTime().ToString("g")</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+
+            @if (_consoleJobId is not null)
+            {
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mt-3">
+                    <MudText Typo="Typo.subtitle2">
+                        @L["task.console"]: @ConsoleJobCode
+                    </MudText>
+                    @if (_console is { Running: true })
+                    {
+                        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                    }
+                    <MudSpacer />
+                    <MudTooltip Text="@L["common.refresh"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small"
+                                       OnClick="@(() => SelectJobAsync(_consoleJobId))" />
+                    </MudTooltip>
+                </MudStack>
+                <MudPaper id="ai2p-job-console" Elevation="1" Class="pa-2"
+                          Style="max-height: 320px; overflow: auto; background: var(--mud-palette-background-gray);">
+                    @if (_consoleLines.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Style="opacity:.7">@L["task.console.empty"]</MudText>
+                    }
+                    else
+                    {
+                        @if (_consoleLost > 0)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Warning">
+                                @L["task.console.lost"]: @_consoleLost
+                            </MudText>
+                        }
+                        <pre style="margin: 0; white-space: pre-wrap; word-break: break-word; font-size: .8rem;">@ConsoleText</pre>
+                    }
+                </MudPaper>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["task.card.security"]">
+            @* правила безопасности задачи (ТЗ гл. 12, todo25): складываются с правилами
+               родительских задач, проекта и глобальными; одинаковые перекрываются этим уровнем *@
+            <div class="pa-2">
+                <SecurityRulesPanel Scope="@(SecurityScope.Task)" ScopeId="@TaskId" />
+            </div>
+        </MudTabPanel>
+
+        @if (task.IsTemplate)
+        {
+        @* опыт по узлам шаблона (ТЗ п. 2.11, todo32): записи поддерева, правка руками;
+           агенты пишут сюда инструментами create/update_experience при выполнении задач,
+           созданных из шаблона *@
+        <MudTabPanel Text="@L["task.card.experience"]">
+            @* та же вкладка, что у проекта (todo48): один компонент на оба вида опыта *@
+            <ExperienceTab TemplateTaskId="@TaskId" CanEdit="@CanEditTask" />
+        </MudTabPanel>
+
+        @* статистика шаблона (ТЗ п. 2.11, todo32): смены состояния задач, созданных
+           из этого шаблона, — состояние, дата-время, исполнитель *@
+        <MudTabPanel Text="@L["task.card.stats"]">
+            @if (_stats.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="opacity:.7">@L["stats.empty"]</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true" Hover="true">
+                    <thead>
+                        <tr>
+                            <th>@L["stats.task"]</th>
+                            <th>@L["stats.status"]</th>
+                            <th>@L["stats.at"]</th>
+                            <th>@L["stats.executor"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var row in _stats)
+                    {
+                        <tr style="cursor: pointer;"
+                            @onclick="@(() => State.OpenTask(row.TaskId, row.TaskDisplayId, row.TaskDisplayId, FrameIndex))">
+                            <td>@row.TaskDisplayId</td>
+                            <td><span class="ai2p-status" style="@State.StatusStyle(row.Status)">@State.StatusName(row.Status)</span></td>
+                            <td>@row.At.ToLocalTime().ToString("g")</td>
+                            <td>@row.ExecutorNick</td>
+                        </tr>
+                    }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudTabPanel>
+        }
+
+        @* История — в самом конце (todo17) *@
+        <MudTabPanel Text="@L["task.card.history"]">
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr>
+                        <th>@L["history.time"]</th>
+                        <th>@L["history.actor"]</th>
+                        <th>@L["history.type"]</th>
+                        <th>@L["history.details"]</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var evt in _events)
+                    {
+                        <tr>
+                            <td>@evt.Ts.ToLocalTime().ToString("g")</td>
+                            <td>@Nick(evt.ActorId)</td>
+                            <td>@evt.EventType</td>
+                            <td style="max-width: 400px; overflow: hidden; text-overflow: ellipsis;">@JsonText.Readable(evt.PayloadJson)</td>
+                        </tr>
+                    }
+                </tbody>
+            </MudSimpleTable>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@implements IDisposable
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    [Parameter, EditorRequired] public string TaskId { get; set; } = "";
+
+    private MudMessageBox _splitBox = default!;
+    private MudMessageBox _hierarchyBox = default!;
+    /// <summary>Переспрос кнопки «выключить автозапуск подзадач» (T-54-S0).</summary>
+    private MudMessageBox _autoStartBox = default!;
+    /// <summary>Переспрос кнопки «обновить» у задачи со ссылкой импорта (T-246).</summary>
+    private MudMessageBox _refreshBox = default!;
+    /// <summary>Идёт обновление из источника — кнопка на это время гаснет: обращение
+    /// к внешней системе занимает секунды, и второе нажатие завело бы второй импорт.</summary>
+    private bool _refreshing;
+    /// <summary>Галочка переспроса «запускать и задачи, вставшие с ошибкой» (T-186):
+    /// спрашивается заново при каждом нажатии кнопки, между открытиями не хранится.</summary>
+    private bool _hierarchyWithErrors;
+    /// <summary>Галочка переспроса «запускать и задачи в доработке» (T-210): спрашивается
+    /// заново при каждом нажатии кнопки — как и первая.</summary>
+    private bool _hierarchyWithNeedsFix;
+    private TaskDetailsDto? _details;
+    private List<EventRecord> _events = [];
+    /// <summary>Вкладка шаблона «Статистика» (ТЗ п. 2.11, todo32); опыт ведёт ExperienceTab.</summary>
+    private List<TemplateStatusStatDto> _stats = [];
+    private List<ChatMessage> _chat = [];
+    private List<TaskItem> _subtasks = [];
+
+    /// <summary>ВСЁ ПОДДЕРЕВО задачи (T-132-S0): нужно представлению «иерархия» — таблица
+    /// показывает только прямых потомков, а дерево строится по всей ветке.</summary>
+    private List<TaskItem> _subtree = [];
+
+    /// <summary>Вид списка подзадач (T-132-S0): table / tree / diagram.</summary>
+    private string _subtasksView = "table";
+    private readonly Dictionary<string, string> _artifactTexts = [];
+    /// <summary>Файлы результата таблицей под описаниями (T-127-S0): те же записи, что в окне
+    /// всех файлов задачи, отобранные по источнику «результат» (каталог artifacts\).</summary>
+    private List<TaskFileDto> _artifactFiles = [];
+    /// <summary>Файл результата, открытый на правку (T-130-S0); null — все на чтение.
+    /// Правится один за раз: два черновика рядом человеку не нужны, а «Сохранить»
+    /// в этом случае пришлось бы делать на каждый файл свой.</summary>
+    private string? _editingArtifact;
+    /// <summary>Черновик правки текста результата: «Отмена» его просто выбрасывает.</summary>
+    private string _artifactDraft = "";
+    private bool _answering;
+
+    /// <summary>Черновик сообщения чата — в UiState (T-117): компонент пересоздаётся при
+    /// переключении закладок приложения, и текст в поле компонента пропадал бы.</summary>
+    private string ChatText
+    {
+        get => State.ChatDraft(TaskId);
+        set => State.SetChatDraft(TaskId, value);
+    }
+
+    /// <summary>Черновик ответа на вопрос агента — тоже в UiState (T-117).</summary>
+    private string QuestionReply
+    {
+        get => State.ReplyDraft(TaskId);
+        set => State.SetReplyDraft(TaskId, value);
+    }
+    private string? _loadedTaskId;
+    private CancellationTokenSource? _poll;
+
+    // --- консоль задания (ТЗ v1.45, todo37_3) ---
+    /// <summary>Задание, чья консоль показана под списком; null — консоли нет.</summary>
+    private string? _consoleJobId;
+    private JobConsoleDto? _console;
+    private readonly List<JobConsoleLineDto> _consoleLines = [];
+    /// <summary>Номер последней прочитанной строки — дочитываем только хвост.</summary>
+    private long _consoleSeq;
+    /// <summary>Сколько строк вытеснено из кольцевого буфера (вывод шёл быстрее чтения).</summary>
+    private long _consoleLost;
+    /// <summary>Появились новые строки — после отрисовки прокрутить консоль вниз.</summary>
+    private bool _consoleGrew;
+
+    /// <summary>
+    /// Задачу можно править на этом сервере (ТЗ гл. 6, этап 42): роли хватает И задача
+    /// принадлежит нам. Чужая задача переводит карточку в режим ПРОСМОТРА: правка, запуск,
+    /// смена статуса, чат, подзадачи, опыт и удаление заблокированы — она правится на своём
+    /// сервере. Один признак на всю карточку: иначе список исключений разъехался бы.
+    /// </summary>
+    private bool CanEditTask => State.CanEdit && _details?.Task.IsReadOnly != true;
+
+    /// <summary>
+    /// Задачу можно ЗАПУСТИТЬ отсюда (T-196): роли хватает — и всё. Чужая задача больше не
+    /// исключение: физически задание пойдёт на её сервере, а нажатие здесь превращается
+    /// в заявку, которая едет туда репликацией. Так же и чат: переписка общая на кластер.
+    /// </summary>
+    private bool CanRunTask => State.CanEdit && _details is not null && !_details.Task.IsTemplate;
+
+    /// <summary>Писать в чат задачи можно с любого сервера (T-196).</summary>
+    private bool CanChatTask => State.CanEdit;
+
+    /// <summary>
+    /// Результат задачи писал (или напишет) ЧЕЛОВЕК (T-130-S0). Берётся фактический
+    /// исполнитель (кто на самом деле работал), а если его нет — назначенный: результат
+    /// такой задачи писал человек, и опечатку в нём иначе не исправить нечем.
+    ///
+    /// Исполнителя нет вовсе — тоже человек: отчёта агента у такой задачи заведомо не будет,
+    /// а результат по ней всё равно кто-то заносит руками (повторный заход T-130-S0).
+    /// </summary>
+    private bool ExecutorIsHuman
+    {
+        get
+        {
+            if (_details is null)
+            {
+                return false;
+            }
+            var executorId = _details.Task.ActualExecutorId is { Length: > 0 } actual
+                ? actual
+                : _details.Task.ExecutorIds.FirstOrDefault();
+            return executorId is not { Length: > 0 }
+                || State.Executors.FirstOrDefault(e => e.Id == executorId)?.Kind == ExecutorKind.Human;
+        }
+    }
+
+    /// <summary>
+    /// Путь файла, куда карточка заведёт РУЧНОЙ результат (T-130-S0, повторный заход);
+    /// null — заводить нельзя (шаблон, чужая задача, роли не хватает либо работал ИИ).
+    /// Печатается только пока текстового результата нет ни одного: когда он есть, правится он сам.
+    /// </summary>
+    private string? ManualResultPath =>
+        _details is { Task.IsTemplate: false, ManualResultPath: { Length: > 0 } path }
+        && CanEditTask && ExecutorIsHuman
+            ? path
+            : null;
+
+    /// <summary>
+    /// Текст этого файла результата можно править (T-130-S0): задача наша и роли хватает
+    /// (<see cref="CanEditTask"/>), исполнитель — человек (результат работы ИИ остаётся
+    /// отчётом агента), и файл — .md: запись текстового файла (<c>PUT api/files/text</c>)
+    /// разрешена только для .md и .json.
+    /// </summary>
+    private bool CanEditArtifact(string artifact) =>
+        CanEditTask && ExecutorIsHuman && artifact.EndsWith(".md");
+
+    /// <summary>Сервер задачи для надписи: «S1 (ноутбук)», «S1» либо «без сервера».</summary>
+    private string ServerTitle(TaskItem task)
+    {
+        if (task.ServerId is not { Length: > 0 })
+        {
+            return L["task.server.none"];
+        }
+        var code = task.ServerCode.Length > 0 ? task.ServerCode : State.ServerCodeOf(task.ServerId);
+        var name = task.ServerName;
+        return name.Length > 0 && code.Length > 0 ? $"{code} ({name})" : code.Length > 0 ? code : name;
+    }
+
+    private bool CanStart =>
+        _details is { Task: { IsTemplate: false, Kind: TaskKind.Task } } details
+        && details.Task.ExecutorIds.Count == 1
+        && ActiveJob is null;
+
+    /// <summary>Активное (не завершённое) задание по задаче — для кнопки «остановить» (ТЗ v1.14).</summary>
+    private Job? ActiveJob =>
+        _details?.Jobs.FirstOrDefault(j => j.State is JobState.Queued or JobState.Running or JobState.WaitingHuman);
+
+    /// <summary>Задание для надписи «у кого и в каком статусе» (T-117): активное,
+    /// а если активного нет — последнее (список приходит новыми сверху).</summary>
+    private Job? CurrentJob => ActiveJob ?? _details?.Jobs.FirstOrDefault();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedTaskId != TaskId)
+        {
+            _loadedTaskId = TaskId;
+            await ReloadAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+    }
+
+    /// <summary>
+    /// Пока по задаче есть активное задание (ИИ работает в фоне, todo17), периодически
+    /// перечитывать карточку — статус меняется без нажатия «обновить».
+    /// </summary>
+    private void EnsurePolling()
+    {
+        if (ActiveJob is null)
+        {
+            _poll?.Cancel();
+            return;
+        }
+        if (_poll is { IsCancellationRequested: false })
+        {
+            return; // уже опрашиваем
+        }
+        _poll?.Dispose();
+        _poll = new CancellationTokenSource();
+        var ct = _poll.Token;
+        _ = InvokeAsync(async () =>
+        {
+            while (!ct.IsCancellationRequested && ActiveJob is not null)
+            {
+                await Task.Delay(2000, ct).ContinueWith(_ => { }, TaskScheduler.Default);
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+                await ReloadAsync();
+                StateHasChanged();
+            }
+        });
+    }
+
+    private string Nick(string? executorId) =>
+        executorId is null ? "" : State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? executorId;
+
+    /// <summary>Автор сообщения чата (T-152): обычно ник исполнителя, а у перенесённого
+    /// импортом обсуждения — имя автора во внешней системе («trello:&lt;логин&gt;»).</summary>
+    private string Author(ChatMessage message) =>
+        message.AuthorName is { Length: > 0 } name ? name : Nick(message.FromExecutorId);
+
+    /// <summary>
+    /// ЧТО КОПИРУЕТ КНОПКА КАРТОЧКИ (T-67-S0): четыре закладки в том порядке, в каком их
+    /// читает человек, — описание, критерии приёмки, чат и результат. Заголовком каждой
+    /// служит название закладки; пустая закладка отбрасывается вместе с заголовком уже в
+    /// <see cref="CopyText.Build"/>. Собирается на лету: чат и результат меняются, пока
+    /// карточка открыта.
+    /// </summary>
+    private IReadOnlyList<CopyPart> CardParts() =>
+        _details is null
+            ? []
+            :
+            [
+                new CopyPart(L["task.card.description"], _details.Description),
+                new CopyPart(L["task.acceptance"], _details.Acceptance),
+                new CopyPart(L["task.card.chat"], ChatMarkdown()),
+                new CopyPart(L["task.card.artifacts"], ArtifactsMarkdown()),
+            ];
+
+    /// <summary>Чат одним куском Markdown: у каждого сообщения — строка «кто и когда»,
+    /// дальше сам текст как есть. В простом тексте разметка снимется вместе со всей
+    /// остальной (Md.ToPlainText).</summary>
+    private string ChatMarkdown() => string.Join("\n\n", _chat
+        .Select(m => $"**{Author(m)}** · {m.CreatedAt.ToLocalTime():g}\n\n{m.Text.Trim()}"));
+
+    /// <summary>Результат одним куском Markdown: имя файла и его текст. Двоичные файлы
+    /// (картинки, видео) текста не имеют — их в копию не берём.</summary>
+    private string ArtifactsMarkdown() => _details is null
+        ? ""
+        : string.Join("\n\n", _details.Artifacts
+            .Where(a => _artifactTexts.TryGetValue(a, out var t) && t.Trim().Length > 0)
+            .Select(a => $"**{System.IO.Path.GetFileNameWithoutExtension(a)}**\n\n{_artifactTexts[a].Trim()}"));
+
+    /// <summary>Название проекта задачи — левая часть шапки карточки (T-136); пусто,
+    /// если проект не задан или недоступен в текущем списке.</summary>
+    private string ProjectName =>
+        _details?.Task.ProjectId is { } id
+            ? State.Projects.FirstOrDefault(p => p.Id == id)?.Name ?? ""
+            : "";
+
+    /// <summary>Хвост чипа «у кого задание» (T-117): исполнитель помечен занятым (исчерпан
+    /// лимит провайдера, ТЗ v1.37) — видно, до какого времени, прямо на карточке задачи.</summary>
+    private string BusyHint(string? executorId) =>
+        executorId is not null
+        && State.Executors.FirstOrDefault(e => e.Id == executorId)?.BusyUntil is { } until
+        && until > DateTime.UtcNow
+            ? $" · {L["executors.busyUntil"]} {until.ToLocalTime():g}"
+            : "";
+
+    /// <summary>Подсказка к пометке ожидания за статусом задачи (T-187): у каждой причины
+    /// своя — человеку важно разное. Лимит рассказывает, что задача запустится сама (T-121),
+    /// открытая очередь иерархии — почему задача так и стоит в «ожидает» (T-224), остальным
+    /// ожиданиям хватает общего текста.</summary>
+    private string PauseHint(AiPauseDto pause) => pause.Kind switch
+    {
+        AiPauseKinds.Limit => L["limit.startAfter.hint"],
+        AiPauseKinds.Hierarchy => L["aiwork.pause.hierarchy.hint"],
+        // блокирующие задачи (T-6-S1): в первом случае задача поедет сама, во втором —
+        // не поедет уже никогда, и человеку надо сказать, что делать дальше
+        AiPauseKinds.Blocked => L["aiwork.pause.blocked.hint"],
+        AiPauseKinds.BlockerCancelled => L["aiwork.pause.blockerCancelled.hint"],
+        _ => L["aiwork.pause.hint"],
+    };
+
+    // --- консоль задания (ТЗ v1.45, todo37_3) ---
+
+    /// <summary>Код задания, чья консоль показана (для заголовка панели).</summary>
+    private string ConsoleJobCode =>
+        _details?.Jobs.FirstOrDefault(j => j.Id == _consoleJobId)?.DisplayId ?? "";
+
+    private string ConsoleText =>
+        string.Join("\n", _consoleLines.Select(l => $"{l.Ts.ToLocalTime():HH:mm:ss}  {l.Text}"));
+
+    /// <summary>Пользователь выбрал задание сам — авто-переключение на новый запуск не мешает.</summary>
+    private bool _consolePinned;
+
+    /// <summary>Переключить консоль на задание (клик по строке списка) и перечитать её с начала.</summary>
+    private async Task SelectJobAsync(string? jobId, bool pinned = true)
+    {
+        _consolePinned = pinned && jobId is not null;
+        _consoleJobId = jobId;
+        _consoleLines.Clear();
+        _consoleSeq = 0;
+        _consoleLost = 0;
+        await LoadConsoleAsync();
+    }
+
+    /// <summary>Дочитать хвост консоли выбранного задания.</summary>
+    private async Task LoadConsoleAsync()
+    {
+        if (_consoleJobId is not { } jobId)
+        {
+            return;
+        }
+        try
+        {
+            _console = await Api.GetJobConsoleAsync(jobId, _consoleSeq);
+            if (_console.Lines.Count > 0)
+            {
+                _consoleLines.AddRange(_console.Lines);
+                // буфер сервера — 1000 строк, в UI держим столько же
+                if (_consoleLines.Count > JobConsoleLimit)
+                {
+                    _consoleLines.RemoveRange(0, _consoleLines.Count - JobConsoleLimit);
+                }
+                _consoleGrew = true;
+            }
+            _consoleLost += _console.Lost;
+            _consoleSeq = _console.NextSeq;
+        }
+        catch (ApiException)
+        {
+            // задание могло быть удалено вместе с задачей — консоль просто не обновится
+        }
+    }
+
+    private const int JobConsoleLimit = 1000;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_consoleGrew)
+        {
+            _consoleGrew = false;
+            try
+            {
+                await Js.InvokeVoidAsync("ai2p.consoleScroll", "ai2p-job-console");
+            }
+            catch (JSException)
+            {
+                // панель консоли не отрисована (открыта другая вкладка) — не беда
+            }
+        }
+    }
+
+    /// <summary>Коды блокирующих задач (ТЗ v1.35) — по загруженным подзадачам/спискам либо id.</summary>
+    private string BlockerCodes(TaskItem task) =>
+        string.Join(", ", task.BlockerIds.Select(id =>
+            _subtasks.FirstOrDefault(t => t.Id == id)?.DisplayId
+            ?? _blockerRefs.GetValueOrDefault(id)
+            ?? id));
+
+    /// <summary>display_id блокирующих задач вне подзадач — дозагружаются при открытии.</summary>
+    private readonly Dictionary<string, string> _blockerRefs = [];
+
+    /// <summary>Родитель для подсказки кнопки «к родителю» (T-130): «код заголовок».
+    /// Код и заголовок приходят в карточке задачи; их нет — показывается сам id.</summary>
+    private string ParentLabel =>
+        string.Join(' ', new[] { _details?.ParentDisplayId, _details?.ParentTitle }
+            .Where(s => !string.IsNullOrWhiteSpace(s))) is { Length: > 0 } label
+                ? label
+                : _details?.Task.ParentId ?? "";
+
+    /// <summary>Ссылка импорта задачи (T-246): откуда она приехала; пусто — заведена здесь.</summary>
+    private string ImportUrl => _details?.Task.ImportUrl?.Trim() ?? "";
+
+    /// <summary>У задачи есть ссылка импорта — значит, есть что обновлять из источника.</summary>
+    private bool HasImportUrl => ImportUrl.Length > 0;
+
+    /// <summary>
+    /// Кнопка «обновить» (T-246). У задачи без ссылки импорта обновлять неоткуда — просто
+    /// перечитываем карточку, как было раньше. Со ссылкой — переспрашиваем: «да» тянет
+    /// содержимое из источника (карточка Trello), «нет» перечитывает только здесь,
+    /// «отмена» не делает ничего.
+    /// </summary>
+    private async Task RefreshAsync()
+    {
+        if (!HasImportUrl)
+        {
+            await ReloadAsync();
+            return;
+        }
+        var answer = await _refreshBox.ShowAsync();
+        if (answer is null)
+        {
+            return;
+        }
+        if (answer == false)
+        {
+            await ReloadAsync();
+            return;
+        }
+        _refreshing = true;
+        try
+        {
+            var result = await Api.RefreshTaskImportAsync(TaskId);
+            // выложенные результаты (T-107-S0) называем, только когда они были: у задачи
+            // без результата приписка «выложено 0» ничего человеку не сообщает
+            var exported = result.Exported > 0
+                ? " " + string.Format(L["task.refresh.exported"], result.Exported)
+                : "";
+            Snackbar.Add(string.Format(L["task.refresh.done"], result.DisplayId, result.Title,
+                result.Files, result.Comments) + exported, Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _details = await Api.GetTaskAsync(TaskId);
+            _events = await Api.GetEventsAsync(taskId: TaskId);
+            _chat = await Api.GetChatAsync(TaskId);
+            if (_details.Task.IsTemplate)
+            {
+                // вкладка шаблона «Статистика» (ТЗ п. 2.11, todo32); опыт грузит ExperienceTab
+                _stats = await Api.GetTemplateStatsAsync(TaskId);
+            }
+            // подзадачи: серверный список по проекту, отбор по parent_id
+            var candidates = await Api.GetTasksAsync(projectId: _details.Task.ProjectId, includeTemplates: true);
+            _subtasks = candidates.Where(t => t.ParentId == TaskId).ToList();
+            // поддерево целиком (T-132-S0) — для представления «иерархия»
+            _subtree = Subtree(candidates, TaskId);
+            // коды блокирующих задач (ТЗ v1.35) — для строки в шапке
+            _blockerRefs.Clear();
+            foreach (var candidate in candidates.Where(c => _details.Task.BlockerIds.Contains(c.Id)))
+            {
+                _blockerRefs[candidate.Id] = candidate.DisplayId;
+            }
+            foreach (var blockerId in _details.Task.BlockerIds.Where(id => !_blockerRefs.ContainsKey(id)))
+            {
+                try
+                {
+                    _blockerRefs[blockerId] = (await Api.GetTaskAsync(blockerId)).Task.DisplayId;
+                }
+                catch (ApiException)
+                {
+                    // блокирующая могла быть удалена — покажется id
+                }
+            }
+            _artifactTexts.Clear();
+            foreach (var artifact in _details.Artifacts.Where(a => a.EndsWith(".md") || a.EndsWith(".txt")))
+            {
+                _artifactTexts[artifact] = await Api.GetFileTextAsync(artifact);
+            }
+            // файлы результата для таблицы под описаниями (T-127-S0). Отказ этого запроса
+            // не должен рвать загрузку карточки — таблица просто останется пустой
+            try
+            {
+                _artifactFiles = _details.Artifacts.Count == 0
+                    ? []
+                    : (await Api.GetTaskFilesAsync(TaskId))
+                        .Where(f => f.Source == "result")
+                        .ToList();
+            }
+            catch (ApiException)
+            {
+                _artifactFiles = [];
+            }
+            // консоль (ТЗ v1.45, todo37_3): по умолчанию показывается работающее задание,
+            // иначе последнее — запустили задачу заново, консоль переключилась на новый запуск;
+            // если пользователь сам выбрал задание кликом, его выбор держится, пока это
+            // задание есть в списке
+            var autoJobId = (ActiveJob ?? _details.Jobs.LastOrDefault())?.Id;
+            var keepChoice = _consolePinned && _details.Jobs.Any(j => j.Id == _consoleJobId);
+            if (!keepChoice && autoJobId != _consoleJobId)
+            {
+                await SelectJobAsync(autoJobId, pinned: false);
+            }
+            else
+            {
+                await LoadConsoleAsync();
+            }
+            EnsurePolling(); // авто-обновление, пока задание активно (todo17)
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Запуск задачи. Перед запуском спрашивается остаток лимита исполнителя (T-121):
+    /// мало — окно с выбором «перенести старт / разбить на подзадачи / запустить сейчас».
+    /// Лимиты у исполнителя не указаны — вычисление игнорируется, запуск идёт сразу.
+    /// </summary>
+    private async Task StartAsync()
+    {
+        try
+        {
+            // задача ЧУЖОГО сервера (T-196): запускать её будет он, а отсюда уходит заявка.
+            // Лимит исполнителя здесь не спрашиваем — его считает сервер-владелец, у него же
+            // и данные о работе своего агента
+            if (_details?.Task.IsReadOnly == true)
+            {
+                await RequestRunAsync(RunRequestKinds.Task, withErrors: false);
+                return;
+            }
+            var force = false;
+            if (await Api.GetTaskLimitAsync(TaskId) is { IsLow: true } limit)
+            {
+                var parameters = new DialogParameters<AgentLimitDialog> { { d => d.Limit, limit } };
+                var dialog = await Dialogs.ShowAsync<AgentLimitDialog>(L["limit.title"], parameters,
+                    new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+                var result = await dialog.Result;
+                if (result is null || result.Canceled || result.Data is not AgentLimitDialog.Choice choice)
+                {
+                    return;
+                }
+                if (choice == AgentLimitDialog.Choice.Split)
+                {
+                    await SplitAsync();
+                    return;
+                }
+                if (choice == AgentLimitDialog.Choice.Defer)
+                {
+                    await Api.DeferTaskAsync(TaskId);
+                    Snackbar.Add(L["limit.defer.done"], Severity.Info);
+                    await ReloadAsync();
+                    State.NotifyChanged();
+                    return;
+                }
+                force = true; // «запустить сейчас» — остаток лимита не смотрим
+            }
+            await Api.StartTaskAsync(TaskId, force);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Авто создание подзадач ИИ-агентом (ТЗ v1.26): переспрос → POST /tasks/{id}/split.
+    /// Шаблон: подзадачи-шаблоны + комментарий в чат; задача: запуск сразу после разбиения.</summary>
+    private async Task SplitAsync()
+    {
+        var confirmed = await _splitBox.ShowAsync();
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.SplitTaskAsync(TaskId);
+            Snackbar.Add(L["task.split.started"], Severity.Success);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Запуск всей иерархии задачи (T-159): переспрос → POST /tasks/{id}/start-hierarchy.
+    /// Сразу уходят в работу только задачи со свободными исполнителями (самые глубокие и
+    /// приоритетные), остальные встают в очередь — она идёт сама по мере их завершения,
+    /// а корневая задача запускается последней.
+    /// </summary>
+    private async Task StartHierarchyAsync()
+    {
+        // галочки «и вставшие с ошибкой» (T-186) и «и в доработке» (T-210) каждый раз
+        // спрашиваются заново: повторный запуск такой задачи — решение человека, а не
+        // запомненная настройка карточки
+        _hierarchyWithErrors = false;
+        _hierarchyWithNeedsFix = false;
+        var confirmed = await _hierarchyBox.ShowAsync();
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            if (_details?.Task.IsReadOnly == true)
+            {
+                // корень чужой (T-196): очередь поведёт его сервер — отсюда только заявка
+                await RequestRunAsync(RunRequestKinds.Hierarchy, _hierarchyWithErrors,
+                    _hierarchyWithNeedsFix);
+                return;
+            }
+            var run = await Api.StartHierarchyAsync(TaskId, _hierarchyWithErrors, _hierarchyWithNeedsFix);
+            if (run.Stopped)
+            {
+                // у задачи иерархии отменена блокирующая (T-6-S1): очередь не открыта вовсе —
+                // об этом надо сказать прямо, иначе «нажал, и ничего не происходит»
+                Snackbar.Add(L["task.startHierarchy.stopped", string.Join(", ", run.StoppedBy)],
+                    Severity.Warning);
+                await ReloadAsync();
+                State.NotifyChanged();
+                return;
+            }
+            var started = run.Started.Count > 0 ? string.Join(", ", run.Started) : L["common.empty"];
+            var restarted = run.Restarted > 0
+                ? $", {L["task.startHierarchy.restarted"]}: {run.Restarted}"
+                : "";
+            var reworked = run.Reworked > 0
+                ? $", {L["task.startHierarchy.reworked"]}: {run.Reworked}"
+                : "";
+            Snackbar.Add($"{L["task.startHierarchy.started"]}: {started} " +
+                         $"({L["task.startHierarchy.waiting"]}: {run.Waiting}{restarted}{reworked})",
+                run.Started.Count > 0 ? Severity.Success : Severity.Info);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Запуск задачи ЧУЖОГО сервера (T-196): нажатие превращается в заявку, она едет
+    /// владельцу репликацией, и задание пойдёт там. Человеку об этом говорится прямо —
+    /// иначе «нажал, и ничего не происходит»: у себя на экране он не увидит ни задания,
+    /// ни смены статуса, пока изменения не приедут обратно.
+    /// </summary>
+    private async Task RequestRunAsync(string kind, bool withErrors, bool withNeedsFix = false)
+    {
+        var request = await Api.RequestRunAsync(TaskId, kind, withErrors, withNeedsFix);
+        var message = request.AlreadyRunning ? L["task.run.already"]
+            : request.AlreadyRequested ? L["task.run.pending", request.TargetServer]
+            : L["task.run.requested", request.TargetServer];
+        Snackbar.Add(message,
+            request.AlreadyRunning || request.AlreadyRequested ? Severity.Info : Severity.Success);
+        await ReloadAsync();
+        State.NotifyChanged();
+    }
+
+    /// <summary>«Продолжить» зависшее задание (T-117): running в БД без живого вызова
+    /// у коннектора (после перезапуска приложения) — агент толкается повторной подачей.</summary>
+    private async Task ContinueAsync()
+    {
+        if (_details?.StalledJobId is not { } jobId)
+        {
+            return;
+        }
+        try
+        {
+            await Api.ContinueJobAsync(jobId);
+            Snackbar.Add(L["task.continue.started"], Severity.Success);
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Задача идёт в ОТКРЫТОЙ очереди иерархического запуска (T-263): её корень —
+    /// сама задача или предок с пометкой runHierarchy.</summary>
+    private bool InHierarchyRun => _details?.HierarchyRootDisplayId is { Length: > 0 };
+
+    /// <summary>Код корня открытой иерархии (T-263) — для переспроса и подсказок.</summary>
+    private string HierarchyRoot => _details?.HierarchyRootDisplayId ?? "";
+
+    /// <summary>Автозапуск подзадач выключен пометкой САМОЙ задачи (T-54-S0).</summary>
+    private bool AutoStartOff => _details?.AutoStartOff == true;
+
+    /// <summary>Есть ли что выключать в автозапуске подзадач (T-73-S0): своя задача
+    /// с подзадачами, у которой автозапуск ещё включён. У чужой задачи (T-196) решение
+    /// принимает её сервер, поэтому пункта нет.</summary>
+    private bool CanAutoStartOff =>
+        _details is not null && !_details.Task.IsReadOnly && !AutoStartOff && _subtasks.Count > 0;
+
+    /// <summary>Подсказка кнопки выключения работы (T-73-S0): у чужой задачи она прямо
+    /// говорит, на какой сервер уйдёт заявка (T-196, T-263).</summary>
+    private string StopHint => _details is { Task.IsReadOnly: true } details
+        ? L["task.stop.remote", ServerTitle(details.Task)]
+        : L["task.stop"];
+
+    /// <summary>Код задачи, выключившей автозапуск для этой ветки (T-54-S0): сама задача
+    /// или её предок. Пусто — автозапуск разрешён.</summary>
+    private string? AutoStartOffRoot => _details?.AutoStartOffRoot;
+
+    /// <summary>
+    /// Выключить или снова включить АВТОЗАПУСК подзадач ветки (T-54-S0).
+    ///
+    /// <para>Выключение спрашивается: заодно закрывается открытая очередь иерархии, а по
+    /// желанию человека снимаются и задания уже работающих потомков. Включение делается
+    /// сразу — оно ничего не запускает, а только снимает запрет.</para>
+    /// </summary>
+    private async Task ToggleAutoStartAsync()
+    {
+        if (_details is null)
+        {
+            return;
+        }
+        if (AutoStartOff)
+        {
+            await SendAutoStartAsync(on: true, withChildren: false);
+            return;
+        }
+        var answer = await _autoStartBox.ShowAsync();
+        if (answer is null)
+        {
+            return;
+        }
+        await SendAutoStartAsync(on: false, withChildren: answer == true);
+    }
+
+    /// <summary>Сама смена автозапуска и рассказ человеку о том, что при этом остановлено
+    /// (T-54-S0): молчаливое нажатие читалось бы как «ничего не произошло».</summary>
+    private async Task SendAutoStartAsync(bool on, bool withChildren)
+    {
+        try
+        {
+            var result = await Api.SetAutoStartAsync(TaskId, on, withChildren);
+            if (on)
+            {
+                Snackbar.Add(L["task.autostart.on.done"], Severity.Success);
+            }
+            else
+            {
+                var stopped = result.Stopped.Count > 0
+                    ? $": {string.Join(", ", result.Stopped)}"
+                    : "";
+                var queue = result.HierarchyStopped
+                    ? $" ({L["task.stop.queueClosed", result.HierarchyRoot]})"
+                    : "";
+                Snackbar.Add($"{L["task.autostart.off.done"]}{stopped}{queue}", Severity.Success);
+            }
+            foreach (var error in result.Errors)
+            {
+                Snackbar.Add(error, Severity.Warning);
+            }
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Сама остановка и рассказ человеку о том, что остановлено: на чужой задаче
+    /// (T-196) снимать здесь нечего — сервер отвечает заявкой, и это надо назвать прямо,
+    /// иначе «нажал, и ничего не происходит».</summary>
+    private async Task SendStopAsync(bool withHierarchy, bool withChildren)
+    {
+        try
+        {
+            var result = await Api.StopTaskAsync(TaskId, withHierarchy, withChildren);
+            if (result.Requested.Count > 0 || result.AlreadyRequested)
+            {
+                Snackbar.Add(result.AlreadyRequested
+                        ? L["task.stop.pending", result.TargetServer]
+                        : L["task.stop.requested", result.TargetServer],
+                    result.AlreadyRequested ? Severity.Info : Severity.Success);
+            }
+            else if (result.Nothing)
+            {
+                Snackbar.Add(L["task.stop.nothing"], Severity.Info);
+            }
+            else
+            {
+                var stopped = result.Stopped.Count > 0
+                    ? string.Join(", ", result.Stopped)
+                    : L["common.empty"];
+                var queue = result.HierarchyStopped
+                    ? $" ({L["task.stop.queueClosed", result.HierarchyRoot]})"
+                    : "";
+                Snackbar.Add($"{L["task.stop.done"]}: {stopped}{queue}", Severity.Success);
+            }
+            foreach (var error in result.Errors)
+            {
+                Snackbar.Add(error, Severity.Warning);
+            }
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Смена статуса вручную через диалог (ТЗ v1.14): кнопка рядом со статусом.</summary>
+    private async Task ChangeStatusAsync()
+    {
+        if (_details is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<StatusDialog> { { d => d.Current, _details.Task.Status } };
+        var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string status } && status != _details.Task.Status)
+        {
+            try
+            {
+                await Api.ChangeTaskStatusAsync(TaskId, status);
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Сменить сервер-владелец задачи (ТЗ гл. 6, этап 42). После смены задача на этом сервере
+    /// больше не редактируется — карточка перечитывается и переходит в режим просмотра.
+    /// </summary>
+    private async Task ChangeServerAsync()
+    {
+        if (_details is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<TaskServerDialog>
+        {
+            { d => d.Current, _details.Task.ServerId ?? "" },
+            // шаблону — свои пояснения в окне (T-36-S0)
+            { d => d.IsTemplate, _details.Task.IsTemplate },
+        };
+        var dialog = await Dialogs.ShowAsync<TaskServerDialog>(L["task.server.change"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string serverId }
+            && serverId != (_details.Task.ServerId ?? ""))
+        {
+            try
+            {
+                await Api.ChangeTaskServerAsync(TaskId, serverId);
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Все файлы, на которые есть ссылки в .md задачи и чате (ТЗ v1.28, todo30).
+    /// Окно широкое (T-136): в узком колонки «имя» и «описание» не помещались и таблица
+    /// уезжала в горизонтальную прокрутку.</summary>
+    private Task ShowFilesAsync()
+    {
+        var parameters = new DialogParameters<TaskFilesDialog> { { d => d.TaskId, TaskId } };
+        return Dialogs.ShowAsync<TaskFilesDialog>(L["task.files"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true });
+    }
+
+    private async Task EditAsync()
+    {
+        var parameters = new DialogParameters<TaskDialog> { { d => d.Source, _details } };
+        var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: TaskSaveDto dto })
+        {
+            try
+            {
+                await Api.UpdateTaskAsync(dto);
+                await ReloadAsync();
+                if (_details is not null)
+                {
+                    State.OpenTask(_details.Task.Id, _details.Task.DisplayId, _details.Task.Title, FrameIndex);
+                }
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Создать задачу из шаблона (ТЗ п. 2.4, todo31): анализ иерархии → переспрос
+    /// базовой даты и/или автоподбора (общий флоу с кнопкой «новая задача»).</summary>
+    private async Task InstantiateAsync()
+    {
+        if (_details is null)
+        {
+            return;
+        }
+        try
+        {
+            var created = await InstantiateFlow.RunAsync(Dialogs, Api, L, TaskId);
+            if (created is null)
+            {
+                return; // отмена переспроса
+            }
+            State.NotifyChanged();
+            Snackbar.Add(L["task.instantiate.created"], Severity.Success);
+            State.OpenTask(created.Id, created.DisplayId, created.Title, FrameIndex);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// ПОДДЕРЕВО ЗАДАЧИ (T-132-S0) из уже прочитанного списка задач проекта: представлению
+    /// «иерархия» нужны не только прямые потомки, а вся ветка. Обход с защитой от кольца
+    /// (испорченный parent_id) — иначе список подзадач вешал бы карточку.
+    /// </summary>
+    private static List<TaskItem> Subtree(List<TaskItem> candidates, string rootId)
+    {
+        var byParent = candidates.Where(t => t.ParentId is not null).ToLookup(t => t.ParentId!);
+        var result = new List<TaskItem>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var queue = new Queue<string>();
+        queue.Enqueue(rootId);
+        while (queue.Count > 0)
+        {
+            foreach (var child in byParent[queue.Dequeue()])
+            {
+                if (seen.Add(child.Id))
+                {
+                    result.Add(child);
+                    queue.Enqueue(child.Id);
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// ДЕЙСТВИЕ НАД ПОДЗАДАЧЕЙ ИЗ ДИАГРАММЫ (T-132-S0): контекстное меню квадрата зовёт
+    /// ровно те же руки, что и кнопки строки таблицы, — чтобы поведение (переспросы,
+    /// сообщения, перечитывание) не разъезжалось между представлениями.
+    /// </summary>
+    private async Task RunSubtaskActionAsync((string Action, string TaskId) request)
+    {
+        if (request.Action == "link")
+        {
+            await ShowLinkAsync(request.TaskId);
+            return;
+        }
+        TaskItem subtask;
+        try
+        {
+            subtask = _subtree.FirstOrDefault(t => t.Id == request.TaskId)
+                      ?? (await Api.GetTaskAsync(request.TaskId)).Task;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            return;
+        }
+        switch (request.Action)
+        {
+            case "edit":
+                await EditSubtaskAsync(subtask);
+                break;
+            case "status":
+                await ChangeSubtaskStatusAsync(subtask);
+                break;
+            case "delete":
+                await DeleteSubtaskAsync(subtask);
+                break;
+            case "start":
+            case "stop":
+                try
+                {
+                    if (request.Action == "start")
+                    {
+                        await Api.StartTaskAsync(subtask.Id);
+                    }
+                    else
+                    {
+                        await Api.StopTaskAsync(subtask.Id, false, false);
+                        Snackbar.Add(L["task.stop.done"], Severity.Success);
+                    }
+                    await ReloadAsync();
+                    State.NotifyChanged();
+                }
+                catch (ApiException ex)
+                {
+                    Snackbar.Add(ex.Message, Severity.Error);
+                }
+                break;
+        }
+    }
+
+    private async Task EditSubtaskAsync(TaskItem subtask)
+    {
+        try
+        {
+            var details = await Api.GetTaskAsync(subtask.Id);
+            var parameters = new DialogParameters<TaskDialog> { { d => d.Source, details } };
+            var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
+                FormDialogs.Options(MaxWidth.Medium));
+            var result = await dialog.Result;
+            if (result is { Canceled: false, Data: TaskSaveDto dto })
+            {
+                await Api.UpdateTaskAsync(dto);
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Смена статуса подзадачи из списка подзадач (T-136): тот же диалог и тот же
+    /// вызов API, что у кнопки рядом со статусом самой задачи, — человеку не нужно открывать
+    /// карточку подзадачи ради одного клика.</summary>
+    private async Task ChangeSubtaskStatusAsync(TaskItem subtask)
+    {
+        var parameters = new DialogParameters<StatusDialog> { { d => d.Current, subtask.Status } };
+        var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string status } && status != subtask.Status)
+        {
+            try
+            {
+                await Api.ChangeTaskStatusAsync(subtask.Id, status);
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Удаление подзадачи из списка родителя — та же форма выбора (T-44-S0).
+    /// Перенести в архив её саму нельзя, и форма скажет почему: иерархия архивируется
+    /// целиком, частями нельзя.</summary>
+    private async Task DeleteSubtaskAsync(TaskItem subtask)
+    {
+        var target = subtask.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
+        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+            target, subtask.Id, $"{subtask.DisplayId} {subtask.Title}");
+        if (choice is null)
+        {
+            return;
+        }
+        try
+        {
+            if (choice == ArchiveOrDeleteDialog.Archive)
+            {
+                await Api.MoveToArchiveAsync(target, subtask.Id);
+            }
+            else
+            {
+                await Api.DeleteTaskAsync(subtask.Id);
+            }
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Новая подзадача (ТЗ гл. 11): та же форма, что и у кнопки «новая задача»
+    /// в списке задач проекта (T-201) — сначала выбор «пустая задача или шаблон», список
+    /// шаблонов по проекту этой задачи. Пустая — прежняя форма ввода с проставленным
+    /// родителем, шаблон — обычное создание из шаблона, но голова копии подцепляется
+    /// подзадачей. У ШАБЛОНА выбора нет: под узел шаблона можно завести только узел
+    /// шаблона, а копия шаблона — обычная задача.</summary>
+    private async Task AddSubtaskAsync()
+    {
+        if (_details is null)
+        {
+            return;
+        }
+        if (!_details.Task.IsTemplate)
+        {
+            var pickParameters = new DialogParameters<NewTaskDialog>
+            {
+                { d => d.ProjectId, _details.Task.ProjectId },
+            };
+            var pickDialog = await Dialogs.ShowAsync<NewTaskDialog>(L["task.form.new"], pickParameters,
+                new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+            var picked = await pickDialog.Result;
+            if (picked is not { Canceled: false, Data: NewTaskDialog.Choice choice })
+            {
+                return;
+            }
+            if (choice.Template is { } template)
+            {
+                await AddSubtaskFromTemplateAsync(template);
+                return;
+            }
+        }
+        var parameters = new DialogParameters<TaskDialog> { { d => d.Parent, _details.Task } };
+        var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.new"], parameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: TaskSaveDto dto })
+        {
+            try
+            {
+                await Api.CreateTaskAsync(dto);
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>Подзадача из шаблона (T-201): тот же флоу, что у кнопки «новая задача»
+    /// (переспрос базовой даты и автоподбора), но созданная голова цепляется к текущей
+    /// задаче. Карточка созданной задачи не открывается — она и так видна в списке ниже.</summary>
+    private async Task AddSubtaskFromTemplateAsync(TaskItem template)
+    {
+        try
+        {
+            var created = await InstantiateFlow.RunAsync(Dialogs, Api, L, template.Id, TaskId);
+            if (created is null)
+            {
+                return; // отмена переспроса
+            }
+            await ReloadAsync();
+            State.NotifyChanged();
+            Snackbar.Add(L["task.instantiate.created"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// УДАЛЕНИЕ ЗАДАЧИ ИЛИ УЗЛА ШАБЛОНА — с выбором «перенести в архив или удалить совсем»
+    /// (T-44-S0, выпуск 1.105). Вид переноса берётся у самой записи: у шаблона он свой,
+    /// и проверка у него своя — шаблон, на который ссылается будущее расписание, унести
+    /// нельзя. Иерархия уезжает целиком, и сколько подзадач уедет, форма показывает сама.
+    /// </summary>
+    /// <summary>Идёт восстановление из архива (T-45-S0) — кнопка на это время гаснет:
+    /// перенос задачи со всем поддеревом и файлами занимает заметное время.</summary>
+    private bool _restoring;
+
+    /// <summary>
+    /// ВОССТАНОВИТЬ ЗАДАЧУ ИЗ ТЕКУЩЕГО АРХИВА в рабочую среду (T-45-S0; механика — T-42-S0):
+    /// операция, обратная архивации. Уезжает вся иерархия задачи, её файлы, а ссылки внутри
+    /// текстов теряют пометку архива. Вызов идёт в раздел /api/archives, который работает
+    /// с РАБОЧЕЙ средой всегда, — потому он и проходит при открытом архиве.
+    /// После восстановления задачи в архиве уже нет: закладку закрываем.
+    /// </summary>
+    private async Task RestoreAsync()
+    {
+        if (_details?.Task is not { } task || _restoring)
+        {
+            return;
+        }
+        var target = task.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
+        var ok = await Dialogs.ShowMessageBoxAsync(L["arc.restore"],
+            L["arc.restore.confirm", $"{task.DisplayId} {task.Title}"],
+            yesText: L["arc.restore"], cancelText: L["common.cancel"]);
+        if (ok != true)
+        {
+            return;
+        }
+        _restoring = true;
+        try
+        {
+            await Api.RestoreFromArchiveAsync(target, TaskId);
+            Snackbar.Add(L["arc.restore.done"], Severity.Success);
+            State.CloseEntityTab(UiState.ViewTask, TaskId);
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _restoring = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_details?.Task is not { } task)
+        {
+            return;
+        }
+        var target = task.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
+        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+            target, TaskId, $"{task.DisplayId} {task.Title}");
+        if (choice is null)
+        {
+            return;
+        }
+        try
+        {
+            if (choice == ArchiveOrDeleteDialog.Archive)
+            {
+                await Api.MoveToArchiveAsync(target, TaskId);
+            }
+            else
+            {
+                await Api.DeleteTaskAsync(TaskId);
+            }
+            State.CloseEntityTab(UiState.ViewTask, TaskId);
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Ссылка на задачу — отдельное окно с кнопкой копирования (гл. 11).
+    /// Ссылок две (T-142): локальная (петлевая) и внешняя — по имени сервера из настроек;
+    /// у сервера с петлевым именем внешней нет, и окно показывает одну, как раньше.</summary>
+    /// <summary>Окно ссылки на задачу: своей (кнопка тулбара) либо подзадачи из списка
+    /// (T-132-S0) — окно одно и то же, меняется только адрес.</summary>
+    private Task ShowLinkAsync(string? id = null)
+    {
+        var taskId = id ?? TaskId;
+        var parameters = new DialogParameters<TaskLinkDialog>
+        {
+            { d => d.Url, State.TaskUrl(taskId) },
+            { d => d.LocalUrl, State.HasExternalUrl ? State.TaskLocalUrl(taskId) : "" },
+            // относительная — от корня сайта (T-196-S0): не зависит от протокола и адреса
+            { d => d.RelativeUrl, LinkUrls.RelativeOf(State.TaskUrl(taskId)) },
+        };
+        // окно шире Small (T-142): ссылка на файл проекта с процентным кодированием длинная,
+        // а её в этом окне читают глазами — обрезанный адрес бесполезен
+        return Dialogs.ShowAsync<TaskLinkDialog>(L["task.link"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private static readonly string[] ImageFileExtensions =
+        [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"];
+
+    private static readonly string[] VideoFileExtensions = [".mp4", ".webm", ".mov", ".mkv", ".avi"];
+
+    private static string FileExtension(TaskFileDto file) =>
+        System.IO.Path.GetExtension(file.Name).ToLowerInvariant();
+
+    private static bool IsImageFile(TaskFileDto file) =>
+        ImageFileExtensions.Contains(FileExtension(file));
+
+    private static string FileKindIcon(TaskFileDto file) =>
+        VideoFileExtensions.Contains(FileExtension(file))
+            ? Icons.Material.Filled.Movie
+            : Icons.Material.Filled.InsertDriveFile;
+
+    /// <summary>Адрес, по которому файл открывается и показывается превью (T-142):
+    /// есть локальная копия — берётся она, файл в гигабайты не должен ехать по сети.</summary>
+    private static string FileOpenUrl(TaskFileDto file) =>
+        file.LocalUrl.Length > 0 ? file.LocalUrl : file.Url;
+
+    /// <summary>Ссылка на файл результата (T-127-S0) — тем же окном, что ссылка на задачу:
+    /// внешняя (её отправляют наружу) и локальная. Адреса АБСОЛЮТНЫЕ: относительный
+    /// вне приложения бесполезен.</summary>
+    private Task ShowFileLinkAsync(TaskFileDto file)
+    {
+        var external = AbsoluteUrl(file.ExternalUrl.Length > 0 ? file.ExternalUrl : file.Url);
+        var local = file.LocalUrl.Length > 0 ? AbsoluteUrl(file.LocalUrl) : "";
+        var parameters = new DialogParameters<TaskLinkDialog>
+        {
+            { d => d.Url, external },
+            { d => d.LocalUrl, local },
+            // относительная — только у НАШЕГО файла (T-196-S0): у ссылки на внешний сайт
+            // путь от нашего корня ничего не значит
+            { d => d.RelativeUrl, FileLinks.Parse(file.Url) is null
+                ? "" : LinkUrls.RelativeOf(local.Length > 0 ? local : external) },
+        };
+        return Dialogs.ShowAsync<TaskLinkDialog>(file.Name, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    /// <summary>Относительный адрес — от адреса, по которому открыт экран. Берётся
+    /// <c>AbsoluteUri</c>, а не <c>ToString()</c>: второй раскрывает процентное кодирование,
+    /// и кириллица в имени файла уезжала в буфер обмена голыми буквами.</summary>
+    private string AbsoluteUrl(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var absolute)
+            ? absolute.AbsoluteUri
+            : Nav.ToAbsoluteUri(url).AbsoluteUri;
+
+    // --- правка текста результата (T-130-S0) ---
+
+    /// <summary>Открыть текст на правку: черновик берётся из уже прочитанного текста —
+    /// перечитывать файл не нужно, он в <see cref="_artifactTexts"/>.</summary>
+    private void StartArtifactEdit(string artifact)
+    {
+        _editingArtifact = artifact;
+        _artifactDraft = _artifactTexts.TryGetValue(artifact, out var text) ? text : "";
+    }
+
+    /// <summary>«Отмена» — выход из правки без записи; черновик просто выбрасывается,
+    /// перечитывать карточку не надо (текст на экране и так из <see cref="_artifactTexts"/>).</summary>
+    private void CancelArtifactEdit()
+    {
+        _editingArtifact = null;
+        _artifactDraft = "";
+    }
+
+    /// <summary>Записать правленый текст результата и вернуться в режим чтения. Карточка
+    /// перечитывается: тем же файлом кормится и кнопка копирования, и сводка карточки.</summary>
+    private async Task SaveArtifactTextAsync()
+    {
+        if (_editingArtifact is not { } artifact)
+        {
+            return;
+        }
+        try
+        {
+            await Api.SaveFileTextAsync(artifact, _artifactDraft);
+            _editingArtifact = null;
+            _artifactDraft = "";
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Удалить файл результата (T-127-S0): с переспросом отдельным окном,
+    /// после удаления карточка перечитывается — из списка уходит и сам файл, и его описание.</summary>
+    private async Task DeleteArtifactFileAsync(TaskFileDto file)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["task.files.delete"],
+            $"{L["task.files.deleteConfirm"]}\n\n{file.Name}",
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteTaskFileAsync(TaskId, file.Path);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Ответ на вопрос ИИ-агента (ТЗ v1.17): агент продолжает работу с того же места.</summary>
+    private async Task AnswerQuestionAsync(string questionId, string text)
+    {
+        if (text.Trim().Length == 0)
+        {
+            return;
+        }
+        _answering = true;
+        try
+        {
+            await Api.AnswerQuestionAsync(questionId, text.Trim());
+            QuestionReply = "";
+            await ReloadAsync();
+            State.NotifyChanged(); // счётчики вопросов в списках задач обновятся
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _answering = false;
+        }
+    }
+
+    /// <summary>
+    /// Вопрос, отвечать на который уже некому (T-1-S1): его задание больше не ждёт —
+    /// упало, остановлено или завершилось (а бывает, что задания у вопроса нет вовсе).
+    /// Ровно на такой вопрос ответ отклоняется сообщением «задание уже не ждёт ответа»,
+    /// поэтому вместо поля ответа человеку показывается кнопка «снять вопрос».
+    /// </summary>
+    private bool IsStaleQuestion(ChatMessage message) =>
+        _details is null
+        || message.JobId is not { Length: > 0 } jobId
+        || _details.Jobs.FirstOrDefault(j => j.Id == jobId) is not { State: JobState.WaitingHuman };
+
+    /// <summary>Есть ли у вопроса настоящий ответ (T-1-S1): ответ человека либо сообщение
+    /// агента-собеседника (T-185). У снятого вопроса его нет — он закрыт без ответа.</summary>
+    private bool HasReply(ChatMessage question) =>
+        _chat.Any(m => m.AnswerToId == question.Id && m.DeletedAt is null);
+
+    /// <summary>Снять вопрос, на который уже некому отвечать (T-1-S1): он закрывается без
+    /// ответа и уходит из счётчиков задачи, из вкладки чата и из Inbox.</summary>
+    private async Task DismissQuestionAsync(string questionId)
+    {
+        _answering = true;
+        try
+        {
+            await Api.DismissQuestionAsync(questionId);
+            await ReloadAsync();
+            State.NotifyChanged(); // счётчики вопросов в списках задач обновятся
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _answering = false;
+        }
+    }
+
+    private async Task SendChatAsync()
+    {
+        try
+        {
+            // адресат — ответственный по задаче (ТЗ п. 7.2), если он не автор сообщения
+            var to = _details?.Task.ResponsibleId == State.LocalUser.Id ? null : _details?.Task.ResponsibleId;
+            await Api.PostChatAsync(TaskId, ChatText, to);
+            ChatText = "";
+            _chat = await Api.GetChatAsync(TaskId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

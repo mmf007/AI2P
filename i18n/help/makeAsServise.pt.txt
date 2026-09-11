@@ -1,0 +1,64 @@
+AI2P — makeAsServise: TRANSFORMAR A INSTALAÇÃO EM SERVIÇO DO SO
+
+É executado À MÃO e uma única vez: o aplicativo é, por padrão, de console e nunca se
+transforma em serviço sozinho. O nome do serviço é AI2P em todos os sistemas; o
+install.* e o pacote de instalação conhecem esse nome.
+  Linux — unit do systemd AI2P.service
+  macOS — job do launchd com o rótulo AI2P (~/Library/LaunchAgents/AI2P.plist)
+
+O script fica NO DIRETÓRIO DE INSTALAÇÃO, junto ao AI2P.Server, e trabalha com ele.
+
+USO (Windows, console COMO ADMINISTRADOR)
+  makeAsServise.cmd                    criar o serviço e iniciá-lo
+  makeAsServise.ps1 -NoStart           criar, mas não iniciar
+  makeAsServise.ps1 -Manual            início manual do serviço, e não automático
+  makeAsServise.ps1 -Remove            remover o serviço (arquivos e dados ficam intactos)
+  makeAsServise.ps1 -Target D:\AI2P    outra instalação, e não o diretório do script
+  makeAsServise.ps1 -Account .\mike -Password ***  serviço no nome do usuário
+  makeAsServise.ps1 -UnprotectSecrets  retirar a DPAPI das chaves das organizações
+  makeAsServise.ps1 -Force             fazer apesar dos avisos
+  makeAsServise.ps1 -WhatIf            apenas mostrar o que será feito
+  makeAsServise.ps1 -Lang pt           idioma das mensagens
+  makeAsServise.cmd --help             esta ajuda
+
+USO (Linux / macOS)
+  ./makeAsServise.sh                   criar o serviço e iniciá-lo
+  ./makeAsServise.sh --no-start        criar, mas não iniciar
+  ./makeAsServise.sh --manual          não iniciar junto com o sistema
+  ./makeAsServise.sh --remove          remover o serviço
+  ./makeAsServise.sh --target ~/ai/AI2P  outra instalação
+  ./makeAsServise.sh --system          unit de SISTEMA do systemd (exige root), Linux
+  ./makeAsServise.sh --lang pt         idioma das mensagens
+  ./makeAsServise.sh --help            esta ajuda
+
+O QUE MUDA NO PRÓPRIO APLICATIVO: nada. Ele descobre o modo de execução sozinho — sob
+um gerenciador de serviços funciona como serviço, pelo console funciona como sempre. O
+serviço não abre o navegador ao iniciar: ele não tem área de trabalho.
+
+A MEMÓRIA DISSO. A situação real do serviço quem conhece é o SO, e é a ele que o
+install.* pergunta: antes da atualização o serviço precisa ser parado e depois iniciado.
+Além disso, o script coloca a anotação "serviceMode": true no config.json da instalação
+— ela sobrevive à atualização de versão e é visível para a pessoa nas configurações do
+aplicativo.
+
+O SERVIÇO DE USUÁRIO NO LINUX É O PADRÃO, e isso não é por acaso: o servidor funciona
+com um usuário comum e guarda tudo o que é seu no diretório dele. Para que esse serviço
+suba sem que a pessoa faça logon, é preciso o «logon prolongado» — o próprio script
+chama loginctl enable-linger.
+
+DPAPI E A CONTA DO SERVIÇO (Windows, importante)
+  A chave da organização no secrets.json é protegida no Windows pela DPAPI do ESCOPO DO
+  USUÁRIO: só a conta que a gravou consegue decifrá-la. O serviço, por padrão, funciona
+  como LocalSystem — que é OUTRA conta, e esse serviço não conseguirá ler as chaves de
+  API dos modelos (os modelos em nuvem param de funcionar, e isso vai parecer «o modelo
+  existe, mas a tarefa não anda»). Por isso o script verifica o secrets.json e, ao achar
+  nele valores protegidos por DPAPI, oferece escolher:
+    * -Account <conta> -Password <senha> — o serviço funciona com O MESMO usuário
+      (ele precisa do direito «Fazer logon como serviço»; sem ele o serviço não inicia,
+      erro 1069);
+    * -UnprotectSecrets — retirar a DPAPI e deixar as chaves das organizações em base64
+      comum (é exatamente assim que elas ficam no Linux/macOS; a proteção passa a ser as
+      permissões do arquivo);
+    * -Force — criar o serviço como está, sabendo que as chaves ficarão inacessíveis.
+  O mesmo vale para o logon no Claude CLI: ele pertence ao perfil do usuário, e o
+  serviço como LocalSystem não o enxerga. No Linux e no macOS a DPAPI não tem nada a ver.

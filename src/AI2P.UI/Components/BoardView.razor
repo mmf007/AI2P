@@ -1,0 +1,253 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@implements IAsyncDisposable
+
+@* Представление «доска» (ТЗ гл. 5, экран 1): kanban — колонки по статусам.
+   Колонки широкие (~260px), при нехватке ширины — горизонтальное листание всей доски (гл. 11).
+   Заголовки колонок жирные и чётко отделены (ТЗ v1.17). Карточка показывает превью описания
+   (Markdown, ТЗ v1.17): заполняются только видимые карточки (IntersectionObserver), при
+   листании заполнение продолжается асинхронно. Список задач приходит из TasksView.
+   Доска (T-128): фрейм фиксированной высоты — страница по вертикали не растягивается,
+   горизонтальная полоса видна всегда; у каждой колонки свой вертикальный скролл, заголовок
+   остаётся сверху. Карточки колонки рисуются пачками по 30 (счётчик в заголовке — полный),
+   следующая пачка дорисовывается, когда пользователь долистал колонку до низа. Порядок
+   колонок меняется перетаскиванием ЗАГОЛОВКА и запоминается на аккаунт+проект.
+
+   T-193 (второй заход): КАРТОЧКА ЗАДАЧИ НЕ ПЕРЕТАСКИВАЕТСЯ ВОВСЕ — ни мышью, ни пальцем.
+   На телефоне перенос карточки съедал вертикальную прокрутку колонки (свайп отрывал
+   карточку вместо листания), а на настольном Firefox перенос всё равно не доводился до
+   конца. Поэтому доска больше не строится на MudDropContainer/MudDropZone: их
+   MudDynamicDropItem ставит карточке draggable И вешает на неё СВОИ ontouchmove/ontouchend,
+   поэтому снятия одного лишь draggable (первая редакция T-193) не хватало. Карточки
+   рисуются обычным списком, состояние задачи меняется в её карточке. Перенос колонок —
+   остался: он идёт только за зону заголовка. *@
+<div class="ai2p-board-frame" id="@_boardId">
+    <div class="d-flex flex-row gap-2"
+         style="align-items: stretch; height: 100%; width: max-content; min-width: 100%;">
+        @* колонки — активные состояния справочника в пользовательском порядке (T-128),
+           по умолчанию — порядковый номер справочника (ТЗ v1.37) *@
+        @foreach (var status in Statuses)
+        {
+            <MudPaper Elevation="1" Class="d-flex flex-column ai2p-board-col"
+                      Style="flex: 0 0 260px; width: 260px;" data-board-col="@status.Id">
+                @* заголовок доски: жирный, чётко отделён от содержимого (ТЗ v1.17);
+                   фон — цвет состояния (ТЗ v1.37); за него колонка перетаскивается (T-128).
+                   Счётчик — ПОЛНОЕ число задач колонки, а не число нарисованных карточек *@
+                <div class="ai2p-board-header" style="@State.StatusStyle(status.Id)"
+                     draggable="true" data-board-drag="@status.Id" title="@L["board.column.drag"]">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight: 700; color: inherit;">
+                        @status.Name (@Tasks.Count(t => t.Status == status.Id))
+                    </MudText>
+                </div>
+                @* тело колонки — свой вертикальный скролл (T-128): листается та колонка,
+                   над которой мышь или палец, а не доска целиком. data-board-more — «есть ещё
+                   ненарисованные карточки»: по нему ai2p.initBoardLazy решает, тянуть ли
+                   следующую пачку, когда колонку долистали до низа *@
+                <div class="pa-2 d-flex flex-column ai2p-board-body"
+                     data-board-lazy="@status.Id" data-board-more="@(HasMore(status.Id) ? "1" : "0")">
+                    @* data-board-task — якорь карточки (по нему её находят проверки);
+                       перетаскиваемой карточка НЕ является: ни draggable, ни обработчиков *@
+                    @foreach (var task in Cards(status.Id))
+                    {
+                        <MudCard @key="task.Id" Elevation="3" Class="mb-2" Style="cursor: pointer;"
+                                 data-board-task="@task.Id"
+                                 @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
+                            <MudCardContent Class="pa-2">
+                                <MudText Typo="Typo.body2">
+                                    <b>@task.DisplayId</b> @task.Title
+                                </MudText>
+                                @* превью описания — Markdown, заполняется лениво по видимости (ТЗ v1.17) *@
+                                @if (_previews.TryGetValue(task.Id, out var preview))
+                                {
+                                    @if (preview.Length > 0)
+                                    {
+                                        <div class="ai2p-md-preview ai2p-board-preview">@((MarkupString)Md.ToHtml(preview))</div>
+                                    }
+                                }
+                                else
+                                {
+                                    <div class="ai2p-lazy-md" data-task-id="@task.Id"></div>
+                                }
+                                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="mt-1">
+                                    @if (task.PendingQuestions > 0)
+                                    {
+                                        @* висящие вопросы агентов — хорошо заметны (ТЗ v1.17) *@
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning"
+                                                 Icon="@Icons.Material.Filled.HelpOutline">@task.PendingQuestions</MudChip>
+                                    }
+                                    @if (task.Priority != 1)
+                                    {
+                                        <MudChip T="string" Size="Size.Small"
+                                                 Color="@(task.Priority >= 2 ? Color.Error : Color.Default)">
+                                            @L[$"task.priority.{task.Priority}"]
+                                        </MudChip>
+                                    }
+                                    @if (task.DueDate is { } due)
+                                    {
+                                        <MudText Typo="Typo.caption">@due.ToLocalTime().ToString("d")</MudText>
+                                    }
+                                    <MudText Typo="Typo.caption">@ExecutorNick(task)</MudText>
+                                </MudStack>
+                            </MudCardContent>
+                        </MudCard>
+                    }
+                    @* «дорисовывается»: виден в конце колонки, пока карточки не кончились *@
+                    @if (HasMore(status.Id))
+                    {
+                        <div class="ai2p-board-more">
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                        </div>
+                    }
+                </div>
+            </MudPaper>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    private const int PreviewMaxChars = 280;
+
+    /// <summary>Задачи после фильтра и поиска (TasksView).</summary>
+    [Parameter] public List<TaskItem> Tasks { get; set; } = [];
+
+    /// <summary>Проект, задачи которого показаны: порядок колонок запоминается на
+    /// аккаунт+проект (T-128). null — доска без фильтра по проекту.</summary>
+    [Parameter] public string? ProjectId { get; set; }
+
+    /// <summary>Порядок колонок доски, сохраняемый в app_state по аккаунту (T-128):
+    /// коды состояний в пользовательском порядке; чего нет — в хвост по SortOrder.</summary>
+    private sealed class BoardOrderState
+    {
+        public List<string> Order { get; set; } = [];
+    }
+
+    private readonly string _boardId = "ai2p-board-" + Guid.NewGuid().ToString("N");
+    private string? _orderProjectId;
+    private bool _orderLoaded;
+    private BoardOrderState _order = new();
+    /// <summary>Сколько карточек колонки нарисовано (T-128); нет ключа — первая пачка.</summary>
+    private readonly Dictionary<string, int> _limits = new(StringComparer.Ordinal);
+    /// <summary>Загруженные превью описаний по id задачи; "" — описания нет.</summary>
+    private readonly Dictionary<string, string> _previews = [];
+    private DotNetObjectReference<BoardView>? _selfRef;
+
+    /// <summary>Колонки доски: активные состояния справочника + неактивные, в которых
+    /// остались задачи (иначе их карточки пропали бы с доски); порядок — пользовательский
+    /// (T-128), неизвестные состояния — в хвост по порядковому номеру справочника.</summary>
+    private IEnumerable<TaskStatusDef> Statuses => BoardColumns.Order(
+        State.TaskStatuses.Where(s => s.IsActive || Tasks.Any(t => t.Status == s.Id)), _order.Order);
+
+    private int LimitOf(string statusId) =>
+        _limits.TryGetValue(statusId, out var limit) ? limit : BoardColumns.PageSize;
+
+    /// <summary>В колонке есть ещё не нарисованные карточки (T-128).</summary>
+    private bool HasMore(string statusId) => Tasks.Count(t => t.Status == statusId) > LimitOf(statusId);
+
+    /// <summary>Нарисованные карточки колонки: первые LimitOf штук в порядке списка
+    /// (сортировка приходит из TasksView).</summary>
+    private IEnumerable<TaskItem> Cards(string statusId) =>
+        BoardColumns.Column(Tasks, statusId, LimitOf(statusId));
+
+    protected override void OnParametersSet()
+    {
+        // порядок колонок — на аккаунт+проект (T-128); смена проекта в фильтре меняет ключ.
+        // Флаг нужен отдельно от сравнения: доска без фильтра по проекту (ProjectId = null)
+        // иначе не подхватила бы сохранённый порядок ни разу
+        if (!_orderLoaded || _orderProjectId != ProjectId)
+        {
+            _orderLoaded = true;
+            _orderProjectId = ProjectId;
+            _order = State.ComponentState<BoardOrderState>("board.order." + (ProjectId ?? "all"));
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // наблюдение видимости карточек: заполняются только те, что видит пользователь (ТЗ v1.17)
+        _selfRef ??= DotNetObjectReference.Create(this);
+        await Js.InvokeVoidAsync("ai2p.observeLazyMd", _selfRef);
+        // ленивая дорисовка карточек по прокрутке колонки и перетаскивание колонок (T-128)
+        await Js.InvokeVoidAsync("ai2p.initBoardLazy", _boardId, _selfRef);
+        await Js.InvokeVoidAsync("ai2p.initBoardDnd", _boardId, _selfRef);
+        // перенос пальцем и возврат вертикальной прокрутки колонок на телефоне (T-193)
+        await Js.InvokeVoidAsync("ai2p.initBoardTouch", _boardId, _selfRef);
+    }
+
+    /// <summary>Карточка стала видимой — асинхронно подгрузить превью описания (ТЗ v1.17).</summary>
+    [JSInvokable]
+    public async Task OnCardVisibleAsync(string taskId)
+    {
+        if (!_previews.TryAdd(taskId, "")) // маркер «уже грузится»
+        {
+            return;
+        }
+        try
+        {
+            var text = (await Api.GetTaskDescriptionAsync(taskId)).Trim();
+            _previews[taskId] = text.Length <= PreviewMaxChars ? text : text[..PreviewMaxChars] + "…";
+        }
+        catch (ApiException)
+        {
+            // описание недоступно — карточка остаётся без превью
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Колонка долистана до низа (T-128) — дорисовать следующую пачку карточек.</summary>
+    [JSInvokable]
+    public Task OnColumnMoreAsync(string statusId)
+    {
+        var total = Tasks.Count(t => t.Status == statusId);
+        var limit = LimitOf(statusId);
+        if (limit >= total)
+        {
+            return Task.CompletedTask;
+        }
+        _limits[statusId] = Math.Min(limit + BoardColumns.PageSize, total);
+        return InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Заголовок колонки брошен на другую колонку (T-128): новый порядок колонок
+    /// запоминается на аккаунт+проект. before — вставить слева от целевой колонки.</summary>
+    [JSInvokable]
+    public Task OnColumnDropAsync(string fromId, string toId, bool before)
+    {
+        var shown = Statuses.Select(s => s.Id).ToList();
+        // состояния, которых сейчас на доске нет (неактивные без задач), порядка не теряют
+        _order.Order = BoardColumns.Move(shown, _order.Order, fromId, toId, before);
+        State.PersistComponentStates();
+        // StateHasChanged через InvokeAsync: перенос колонки приходит из JS, а он выполняется
+        // вне контекста синхронизации компонента
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private string ExecutorNick(TaskItem task) =>
+        task.ExecutorIds.Count == 0
+            ? ""
+            : State.Executors.FirstOrDefault(e => e.Id == task.ExecutorIds[0])?.Nick ?? "";
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("ai2p.disconnectLazyMd");
+            await Js.InvokeVoidAsync("ai2p.disposeBoardLazy", _boardId);
+        }
+        catch (JSDisconnectedException)
+        {
+            // соединение уже закрыто — чистить нечего
+        }
+        catch (InvalidOperationException)
+        {
+            // prerender: JS interop недоступен, наблюдатель и не создавался (багфикс v1.18 —
+            // исключение из DisposeAsync попадало в лог как ошибка запроса)
+        }
+        _selfRef?.Dispose();
+    }
+}

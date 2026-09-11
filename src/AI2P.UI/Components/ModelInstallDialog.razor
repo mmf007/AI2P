@@ -1,0 +1,328 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Окно установки локальной модели (ТЗ v1.40, todo36_3): файлы манифеста с состоянием
+   (загружен / частично / нет), общий прогресс, запуск и отмена загрузки. Частичные файлы
+   докачиваются с места обрыва; окно можно закрыть — загрузка продолжается на сервере. *@
+<MudDialog>
+    <DialogContent>
+        @if (_status is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.body2">
+                    @L["install.targetDir"]: <b>@_status.TargetDir</b>
+                </MudText>
+
+                @* ДОПОЛНИТЕЛЬНЫЕ ОПЦИИ УСТАНОВКИ (T-190-S0): «Обучение LoRA» и подобные.
+                   По умолчанию включено всё; снятый флажок убирает пакеты опции из установки
+                   и из подсчёта «модель установлена» — в кластере адаптеры обучают на одной
+                   машине, а применяют на всех *@
+                @if (_status.Options.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">@L["install.options"]</MudText>
+                    @foreach (var option in _status.Options)
+                    {
+                        <MudCheckBox T="bool" Value="@option.Enabled" Dense="true"
+                                     Disabled="@(_status.Running || _busy)"
+                                     ValueChanged="@(on => ToggleOptionAsync(option.Id, on))"
+                                     Label="@($"{L["install.option." + option.Id]} ({L["install.option.packages"]}: {option.Packages})")" />
+                    }
+                    <MudText Typo="Typo.caption">@L["install.options.hint"]</MudText>
+                }
+
+                @* пакеты, необходимые модели для запуска (ТЗ v1.42, todo36_5): ComfyUI,
+                   llama.cpp … Уже установленный пакет не ставится повторно, только проверяется.
+                   Размер дистрибутива и ход его загрузки — ТЗ v1.43, todo36_6 *@
+                @if (_status.Packages.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">@L["install.packages"]</MudText>
+                    <MudSimpleTable Dense="true">
+                        <thead>
+                            <tr>
+                                <th>@L["install.package"]</th>
+                                <th style="text-align:right;">@L["install.size"]</th>
+                                <th style="text-align:right;">@L["install.downloaded"]</th>
+                                <th>@L["install.packageDir"]</th>
+                                <th>@L["install.state"]</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var package in _status.Packages)
+                            {
+                                <tr>
+                                    <td>
+                                        @package.Name
+                                        @if (package.Running)
+                                        {
+                                            <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                                 Class="ml-2" Style="vertical-align: middle;" />
+                                        }
+                                    </td>
+                                    <td style="text-align:right; white-space:nowrap;">
+                                        @(package.Size > 0 ? Fmt(package.Size) : "—")
+                                    </td>
+                                    <td style="text-align:right; white-space:nowrap;">
+                                        @(package.Downloaded > 0 ? Fmt(package.Downloaded) : "—")
+                                    </td>
+                                    <td style="word-break: break-all;">@package.Dir</td>
+                                    <td style="white-space:nowrap;">
+                                        <MudIcon Size="Size.Small" Style="vertical-align: middle;"
+                                                 Icon="@StateIcon(package.State)" Color="@StateColor(package.State)" />
+                                        @* пакет, уже стоящий на компьютере (Python, T-4-S0), качать не надо —
+                                           и человеку важно видеть, что взяли ЕГО, а не поставили второй *@
+                                        @(package.Unknown ? L["install.package.unknown"]
+                                            : package.System ? L["install.package.system"]
+                                            : L["install.package." + package.State])
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                    @if (_status.Running && _status.CurrentFile.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption">
+                            @L["install.current"]: @_status.CurrentFile
+                        </MudText>
+                    }
+                    <MudText Typo="Typo.subtitle2" Class="mt-2">@L["install.weights"]</MudText>
+                }
+
+                <MudProgressLinear Color="@(_status.Installed ? Color.Success : Color.Primary)"
+                                   Value="@Percent()" Size="Size.Large" Rounded="true">
+                    <MudText Typo="Typo.caption">
+                        @Fmt(_status.DownloadedSize) / @Fmt(_status.TotalSize) (@((int)Percent())%)
+                    </MudText>
+                </MudProgressLinear>
+
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <th>@L["install.file"]</th>
+                            <th style="text-align:right;">@L["install.size"]</th>
+                            <th style="text-align:right;">@L["install.downloaded"]</th>
+                            <th>@L["install.state"]</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var file in _status.Files)
+                        {
+                            <tr>
+                                <td style="word-break: break-all;">
+                                    @file.Name
+                                    @if (_status.Running && file.Name == _status.CurrentFile)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                             Class="ml-2" Style="vertical-align: middle;" />
+                                    }
+                                </td>
+                                <td style="text-align:right; white-space:nowrap;">@Fmt(file.Size)</td>
+                                <td style="text-align:right; white-space:nowrap;">@Fmt(file.Downloaded)</td>
+                                <td style="white-space:nowrap;">
+                                    <MudIcon Size="Size.Small" Style="vertical-align: middle;"
+                                             Icon="@StateIcon(file.State)" Color="@StateColor(file.State)" />
+                                    @L["install.state." + file.State]
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+
+                @if (_status.Installed)
+                {
+                    <MudAlert Severity="Severity.Success" Dense="true">@L["install.finished"]</MudAlert>
+                    @* команда запуска, прописанная в профайл модели после установки (ТЗ v1.42) *@
+                    @if (_status.LaunchCommand.Length > 0)
+                    {
+                        <MudText Typo="Typo.caption" Style="word-break: break-all;">
+                            @L["install.launchCommand"]: <code>@_status.LaunchCommand</code>
+                        </MudText>
+                    }
+                }
+                else if (_status.Error.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_status.Error</MudAlert>
+                }
+                else
+                {
+                    <MudText Typo="Typo.caption">@L["install.hint"]</MudText>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close())">@L["common.close"]</MudButton>
+        @if (_status is { Running: true })
+        {
+            <MudButton Color="Color.Error" Variant="Variant.Outlined" OnClick="CancelAsync">
+                @L["install.cancel"]
+            </MudButton>
+        }
+        else if (_status is { Installed: false })
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                       StartIcon="@Icons.Material.Filled.Download" OnClick="StartAsync">
+                @L["install.start"]
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string ModelId { get; set; } = "";
+
+    private ModelInstallStatusDto? _status;
+    private bool _disposed;
+    /// <summary>Идёт переключение опции — флажки на это время гаснут (T-190-S0).</summary>
+    private bool _busy;
+
+    public void Dispose() => _disposed = true; // останавливает цикл опроса прогресса
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = PollAsync(); // загрузка могла уже идти (окно открыто повторно)
+        _ = ResolveSizesAsync(); // размеры пакетов — запросом к серверам раздачи (ТЗ v1.43)
+    }
+
+    /// <summary>Выяснить размеры дистрибутивов пакетов: несколько секунд сети, потому фоном —
+    /// окно уже открыто, размеры проставляются по готовности (ТЗ v1.43, todo36_6).</summary>
+    private async Task ResolveSizesAsync()
+    {
+        try
+        {
+            var resolved = await Api.ResolveModelInstallSizesAsync(ModelId);
+            if (_disposed)
+            {
+                return;
+            }
+            // пока ходили в сеть, мог обновиться прогресс — берём только размеры пакетов
+            if (_status is not null)
+            {
+                foreach (var package in _status.Packages)
+                {
+                    var fresh = resolved.Packages.FirstOrDefault(p => p.Id == package.Id);
+                    if (fresh is not null && package.Size == 0)
+                    {
+                        package.Size = fresh.Size;
+                        package.Downloaded = Math.Max(package.Downloaded, fresh.Downloaded);
+                    }
+                }
+            }
+            else
+            {
+                _status = resolved;
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (ApiException)
+        {
+            // размер узнать не удалось (нет сети) — не мешает установке, покажем «—»
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _status = await Api.GetModelInstallAsync(ModelId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Включить или выключить дополнительную опцию (T-190-S0). Ответом приходит новое
+    /// состояние: список пакетов и признак «установлена» уже без выключенного набора.
+    /// </summary>
+    private async Task ToggleOptionAsync(string code, bool on)
+    {
+        _busy = true;
+        try
+        {
+            _status = await Api.SetModelInstallOptionAsync(ModelId, code, on);
+            // пакеты опции появились впервые — их размеры ещё не спрашивали
+            _ = ResolveSizesAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task StartAsync()
+    {
+        try
+        {
+            _status = await Api.StartModelInstallAsync(ModelId);
+            _ = PollAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task CancelAsync()
+    {
+        try
+        {
+            _status = await Api.CancelModelInstallAsync(ModelId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Пока идёт загрузка — обновление прогресса раз в секунду.</summary>
+    private async Task PollAsync()
+    {
+        while (!_disposed && _status is { Running: true })
+        {
+            await Task.Delay(1000);
+            if (_disposed)
+            {
+                return;
+            }
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private double Percent() => _status is { TotalSize: > 0 }
+        ? 100.0 * _status.DownloadedSize / _status.TotalSize
+        : 0;
+
+    /// <summary>Размер по-человечески: ГБ с одним знаком, МБ целиком.</summary>
+    private string Fmt(long bytes) => bytes >= 1L << 30
+        ? $"{bytes / (double)(1L << 30):0.#} {L["unit.gb"]}"
+        : $"{Math.Ceiling(bytes / (double)(1L << 20)):0} {L["unit.mb"]}";
+
+    private static string StateIcon(string state) => state switch
+    {
+        "done" => Icons.Material.Filled.CheckCircle,
+        "partial" => Icons.Material.Filled.Downloading,
+        _ => Icons.Material.Filled.RadioButtonUnchecked,
+    };
+
+    private static Color StateColor(string state) => state switch
+    {
+        "done" => Color.Success,
+        "partial" => Color.Info,
+        _ => Color.Default,
+    };
+}

@@ -1,0 +1,223 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* СПИСОК ПРАВИЛ АРХИВАЦИИ (T-41-S0) — ОДИН компонент на обе группы правил, разница между
+   ними ровно в одном параметре:
+
+   — ArchiveId пуст  → ОБЩИЕ правила организации (закладка «Настройки → Справочники»).
+     Это образец: с него копируются правила нового архива;
+   — ArchiveId задан → правила конкретного архива (окно с записи архива на дирижёре).
+
+   Состав полей записи у обеих групп одинаков, поэтому и форма ввода одна (ArchiveRuleDialog),
+   и таблица одна. Отличается только кнопка «вернуть умолчание»: у правил архива она есть
+   (снести свои правила и взять общие), у самих общих правил ей неоткуда браться. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 1100px;">
+    <MudText Typo="Typo.h6">@L[Common ? "arcrules.common.title" : "arcrules.title"]</MudText>
+    <MudSpacer />
+    @if (!Common)
+    {
+        @* ВЕРНУТЬ УМОЛЧАНИЕ — обязательная по заданию кнопка: правила архива человек правит
+           руками, и вернуть их к образцу организации иначе нечем *@
+        <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(!CanEdit)"
+                   StartIcon="@Icons.Material.Filled.SettingsBackupRestore"
+                   data-arcrules-reset="1" OnClick="ResetAsync">
+            @L["arcrules.reset"]
+        </MudButton>
+    }
+    <MudTooltip Text="@L["arcrules.add"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Add" data-arcrules-add="1"
+                       Disabled="@(!CanEdit)" OnClick="@(() => EditAsync(null))" />
+    </MudTooltip>
+</MudStack>
+
+<MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75; max-width: 900px;">
+    @L[Common ? "arcrules.common.hint" : "arcrules.hint"]
+</MudText>
+
+@if (_rules.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Style="max-width: 1100px;"
+              data-arcrules-empty="1">@L["common.empty"]</MudAlert>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;" data-arcrules-table="1">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>@L["arcrules.target"]</th>
+                <th>@L["arcrules.condition"]</th>
+                <th>@L["arcrules.children"]</th>
+                <th>@L["arcrules.date"]</th>
+                <th>@L["arcrules.age"]</th>
+                <th>@L["common.active"]</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var rule in _rules)
+            {
+                <tr data-arcrule-row="@rule.DisplayId">
+                    <td style="white-space: nowrap;">@rule.DisplayId</td>
+                    <td>@L["arcrules.target." + rule.Target]</td>
+                    <td>@ConditionText(rule)</td>
+                    <td>@ChildrenText(rule)</td>
+                    <td style="white-space: nowrap;">@L["arcrules.date." + rule.DateField]</td>
+                    <td style="white-space: nowrap;">@AgeText(rule)</td>
+                    <td>
+                        @if (rule.IsActive)
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small"
+                                     Class="mud-success-text" />
+                        }
+                    </td>
+                    <td style="white-space: nowrap;">
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       data-arcrule-edit="@rule.DisplayId" Disabled="@(!CanEdit)"
+                                       OnClick="@(() => EditAsync(rule))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       data-arcrule-delete="@rule.DisplayId" Disabled="@(!CanEdit)"
+                                       OnClick="@(() => DeleteAsync(rule))" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    /// <summary>Архив, чьи правила показываем; пусто — ОБЩИЕ правила организации.</summary>
+    [Parameter] public string? ArchiveId { get; set; }
+
+    /// <summary>Правила можно править (у читателя список только виден).</summary>
+    [Parameter] public bool CanEdit { get; set; } = true;
+
+    private List<ArchiveRule> _rules = [];
+
+    /// <summary>Показываем ОБЩИЕ правила организации — тогда «вернуть умолчание» неоткуда.</summary>
+    private bool Common => ArchiveId is not { Length: > 0 };
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _rules = await Api.GetArchiveRulesAsync(ArchiveId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Условие по самой записи: состояние задачи либо активность прочих данных.</summary>
+    private string ConditionText(ArchiveRule rule) =>
+        ArchiveRuleTargets.HasTaskStatus(rule.Target)
+            ? State.TaskStatuses.FirstOrDefault(s => s.Id == rule.TaskStatus)?.Name ?? rule.TaskStatus
+            : L["arcrules.activity." + rule.Activity];
+
+    /// <summary>Пустой список состояний потомков означает «любое» — так и пишем словом.</summary>
+    private string ChildrenText(ArchiveRule rule) =>
+        !ArchiveRuleTargets.IsHierarchical(rule.Target)
+            ? "—"
+            : rule.ChildStatuses.Count == 0
+                ? L["arcrules.children.any"]
+                : string.Join(", ", rule.ChildStatuses.Select(code =>
+                    State.TaskStatuses.FirstOrDefault(s => s.Id == code)?.Name ?? code));
+
+    private string AgeText(ArchiveRule rule)
+    {
+        if (rule.AgeKind == ArchiveRuleAges.Days)
+        {
+            return $"{rule.AgeDays} {L["arcrules.short.days"]}";
+        }
+        var parts = new List<string>();
+        if (rule.AgeYears > 0)
+        {
+            parts.Add($"{rule.AgeYears} {L["arcrules.short.years"]}");
+        }
+        if (rule.AgeMonths > 0)
+        {
+            parts.Add($"{rule.AgeMonths} {L["arcrules.short.months"]}");
+        }
+        return string.Join(" ", parts);
+    }
+
+    private async Task EditAsync(ArchiveRule? rule)
+    {
+        var parameters = new DialogParameters<ArchiveRuleDialog>
+        {
+            { d => d.Source, rule },
+            { d => d.ArchiveId, ArchiveId },
+        };
+        var dialog = await Dialogs.ShowAsync<ArchiveRuleDialog>(
+            rule is null ? L["arcrules.add"] : L["common.edit"], parameters,
+            FormDialogs.Options(MaxWidth.Small));
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ArchiveRule edited })
+        {
+            return;
+        }
+        try
+        {
+            if (rule is null)
+            {
+                await Api.CreateArchiveRuleAsync(edited);
+            }
+            else
+            {
+                await Api.UpdateArchiveRuleAsync(edited);
+            }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteAsync(ArchiveRule rule)
+    {
+        try
+        {
+            await Api.DeleteArchiveRuleAsync(rule.Id);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// «Вернуть умолчание»: снести ВСЕ правила архива и скопировать общие. Переспрашиваем —
+    /// действие сносит правки человека целиком, а отменить его нечем.
+    /// </summary>
+    private async Task ResetAsync()
+    {
+        if (ArchiveId is not { Length: > 0 })
+        {
+            return;
+        }
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["arcrules.reset"],
+            L["arcrules.reset.ask"],
+            yesText: L["arcrules.reset"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.CopyArchiveRulesAsync(ArchiveId, ArchiveRuleModes.Common);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

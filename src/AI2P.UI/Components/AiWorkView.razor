@@ -1,0 +1,229 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Представление «в работе у ИИ» (T-187): всё, чем ИИ-агенты заняты прямо сейчас, — задачи всех
+   проектов и всех серверов организации. Фильтра у представления нет намеренно: смысл его в одном
+   общем взгляде на работу агентов. Состояний РАБОТЫ всего два — «выполняется» и «пауза»: других
+   здесь не бывает, потому что иначе агент задачей не занят. Рядом стоит состояние САМОЙ ЗАДАЧИ
+   (T-2-S0): оно бывает любым — задача, ждущая своей очереди, стоит в «ожидает», а работа по ней
+   при этом «пауза», и без второй колонки это выглядело как расхождение с карточкой задачи.
+   У паузы всегда написана причина (лимит — время следующего
+   запуска, вопросы в чате, ожидание подзадач); ровно то же пишется в форме задачи за статусом.
+   Список обновляется сам, поэтому время работы идёт на глазах. *@
+@if (!_loaded)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_items.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["aiwork.empty"]</MudAlert>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;" data-aiwork="1">
+        <thead>
+            <tr>
+                @foreach (var column in Columns)
+                {
+                    var (first, second) = TaskTableView.TwoLines(column.Key == "id" ? "ID" : L[column.Title]);
+                    <th style="@("cursor: pointer; position: relative; padding-right: 16px; " + HeadStyle(column.Key))"
+                        @onclick="@(() => SortBy(column.Key))">
+                        <span style="display: block; white-space: nowrap;">@first</span>
+                        @if (second is not null)
+                        {
+                            <span style="display: block; white-space: nowrap; font-size: 0.75em; opacity: .75;">@second</span>
+                        }
+                        @if (_sort.Key == column.Key)
+                        {
+                            <span style="position: absolute; right: 4px; bottom: 2px; font-size: 0.55rem; line-height: 1;">
+                                @(_sort.Desc ? "▼" : "▲")
+                            </span>
+                        }
+                    </th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var item in Sorted)
+            {
+                <tr style="cursor: pointer;"
+                    @onclick="@(() => State.OpenTask(item.Task.Id, item.Task.DisplayId, item.Task.Title, FrameIndex))">
+                    <td style="white-space: nowrap;">@ProjectName(item)</td>
+                    <td style="white-space: nowrap;">@ServerTitle(item)</td>
+                    <td style="white-space: nowrap;">@item.Task.DisplayId</td>
+                    <td>@item.Task.Title</td>
+                    <td style="white-space: nowrap;">@item.ExecutorNick</td>
+                    <td style="white-space: nowrap;">@Elapsed(item)</td>
+                    <td style="white-space: nowrap;">
+                        <span class="ai2p-status" data-aiwork-status="@item.Task.Status"
+                              style="@State.StatusStyle(item.Task.Status)">@State.StatusName(item.Task.Status)</span>
+                    </td>
+                    <td style="white-space: nowrap;">
+                        <span class="ai2p-status" data-aiwork-work="@WorkCode(item)"
+                              style="@State.StatusStyle(WorkCode(item))">@State.StatusName(WorkCode(item))</span>
+                    </td>
+                    <td style="white-space: nowrap;">
+                        @if (item.Pause is { } pause)
+                        {
+                            <MudIcon Icon="@AiPauseText.Icon(pause)" Size="Size.Small"
+                                     Style="opacity:.7; vertical-align: middle; margin-right: 4px;" />
+                            @AiPauseText.Of(L, pause)
+                        }
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт представление (todo22): задача открывается в нём же.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    /// <summary>Как часто перечитывается список: работа агентов меняется сама по себе, и
+    /// открытый экран обязан это показывать без нажатия «обновить».</summary>
+    private static readonly TimeSpan Refresh = TimeSpan.FromSeconds(5);
+
+    private static readonly (string Key, string Title)[] Columns =
+    [
+        ("project", "task.project"),
+        ("server", "task.server"),
+        ("id", "ID"),
+        ("title", "task.title"),
+        ("executor", "task.executor"),
+        ("elapsed", "aiwork.elapsed"),
+        // состояние ЗАДАЧИ и состояние РАБОТЫ агента — разные вещи, и с T-2-S0 они стоят
+        // рядом двумя колонками: задача в «ожидает» или «проверка» законно оказывается тут
+        // «на паузе», и раньше это выглядело как противоречие с её карточкой
+        ("status", "task.status"),
+        ("work", "aiwork.work"),
+        ("reason", "aiwork.reason"),
+    ];
+
+    private List<AiWorkItemDto> _items = [];
+    private bool _loaded;
+    private Timer? _timer;
+
+    /// <summary>Сортировка переживает уход с закладки (todo23) — как в обычной таблице задач.</summary>
+    private sealed class SortState
+    {
+        public string? Key { get; set; }
+        public bool Desc { get; set; }
+    }
+
+    private SortState _sort = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _sort = State.ComponentState<SortState>("aiWorkView");
+        await ReloadAsync();
+        _timer = new Timer(async _ =>
+        {
+            await ReloadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, Refresh, Refresh);
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _items = await Api.GetAiWorkAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private static string HeadStyle(string key) =>
+        key == "title" ? "width: 100%;" : "width: 1%; white-space: nowrap;";
+
+    /// <summary>Состояние РАБОТЫ агента: он работает или стоит (T-187) — других здесь не бывает.
+    /// Берётся не из задачи, а из работы над ней: название и цвет — из справочника состояний,
+    /// чтобы совпадать с остальными списками. Статус самой задачи стоит в соседней колонке
+    /// (T-2-S0): у ждущей своей очереди задачи он «ожидает», а работа при этом «пауза».</summary>
+    private static string WorkCode(AiWorkItemDto item) =>
+        item.Paused ? TaskStatuses.Paused : TaskStatuses.InProgress;
+
+    private string ProjectName(AiWorkItemDto item) =>
+        item.Task.ProjectId is { } id
+            ? State.Projects.FirstOrDefault(p => p.Id == id)?.Name ?? ""
+            : "";
+
+    /// <summary>Сервер-владелец задачи: у бесхозной работу ведёт дирижёр (ТЗ гл. 6).</summary>
+    private string ServerTitle(AiWorkItemDto item) =>
+        item.Task.ServerId is { Length: > 0 }
+            ? (item.Task.ServerCode.Length > 0 ? item.Task.ServerCode : State.ServerCodeOf(item.Task.ServerId))
+            : L["task.server.none"];
+
+    /// <summary>Время работы от запуска: «1:05:33». Работа не начиналась (задание не
+    /// создавалось, старт перенесён по лимиту) — прочерк.</summary>
+    private static string Elapsed(AiWorkItemDto item)
+    {
+        if (item.StartedAt is not { } started)
+        {
+            return "—";
+        }
+        var elapsed = DateTime.UtcNow - started;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+        return $"{(int)elapsed.TotalHours}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
+    }
+
+    private void SortBy(string key)
+    {
+        // первый клик — по возрастанию, повторный — по убыванию (как в таблице задач)
+        if (_sort.Key == key)
+        {
+            _sort.Desc = !_sort.Desc;
+        }
+        else
+        {
+            _sort.Key = key;
+            _sort.Desc = false;
+        }
+        State.PersistComponentStates();
+    }
+
+    private IEnumerable<AiWorkItemDto> Sorted
+    {
+        get
+        {
+            if (_sort.Key is null)
+            {
+                return _items;
+            }
+            var ordered = _sort.Key switch
+            {
+                "project" => _items.OrderBy(ProjectName, StringComparer.CurrentCultureIgnoreCase),
+                "server" => _items.OrderBy(ServerTitle, StringComparer.CurrentCultureIgnoreCase),
+                "id" => _items.OrderBy(i => DisplayIds.Order(i.Task.DisplayId)),
+                "title" => _items.OrderBy(i => i.Task.Title, StringComparer.CurrentCultureIgnoreCase),
+                "executor" => _items.OrderBy(i => i.ExecutorNick, StringComparer.CurrentCultureIgnoreCase),
+                // по времени работы, а не по моменту запуска: не начатые считаются нулём
+                "elapsed" => _items.OrderBy(i => i.StartedAt is { } at ? DateTime.UtcNow - at : TimeSpan.Zero),
+                "status" => _items.OrderBy(i => State.StatusName(i.Task.Status), StringComparer.CurrentCultureIgnoreCase),
+                "work" => _items.OrderBy(i => i.Paused),
+                "reason" => _items.OrderBy(i => AiPauseText.Of(L, i.Pause), StringComparer.CurrentCultureIgnoreCase),
+                _ => _items.OrderBy(i => 0),
+            };
+            return _sort.Desc ? ordered.Reverse() : ordered;
+        }
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _timer = null;
+    }
+}

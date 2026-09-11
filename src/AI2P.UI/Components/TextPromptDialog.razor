@@ -1,0 +1,59 @@
+@inject I18nService L
+
+@* ПЕРЕСПРОС ОДНОЙ СТРОКОЙ (T-274) — «спросить название и завести».
+
+   Своё окно, а не MudMessageBox: у переспроса MudBlazor есть только текст и кнопки, поля
+   ввода в нём нет вовсе. Первый потребитель — кнопка «+ добавить датасет» редактора LoRA:
+   датасетов у объекта несколько, и без названия второй из них через месяц не скажет ничего.
+
+   Возвращает набранную строку (DialogResult.Ok) либо отмену. Пустое название — это ОТВЕТ,
+   а не отказ: у того, кто зовёт, обычно есть умолчание. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 320px;">
+            @if (Caption.Length > 0)
+            {
+                <MudText Typo="Typo.body2" Style="opacity:.8;">@Caption</MudText>
+            }
+            <MudTextField T="string" @bind-Value="_value" Label="@Label" Immediate="true"
+                          data-prompt-input="1" AutoFocus="true"
+                          OnKeyDown="@OnKeyDown" HelperText="@Hint" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" data-prompt-ok="1"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_value)))">
+            @L["common.ok"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Подпись поля ввода.</summary>
+    [Parameter] public string Label { get; set; } = "";
+
+    /// <summary>Пояснение над полем.</summary>
+    [Parameter] public string Caption { get; set; } = "";
+
+    /// <summary>Подсказка под полем.</summary>
+    [Parameter] public string Hint { get; set; } = "";
+
+    /// <summary>Что стоит в поле при открытии.</summary>
+    [Parameter] public string Value { get; set; } = "";
+
+    private string _value = "";
+
+    protected override void OnInitialized() => _value = Value;
+
+    /// <summary>Enter — то же, что кнопка: окно с одним полем закрывают клавишей.</summary>
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key is "Enter" or "NumpadEnter")
+        {
+            Dialog.Close(DialogResult.Ok(_value));
+        }
+    }
+}

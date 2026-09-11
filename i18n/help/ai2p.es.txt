@@ -1,0 +1,29 @@
+AI2P — ai2p: CLIENTE DE LÍNEA DE COMANDOS DEL AGENTE DE IA
+
+Un envoltorio ligero sobre «AI2P.Server cli …». Está EN LA CARPETA DE INSTALACIÓN, junto
+al programa, y lo ejecuta a él mismo con el subcomando cli: en la publicación no hay un
+segundo ejecutable.
+
+Las credenciales se toman de las variables de entorno que el propio AI2P define en el
+proceso del agente: AI2P_URL (la dirección del servidor por bucle) y AI2P_JOB_TOKEN (el
+token del encargo, que sólo vive mientras el encargo está en curso). Fuera de un encargo
+el cliente no funciona, y es a propósito.
+
+USO
+  ai2p help                     lista de comandos y de acciones disponibles para el encargo
+  ai2p --help                   lo mismo
+  ai2p parent                   encargo padre
+  ai2p siblings                 encargos vecinos
+  ai2p children T-22            subtareas de una tarea
+  ai2p task T-15                encargo por su código
+  ai2p chat T-15                chat de un encargo
+  ai2p find «parte del título»  búsqueda de encargos
+  ai2p message --text "…"       escribir a una persona en el chat de la tarea
+  ai2p subtask --title "…" --description-file d.md   crear una subtarea
+  ai2p status T-15 --status pending --restart        devolver una tarea ajena al trabajo
+  ai2p experience --text "…" --scope project         anotar experiencia
+  ai2p file <enlace>            obtener en disco un archivo del encargo
+
+La lista de acciones realmente permitidas a este encargo la imprime «ai2p help»: la
+respuesta llega del servidor y tiene en cuenta las reglas de seguridad de la tarea. El
+idioma de las respuestas es el idioma del EQUIPO del encargo, no el de este script.

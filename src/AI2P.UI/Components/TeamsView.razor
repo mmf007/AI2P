@@ -1,0 +1,414 @@
+@using AI2P.Core.Connectors
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@* Список команд (ТЗ гл. 11) + запуск/остановка работы команды и вычисляемые статусы
+   работы участников (ТЗ v1.14): ИИ — не подключен / подключается / подключен / ошибка,
+   человек — офлайн / онлайн. Два представления (ТЗ v1.17): таблица и иерархия
+   (руководители → подчинённые; тимлид помечен звездой). *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["teams.title"]</MudText>
+    <MudSpacer />
+    <MudSelect T="string" @bind-Value="_view" Label="@L["common.view"]"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 160px;">
+        <MudSelectItem T="string" Value="@("table")">@L["tasks.view.table"]</MudSelectItem>
+        <MudSelectItem T="string" Value="@("tree")">@L["tasks.view.tree"]</MudSelectItem>
+    </MudSelect>
+    @* кнопка-иконка с подсказкой (гл. 11, эргономика) *@
+    <MudTooltip Text="@L["teams.add"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Add" Disabled="@(!State.CanManageProjects)"
+                       OnClick="@(() => EditAsync(null))" />
+    </MudTooltip>
+</MudStack>
+
+@if (State.Teams.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["common.empty"]</MudAlert>
+}
+else if (_view == "tree")
+{
+    @* представление «иерархия» (ТЗ v1.17): участники по подчинённости, тимлид со звездой *@
+    <MudStack Spacing="3">
+        @foreach (var team in State.Teams)
+        {
+            var work = _work.GetValueOrDefault(team.Id);
+            <MudPaper Outlined="true" Elevation="0" Class="pa-3">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                    <MudText Typo="Typo.subtitle1" Style="font-weight: 700;">@team.Name</MudText>
+                    <MudIcon Icon="@(team.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                             Color="@(team.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                    <MudSpacer />
+                    @if (work is { IsRunning: true })
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                   StartIcon="@Icons.Material.Filled.Stop" Disabled="@(!State.CanEdit)"
+                                   OnClick="@(() => StopAsync(team.Id))">@L["teams.stop"]</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success"
+                                   StartIcon="@Icons.Material.Filled.PlayArrow"
+                                   Disabled="@(!team.IsActive || !State.CanEdit)"
+                                   OnClick="@(() => StartAsync(team.Id))">@L["teams.start"]</MudButton>
+                    }
+                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                   Disabled="@(!State.CanManageProjects)"
+                                   OnClick="@(() => EditAsync(team))" />
+                </MudStack>
+                @foreach (var (member, depth) in FlattenMembers(team))
+                {
+                    var status = work?.Members.FirstOrDefault(m => m.ExecutorId == member.ExecutorId);
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center"
+                              Style="@($"padding-left: {depth * 28}px; margin-bottom: 4px;")">
+                        @if (depth > 0)
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.SubdirectoryArrowRight" Size="Size.Small" />
+                        }
+                        @if (member.IsLead)
+                        {
+                            <MudTooltip Text="@L["teams.lead"]">
+                                <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Small" Color="Color.Warning" />
+                            </MudTooltip>
+                        }
+                        @if (status is null)
+                        {
+                            <MudChip T="string" Size="Size.Small">@MemberNick(member)</MudChip>
+                        }
+                        else
+                        {
+                            @* есть ошибка — чип открывает её в окне с копированием (todo37) *@
+                            <MudTooltip Text="@(HasError(status) ? L["teams.error.show"] : StateText(status))">
+                                <MudChip T="string" Size="Size.Small" Color="@StateColor(status.State)"
+                                         Style="@(StateStyle(status.State) + (HasError(status) ? " cursor: pointer;" : ""))"
+                                         Icon="@StateIcon(status.State)"
+                                         OnClick="@(HasError(status) ? EventCallback.Factory.Create<MouseEventArgs>(this, () => ShowErrorAsync(status)) : default)">
+                                    @MemberNick(member)
+                                </MudChip>
+                            </MudTooltip>
+                        }
+                        <MudText Typo="Typo.caption">@RoleName(member.RoleId)</MudText>
+                        @* запуск/останов одного участника (T-129) *@
+                        <TeamMemberWorkButtons Status="@status" CanEdit="@State.CanEdit"
+                                               OnStart="@(id => StartMemberAsync(team.Id, id))"
+                                               OnStop="@(id => StopMemberAsync(team.Id, id))" />
+                    </MudStack>
+                }
+            </MudPaper>
+        }
+    </MudStack>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                <th>@L["common.name"]</th>
+                <th>@L["teams.members"]</th>
+                <th>@L["teams.agentLanguage"]</th>
+                <th>@L["common.active"]</th>
+                <th>@L["teams.work"]</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var team in State.Teams)
+            {
+                var work = _work.GetValueOrDefault(team.Id);
+                <tr>
+                    <td>@team.Name</td>
+                    <td>
+                        @* участники со статусом работы (вычисляемое значение, ТЗ v1.14) *@
+                        <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                            @foreach (var member in team.Members)
+                            {
+                                var status = work?.Members.FirstOrDefault(m => m.ExecutorId == member.ExecutorId);
+                                var nick = MemberNick(member);
+                                @* каждый участник — ОДИН блок: звезда, чип и его кнопки
+                                   запуска/останова (T-129). Без этого кнопки предыдущего
+                                   участника зрительно прилипали к чипу следующего *@
+                                <div class="d-flex align-center" style="gap: 2px; margin-right: 12px;">
+                                @if (member.IsLead)
+                                {
+                                    @* тимлид помечен звездой (ТЗ v1.17) *@
+                                    <MudTooltip Text="@L["teams.lead"]">
+                                        <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Small"
+                                                 Color="Color.Warning" />
+                                    </MudTooltip>
+                                }
+                                @if (status is null)
+                                {
+                                    <MudChip T="string" Size="Size.Small">@nick</MudChip>
+                                }
+                                else
+                                {
+                                    <MudTooltip Text="@(HasError(status) ? L["teams.error.show"] : StateText(status))">
+                                        <MudChip T="string" Size="Size.Small" Color="@StateColor(status.State)"
+                                                 Style="@(StateStyle(status.State) + (HasError(status) ? " cursor: pointer;" : ""))"
+                                                 Icon="@StateIcon(status.State)"
+                                                 OnClick="@(HasError(status) ? EventCallback.Factory.Create<MouseEventArgs>(this, () => ShowErrorAsync(status)) : default)">
+                                            @nick
+                                        </MudChip>
+                                    </MudTooltip>
+                                }
+                                @* запуск/останов одного участника (T-129) *@
+                                <TeamMemberWorkButtons Status="@status" CanEdit="@State.CanEdit"
+                                                       OnStart="@(id => StartMemberAsync(team.Id, id))"
+                                                       OnStop="@(id => StopMemberAsync(team.Id, id))" />
+                                </div>
+                            }
+                        </MudStack>
+                    </td>
+                    <td>@team.AgentLanguage</td>
+                    <td>
+                        <MudIcon Icon="@(team.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                 Color="@(team.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                    </td>
+                    <td style="white-space: nowrap;">
+                        @* кнопки «запустить» / «остановить» работу команды (ТЗ v1.14) *@
+                        @if (work is { IsRunning: true })
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning"
+                                       StartIcon="@Icons.Material.Filled.Stop"
+                                       OnClick="@(() => StopAsync(team.Id))">@L["teams.stop"]</MudButton>
+                        }
+                        else
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success"
+                                       StartIcon="@Icons.Material.Filled.PlayArrow" Disabled="@(!team.IsActive)"
+                                       OnClick="@(() => StartAsync(team.Id))">@L["teams.start"]</MudButton>
+                        }
+                    </td>
+                    <td>
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       Disabled="@(!State.CanManageProjects)"
+                                       OnClick="@(() => EditAsync(team))" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    private readonly Dictionary<string, TeamWorkStatusDto> _work = [];
+    private CancellationTokenSource? _poll;
+    private string _view = "table";
+
+    private string MemberNick(TeamMember member) =>
+        State.Executors.FirstOrDefault(e => e.Id == member.ExecutorId)?.Nick ?? member.ExecutorId;
+
+    private string RoleName(string? roleId) =>
+        roleId is null ? "" : State.Roles.FirstOrDefault(r => r.Id == roleId)?.Name ?? "";
+
+    /// <summary>Участники команды в порядке иерархии с глубиной (представление «иерархия», ТЗ v1.17).</summary>
+    private static IEnumerable<(TeamMember Member, int Depth)> FlattenMembers(Team team)
+    {
+        var ids = team.Members.Select(m => m.ExecutorId).ToHashSet();
+        var byParent = team.Members
+            .Where(m => m.ParentExecutorId is not null && ids.Contains(m.ParentExecutorId))
+            .ToLookup(m => m.ParentExecutorId!);
+        var roots = team.Members
+            .Where(m => m.ParentExecutorId is null || !ids.Contains(m.ParentExecutorId))
+            .OrderByDescending(m => m.IsLead);
+
+        IEnumerable<(TeamMember, int)> Walk(TeamMember member, int depth, HashSet<string> path)
+        {
+            yield return (member, depth);
+            if (!path.Add(member.ExecutorId))
+            {
+                yield break; // защита от цикла в повреждённых данных
+            }
+            foreach (var child in byParent[member.ExecutorId])
+            {
+                foreach (var item in Walk(child, depth + 1, path))
+                {
+                    yield return item;
+                }
+            }
+        }
+
+        return roots.SelectMany(r => Walk(r, 0, []));
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshWorkAsync();
+        // подключение могло начаться до открытия закладки — опрос нужен сразу (todo37_3)
+        if (_work.Values.Any(w => w.Members.Any(m => m.State == ExecutorWorkState.Connecting)))
+        {
+            StartPolling();
+        }
+    }
+
+    public void Dispose()
+    {
+        _poll?.Cancel();
+        _poll?.Dispose();
+    }
+
+    private async Task RefreshWorkAsync()
+    {
+        foreach (var team in State.Teams)
+        {
+            try
+            {
+                _work[team.Id] = await Api.GetTeamWorkAsync(team.Id);
+            }
+            catch (ApiException)
+            {
+                // команда могла быть удалена между обновлениями — пропускаем
+            }
+        }
+    }
+
+    private async Task StartAsync(string teamId)
+    {
+        try
+        {
+            _work[teamId] = await Api.StartTeamWorkAsync(teamId);
+            StartPolling();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task StopAsync(string teamId)
+    {
+        try
+        {
+            _work[teamId] = await Api.StopTeamWorkAsync(teamId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Поднять ОДНОГО участника (T-129): участника добавили в уже работающую команду
+    /// или он упал по ошибке — остальных это не трогает.</summary>
+    private async Task StartMemberAsync(string teamId, string executorId)
+    {
+        try
+        {
+            _work[teamId] = await Api.StartTeamMemberAsync(teamId, executorId);
+            StartPolling();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Остановить ОДНОГО участника (T-129): работа команды при этом не гасится.</summary>
+    private async Task StopMemberAsync(string teamId, string executorId)
+    {
+        try
+        {
+            _work[teamId] = await Api.StopTeamMemberAsync(teamId, executorId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Пока есть участники «в процессе подключения» — периодически обновлять статусы.
+    /// Опрос идёт до конца подключения (todo37_3): локальный сервер модели поднимается
+    /// минутами, а участник оставался в UI «запускается» навсегда.</summary>
+    private void StartPolling()
+    {
+        _poll?.Cancel();
+        _poll = new CancellationTokenSource();
+        var ct = _poll.Token;
+        _ = InvokeAsync(async () =>
+        {
+            // 360 попыток по 2 с — 12 минут (ожидание готовности сервера модели — 10 мин)
+            for (var i = 0; i < 360 && !ct.IsCancellationRequested; i++)
+            {
+                await Task.Delay(2000, ct);
+                await RefreshWorkAsync();
+                StateHasChanged();
+                if (!_work.Values.Any(w => w.Members.Any(m => m.State == ExecutorWorkState.Connecting)))
+                {
+                    break;
+                }
+            }
+        });
+    }
+
+    private string StateText(MemberWorkStatusDto status) =>
+        L["workstate." + status.State.ToString().ToLowerInvariant()]
+        + (status.ErrorText is { Length: > 0 } error ? $": {error}" : "");
+
+    private static bool HasError(MemberWorkStatusDto status) => status.ErrorText is { Length: > 0 };
+
+    /// <summary>Ошибка подключения участника — в окне с кнопкой «скопировать» (todo37).</summary>
+    private Task ShowErrorAsync(MemberWorkStatusDto status)
+    {
+        var parameters = new DialogParameters<TextCopyDialog>
+        {
+            { d => d.Text, status.ErrorText ?? "" },
+            { d => d.Caption, $"{status.Nick} — {L["workstate." + status.State.ToString().ToLowerInvariant()]}" },
+        };
+        return Dialogs.ShowAsync<TextCopyDialog>(L["teams.error.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private static Color StateColor(ExecutorWorkState state) => state switch
+    {
+        ExecutorWorkState.Connected or ExecutorWorkState.Online => Color.Success,
+        ExecutorWorkState.Connecting => Color.Warning,
+        ExecutorWorkState.Error => Color.Error,
+        _ => Color.Default,
+    };
+
+    /// <summary>«Не активен» — кирпично-красный (todo_bugfix_3); в палитре MudBlazor его нет.</summary>
+    private static string StateStyle(ExecutorWorkState state) => state == ExecutorWorkState.Inactive
+        ? "background-color: #B22222; color: #fff;"
+        : "";
+
+    private static string StateIcon(ExecutorWorkState state) => state switch
+    {
+        ExecutorWorkState.Connected or ExecutorWorkState.Online => Icons.Material.Filled.CheckCircle,
+        ExecutorWorkState.Connecting => Icons.Material.Filled.HourglassTop,
+        ExecutorWorkState.Error => Icons.Material.Filled.ErrorOutline,
+        ExecutorWorkState.Inactive => Icons.Material.Filled.PersonOff,
+        _ => Icons.Material.Filled.RadioButtonUnchecked,
+    };
+
+    private async Task EditAsync(Team? team)
+    {
+        var parameters = new DialogParameters<TeamDialog> { { d => d.Source, team } };
+        // широкий диалог: таблица состава с руководителем и тимлидом (ТЗ v1.18, todo21)
+        var dialog = await Dialogs.ShowAsync<TeamDialog>(team is null ? L["teams.add"] : L["common.edit"],
+            parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: Team edited })
+        {
+            try
+            {
+                if (team is null)
+                {
+                    await Api.CreateTeamAsync(edited);
+                }
+                else
+                {
+                    await Api.UpdateTeamAsync(edited);
+                }
+                await State.RefreshReferenceDataAsync();
+                await RefreshWorkAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+}

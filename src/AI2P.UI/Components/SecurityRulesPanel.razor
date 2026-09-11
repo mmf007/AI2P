@@ -1,0 +1,190 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Правила безопасности одного уровня (ТЗ гл. 12, todo25) — общий компонент для
+   субвкладок «Безопасность»: глобальные (настройки), проекта, задачи.
+   Для конкретной задачи правила складываются с учётом иерархии; одинаковые
+   перекрываются нижним уровнем. По умолчанию открыт полный доступ до каталога
+   проекта, вне проекта — запрещено. *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 900px;">
+    <MudText Typo="Typo.h6">@L["security.title"]</MudText>
+    <MudSpacer />
+    @* кнопка-иконка с подсказкой (гл. 11, эргономика) *@
+    <MudTooltip Text="@L["security.add"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Add" Disabled="@(!State.CanManageProjects)"
+                       OnClick="@(() => EditAsync(null))" />
+    </MudTooltip>
+</MudStack>
+<MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity: .75; max-width: 900px;">
+    @L["security.defaultHint"]
+</MudText>
+
+@if (_rules.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Dense="true" Style="max-width: 900px;">@L["common.empty"]</MudAlert>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 900px;">
+        <thead>
+            <tr>
+                <th>@L["security.target"]</th>
+                <th>@L["security.pattern"]</th>
+                <th>@L["security.ops"]</th>
+                <th>@L["security.permission"]</th>
+                @if (State.IsCluster)
+                {
+                    @* сервер правила доступа к ФС (ТЗ гл. 6, гл. 12; этап 42): пути на разных
+                       компьютерах разные, поэтому такие правила свои на каждом сервере *@
+                    <th>@L["task.server"]</th>
+                }
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var rule in _rules)
+            {
+                <tr style="cursor: pointer;" @onclick="@(() => rule.IsReadOnly ? Task.CompletedTask : EditAsync(rule))">
+                    <td>@L["security.target." + rule.Target]</td>
+                    <td style="word-break: break-all;">@rule.Pattern</td>
+                    <td>@OpsText(rule)</td>
+                    <td>
+                        <MudChip T="string" Size="Size.Small" Color="@PermissionColor(rule.Permission)">
+                            @L["security.permission." + rule.Permission]
+                        </MudChip>
+                    </td>
+                    @if (State.IsCluster)
+                    {
+                        <td style="white-space: nowrap;">
+                            @if (rule.IsReadOnly)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small"
+                                         Style="opacity:.6; vertical-align: middle;" />
+                            }
+                            @(rule.ServerCode.Length > 0 ? rule.ServerCode : L["security.server.common"])
+                        </td>
+                    }
+                    <td style="white-space: nowrap;" @onclick:stopPropagation>
+                        @* чужое правило доступа к ФС только читается (ТЗ гл. 6, этап 42):
+                           оно описывает пути другого компьютера и здесь не применяется *@
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                       Disabled="@(!State.CanManageProjects || rule.IsReadOnly)"
+                                       OnClick="@(() => EditAsync(rule))" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       Disabled="@(!State.CanManageProjects || rule.IsReadOnly)"
+                                       OnClick="@(() => DeleteAsync(rule))" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    /// <summary>Уровень: global / project / task (SecurityScope).</summary>
+    [Parameter, EditorRequired] public string Scope { get; set; } = SecurityScope.Global;
+
+    /// <summary>Id проекта/задачи; null — глобальные правила.</summary>
+    [Parameter] public string? ScopeId { get; set; }
+
+    private List<SecurityRule> _rules = [];
+    private string? _loadedScopeId;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedScopeId != (ScopeId ?? ""))
+        {
+            _loadedScopeId = ScopeId ?? "";
+            await ReloadAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _rules = await Api.GetSecurityRulesAsync(Scope, ScopeId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private string OpsText(SecurityRule rule)
+    {
+        // «плагины и MCP» (T-155-S0): свои две операции — использовать и запускать
+        if (rule.Target == SecurityTarget.Plugin)
+        {
+            var pluginOps = new List<string>();
+            if (rule.OpUse) { pluginOps.Add(L["security.op.use"]); }
+            if (rule.OpRun) { pluginOps.Add(L["security.op.run"]); }
+            return string.Join(" + ", pluginOps);
+        }
+        if (rule.Target != SecurityTarget.Directory)
+        {
+            return "";
+        }
+        var ops = new List<string>();
+        if (rule.OpRead) { ops.Add(L["security.op.read"]); }
+        if (rule.OpWrite) { ops.Add(L["security.op.write"]); }
+        if (rule.OpDelete) { ops.Add(L["security.op.delete"]); }
+        return string.Join(" + ", ops);
+    }
+
+    private static Color PermissionColor(string permission) => permission switch
+    {
+        SecurityPermission.Allow => Color.Success,
+        SecurityPermission.Confirm => Color.Warning,
+        _ => Color.Error,
+    };
+
+    private async Task EditAsync(SecurityRule? rule)
+    {
+        var parameters = new DialogParameters<SecurityRuleDialog>
+        {
+            { d => d.Scope, Scope },
+            { d => d.ScopeId, ScopeId },
+            { d => d.Source, rule },
+        };
+        var dialog = await Dialogs.ShowAsync<SecurityRuleDialog>(
+            rule is null ? L["security.add"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: SecurityRule edited })
+        {
+            try
+            {
+                if (rule is null)
+                {
+                    await Api.CreateSecurityRuleAsync(edited);
+                }
+                else
+                {
+                    await Api.UpdateSecurityRuleAsync(edited);
+                }
+                await ReloadAsync();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    private async Task DeleteAsync(SecurityRule rule)
+    {
+        try
+        {
+            await Api.DeleteSecurityRuleAsync(rule.Id);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

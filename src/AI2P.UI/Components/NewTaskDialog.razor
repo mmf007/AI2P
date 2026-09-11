@@ -1,0 +1,86 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Диалог «новая задача» (ТЗ гл. 11, todo31): сверху — кнопка пустой задачи (прежняя
+   форма ввода), ниже — поиск шаблона (по заголовку) и список шаблонов верхнего уровня
+   для одиночного выбора (клик создаёт задачу из шаблона, п. 2.4).
+   Список шаблонов — по проекту формы (T-157): сначала шаблоны этого проекта, потом общие,
+   чужих нет (TaskTemplates.ForProject). *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" FullWidth="true"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="@(() => Dialog.Close(DialogResult.Ok(new Choice(null))))">
+                @L["task.new.empty"]
+            </MudButton>
+            <MudTextField @bind-Value="_search" Placeholder="@L["task.new.searchTemplates"]"
+                          Immediate="true" Margin="Margin.Dense" Clearable="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+            @if (!_loaded)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (Filtered.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Style="opacity:.7">@L["task.new.noTemplates"]</MudText>
+            }
+            else
+            {
+                <MudList T="TaskItem" Dense="true" Style="max-height: 320px; overflow-y: auto;">
+                    @foreach (var template in Filtered)
+                    {
+                        <MudListItem T="TaskItem" Icon="@Icons.Material.Filled.ContentCopy"
+                                     OnClick="@(() => Dialog.Close(DialogResult.Ok(new Choice(template))))">
+                            @template.Title
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    /// <summary>Выбор пользователя: шаблон либо null — «пустая задача» (обычная форма).</summary>
+    public sealed record Choice(TaskItem? Template);
+
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Проект, в который заводится задача (T-157): вкладка «задачи» карточки
+    /// проекта. null — общий список задач, проекта у формы нет.</summary>
+    [Parameter] public string? ProjectId { get; set; }
+
+    private List<TaskItem> _templates = [];
+    private string _search = "";
+    private bool _loaded;
+
+    /// <summary>Поиск по заголовку шаблона (без учёта регистра).</summary>
+    private List<TaskItem> Filtered => _templates
+        .Where(t => _search.Trim().Length == 0
+                    || t.Title.Contains(_search.Trim(), StringComparison.CurrentCultureIgnoreCase))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // проектом фильтруем ЗДЕСЬ, а не запросом: серверный projectId отбросил бы
+            // общие шаблоны (у них project_id пуст), а они в списке нужны
+            _templates = TaskTemplates.ForProject(
+                await Api.GetTasksAsync(templatesOnly: true), ProjectId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+}

@@ -1,0 +1,217 @@
+@inject I18nService L
+
+@* Форма организации (ТЗ п. 2.15, вкладка «Организации» настроек; этапы 40–41).
+   Организация — контейнер всех данных: своя БД, свой каталог, своя нумерация задач.
+   Код входит в адрес (/ai2p/<код>/task/T-18), поэтому он латиницей и уникален; пустой —
+   выводится из названия. Снятая активность = «удаление»: пока архивации нет, организации
+   и серверы не удаляются физически, а помечаются неактивными (ТЗ гл. 6).
+
+   Список серверов организации — та же связь «многие ко многим», что и список организаций
+   в форме сервера (todo41 п. 11). Дирижёр обязателен и ровно один: он единственный
+   запускает задачи автоматически и по расписанию, и он же выдаёт серверам коды S0, S1, … *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 340px;">
+            <MudTextField T="string" Value="@_dto.Name" ValueChanged="OnNameChanged"
+                          Label="@L["common.name"]" Immediate="true" />
+            <MudTextField @bind-Value="_dto.Code" Label="@L["orgs.code"]" Immediate="true"
+                          HelperText="@L["orgs.code.hint"]" />
+            <MudSwitch T="bool" @bind-Value="_dto.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" />
+            @if (IsNew)
+            {
+                <MudText Typo="Typo.caption">@L["orgs.newHint"]</MudText>
+            }
+            else
+            {
+                <MudDivider Class="my-2" />
+                <MudText Typo="Typo.subtitle2">@L["orgs.servers"]</MudText>
+                <MudText Typo="Typo.caption">@L["orgs.servers.hint"]</MudText>
+                @if (!LocalIsConductor)
+                {
+                    @* СОСТАВ ВЕДЁТ ДИРИЖЁР (T-186-S0): на этом сервере правится только своя
+                       строка, и человек должен видеть ПОЧЕМУ остальные погашены *@
+                    <MudAlert Severity="Severity.Info" Dense="true" data-org-servers-locked="1">
+                        @L["orgs.servers.locked"]
+                    </MudAlert>
+                }
+                @* дирижёр ровно один: отметка снимается у прежнего (ТЗ гл. 6). У КАЖДОГО
+                   знака в строке свой хинт (T-186-S0): галочка — «сервер в организации»,
+                   кружок — «кто дирижёр», звёздочка стоит только у самого дирижёра *@
+                <MudRadioGroup T="string" @bind-Value="_conductorId">
+                    @foreach (var server in Servers)
+                    {
+                        var serverId = server.Id;
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+                            <MudTooltip Text="@CheckHint(serverId)">
+                                <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                             Value="@_serverIds.Contains(serverId)"
+                                             Disabled="@(!CanToggle(serverId))"
+                                             ValueChanged="@(value => ToggleServer(serverId, value))"
+                                             Label="@ServerLabel(server)" />
+                            </MudTooltip>
+                            <MudSpacer />
+                            @if (_conductorId == serverId)
+                            {
+                                <MudTooltip Text="@L["orgs.conductor.star"]">
+                                    <MudIcon Icon="@Icons.Material.Filled.Star" Size="Size.Small"
+                                             Color="Color.Secondary" data-org-conductor-star="1" />
+                                </MudTooltip>
+                            }
+                            <MudTooltip Text="@ConductorHint(serverId)">
+                                <MudRadio T="string" Value="@serverId" Dense="true" Color="Color.Secondary"
+                                          Disabled="@(!_serverIds.Contains(serverId) || !LocalIsConductor)" />
+                            </MudTooltip>
+                        </MudStack>
+                    }
+                </MudRadioGroup>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — создание новой организации.</summary>
+    [Parameter] public Organization? Source { get; set; }
+
+    /// <summary>Серверы установки — из них выбирается список серверов организации (п. 11).</summary>
+    [Parameter] public List<ServerNode> Servers { get; set; } = [];
+
+    /// <summary>Связи организации с серверами: коды S0, S1, … и текущий дирижёр.</summary>
+    [Parameter] public List<OrgServer> Links { get; set; } = [];
+
+    /// <summary>Результат формы: сама организация и её список серверов (todo41 п. 11).</summary>
+    public sealed record Result(OrgSaveDto Org, OrgServersSaveDto Servers);
+
+    private readonly OrgSaveDto _dto = new();
+    private readonly HashSet<string> _serverIds = [];
+    private string? _conductorId;
+    private bool _codeEdited;
+
+    private bool IsNew => Source is null;
+
+    private bool SaveDisabled => _dto.Name.Trim().Length == 0;
+
+    protected override void OnInitialized()
+    {
+        if (Source is null)
+        {
+            return;
+        }
+        _dto.Name = Source.Name;
+        _dto.Code = Source.Code;
+        _dto.IsActive = Source.IsActive;
+        _codeEdited = true; // у существующей организации код руками не переписываем
+        foreach (var link in Links.Where(l => l.Status == OrgServerStatus.Active))
+        {
+            _serverIds.Add(link.ServerId);
+            if (link.IsConductor)
+            {
+                _conductorId = link.ServerId;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Строка сервера: имя, адрес и КОД СЕРВЕРА — он показывается ВСЕГДА (T-170-S0), в том
+    /// числе у сервера, который в эту организацию ещё не включён: код принадлежит кластеру,
+    /// а не одной организации, и от галочки в этой форме не меняется. Код связи (если она
+    /// есть) впереди кластерного: в организации значится именно он.
+    ///
+    /// Пусто бывает у сервера, не связанного НИ С ОДНОЙ организацией: кода ему ещё никто
+    /// не выдавал, и выдаст его дирижёр при включении.
+    /// </summary>
+    private string ServerLabel(ServerNode server)
+    {
+        var name = server.Name.Length > 0 ? server.Name : server.Hostname;
+        var link = Links.FirstOrDefault(l => l.ServerId == server.Id);
+        var code = link is { Status: OrgServerStatus.Active, Code.Length: > 0 }
+            ? link.Code
+            : server.ClusterCode;
+        return $"{name} ({server.Url})" + (code.Length > 0 ? $" — {code}" : "");
+    }
+
+    // --- КТО ЧТО ПРАВИТ В ЭТОЙ ФОРМЕ (T-186-S0) ---
+    //
+    // Состав серверов организации ведёт её ДИРИЖЁР: он один выдаёт коды S0, S1, … и один
+    // отвечает за то, кому реплицируются её данные. На остальных серверах правится ровно
+    // одна строка — своя: уйти из организации хозяин компьютера вправе сам. Дирижёрство
+    // здесь не передаётся вовсе — для этого есть двусторонняя заявка (T-21-S1).
+
+    /// <summary>Идентификатор ЭТОГО компьютера в списке серверов установки.</summary>
+    private string LocalServerId => Servers.FirstOrDefault(s => s.IsLocal)?.Id ?? "";
+
+    /// <summary>Дирижёр этой организации — мы. Связей нет вовсе у только что заведённой
+    /// организации (форма открыта до первого сохранения) — там защищать нечего.</summary>
+    private bool LocalIsConductor =>
+        Links.All(l => l.Status != OrgServerStatus.Active)
+        || Links.Any(l => l is { IsConductor: true, Status: OrgServerStatus.Active }
+                          && l.ServerId == LocalServerId);
+
+    private bool CanToggle(string serverId) => LocalIsConductor || serverId == LocalServerId;
+
+    /// <summary>Хинт галочки: включён ли сервер в организацию и можно ли это менять здесь.</summary>
+    private string CheckHint(string serverId) =>
+        !CanToggle(serverId)
+            ? L["orgs.server.locked"]
+            : _serverIds.Contains(serverId) ? L["orgs.server.on"] : L["orgs.server.off"];
+
+    /// <summary>Хинт кружка: заполненный — дирижёр сейчас он, пустой — им можно назначить,
+    /// погашенный — либо сервер не в организации, либо дирижёр не мы.</summary>
+    private string ConductorHint(string serverId)
+    {
+        if (!_serverIds.Contains(serverId))
+        {
+            return L["orgs.conductor.off"];
+        }
+        if (_conductorId == serverId)
+        {
+            return L["orgs.conductor.is"];
+        }
+        return LocalIsConductor ? L["orgs.conductor.pick"] : L["orgs.conductor.locked"];
+    }
+
+    private void ToggleServer(string serverId, bool selected)
+    {
+        if (selected)
+        {
+            _serverIds.Add(serverId);
+            _conductorId ??= serverId;
+        }
+        else
+        {
+            _serverIds.Remove(serverId);
+            if (_conductorId == serverId)
+            {
+                _conductorId = _serverIds.FirstOrDefault();
+            }
+        }
+    }
+
+    private void Save() => Dialog.Close(DialogResult.Ok(new Result(_dto, new OrgServersSaveDto
+    {
+        ServerIds = _serverIds.ToList(),
+        // дирижёр меняется только вместе с подтверждённой связью (ТЗ гл. 6)
+        ConductorServerId = _conductorId is { Length: > 0 } && _serverIds.Contains(_conductorId)
+            ? _conductorId
+            : null,
+    })));
+
+    /// <summary>Код предлагается по названию, пока пользователь не правил его сам:
+    /// в простом случае вводить два поля незачем.</summary>
+    private void OnNameChanged(string value)
+    {
+        _dto.Name = value;
+        if (!_codeEdited)
+        {
+            _dto.Code = Organization.NormalizeCode(value);
+        }
+    }
+}

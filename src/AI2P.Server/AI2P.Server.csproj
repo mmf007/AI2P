@@ -1,0 +1,93 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AI2P.Core\AI2P.Core.csproj" />
+    <ProjectReference Include="..\AI2P.Storage\AI2P.Storage.csproj" />
+    <ProjectReference Include="..\AI2P.Connectors\AI2P.Connectors.csproj" />
+    <ProjectReference Include="..\AI2P.UI\AI2P.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.*" />
+    <!-- ЗАПУСК КАК СЕРВИС ОС (T-271). По умолчанию приложение консольное; сервисом оно
+         становится, когда его так запустили — менеджер служб Windows (Microsoft.Extensions.
+         Hosting.WindowsServices) или systemd (…Hosting.Systemd). Обе обёртки САМИ проверяют,
+         под кем идёт процесс, и в консольном запуске не делают ничего, поэтому звать их
+         можно всегда. Регистрирует службу отдельный скрипт makeAsServise.* из выкладки -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="8.0.*" />
+  </ItemGroup>
+
+  <!-- словари локализации AI2P_app/i18n/ копируются в выходной каталог (ТЗ гл. 9):
+       правка переводов возможна без пересборки — файлы читаются на старте -->
+  <ItemGroup>
+    <Content Include="..\..\i18n\**\*.json" Link="i18n\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- ТЕКСТЫ СБОРОЧНЫХ И УСТАНОВОЧНЫХ СКРИПТОВ (T-65-S0): каталог сообщений
+         scripts.<язык>.txt, загрузчики loc.ps1/loc.sh и справка help/<скрипт>.<язык>.txt.
+         Ссылка тут с %(RecursiveDir) — иначе подкаталог help схлопнулся бы в i18n\,
+         и Show-Ai2pHelp не нашла бы файлов. Скрипты установки копируют выкладку
+         целиком, поэтому дальше каталог доезжает и в установку, и в пакет -->
+    <Content Include="..\..\i18n\**\*.txt" Link="i18n\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\i18n\loc.ps1" Link="i18n\loc.ps1"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\i18n\loc.sh" Link="i18n\loc.sh"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- ЗНАЧОК ПРИЛОЖЕНИЯ (T-6-S0): выбран вариант 3 «Знак-надпись AI2P» из пяти,
+         подготовленных в T-288. Значок встраивается в AI2P.Server.exe, поэтому его
+         сами собой получают и ярлык рабочего стола, и строка в «Установке и удалении
+         программ», и окно проводника. Исходник рисунка — doc/icons/ai2p-icon-3-wordmark.svg,
+         пересобирается вместе со значком вкладки браузера: python test/t6s0/mkappicon.py.
+         На сборку под Linux/macOS свойство не влияет: там у программы значка нет вовсе. -->
+    <ApplicationIcon>ai2p.ico</ApplicationIcon>
+    <!-- Blazor требует совпадения мажорной версии рантайма с TargetFramework:
+         клиентский blazor.web.js берётся из SDK для net8.0, и на рантайме 9/10
+         (roll-forward) интерактивность молча отваливается. Поэтому рантайм
+         ASP.NET Core 8.x обязателен — его ставит install_required.bat/.sh. -->
+  </PropertyGroup>
+
+  <!-- значок кладётся и В САМУ ВЫКЛАДКУ (T-6-S0): по нему MakePackage.ps1 ставит значок
+       установщику Inno Setup (SetupIconFile). MakePackage запускается ИЗ каталога выкладки,
+       исходников рядом с ним может не быть вовсе — значит файл должен приехать в выкладке -->
+  <ItemGroup>
+    <Content Include="ai2p.ico" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- ОБЁРТКА КЛИЕНТА КОМАНДНОЙ СТРОКИ (T-34-S0): ai2p.cmd / ai2p зовут «AI2P.Server.exe cli …».
+       Кладутся ОБЕ и всегда — обе крошечные, а установка бывает и кросс-платформенной;
+       буквой платформы их не делим, чтобы выкладка одной ОС не оставалась без клиента.
+       Так они попадают и в выходной каталог сборки (там их берут живые проверки), и
+       в выкладку, и оттуда — в установку (install.* копирует каталог целиком) и в пакет
+       установки (MakePackage берёт содержимое выкладки как есть) -->
+  <ItemGroup>
+    <Content Include="..\..\ai2p.cmd" Link="ai2p.cmd" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\ai2p" Link="ai2p" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- шаблон секретов (ТЗ гл. 10): копируется всегда — сам secrets.json пользователь
+       создаёт из шаблона рядом с config.json, в git и сборку он не попадает -->
+  <ItemGroup>
+    <Content Update="secrets.example.json" CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- config.json с настройками по умолчанию копируется в выходной каталог
+       ТОЛЬКО если его там ещё нет — локальные настройки не затираются (ТЗ гл. 10) -->
+  <Target Name="CopyDefaultConfigJson" AfterTargets="Build" Condition="!Exists('$(TargetDir)config.json')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\config.json" DestinationFolder="$(TargetDir)" />
+  </Target>
+  <Target Name="CopyDefaultConfigJsonPublish" AfterTargets="Publish" Condition="!Exists('$(PublishDir)config.json')">
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\config.json" DestinationFolder="$(PublishDir)" />
+  </Target>
+
+</Project>

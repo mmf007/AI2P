@@ -1,0 +1,217 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* ВХОД В CLAUDE CLI (todo96, версия 1.96). Сеанс CLI протухает («OAuth session expired»),
+   и до 1.96 войти заново можно было только руками в терминале того компьютера, где работает
+   сервер: AI2P об этом не знал и показывал очередную ошибку задания.
+
+   Два шага: «Войти» запускает `claude auth login` и получает от него ссылку авторизации;
+   человек открывает её (браузер сервера открывается и сам), входит в аккаунт Claude и
+   вставляет сюда полученный код. Успешный вход отпускает задачи, вставшие в паузу
+   «ждёт входа», — сколько именно, окно и говорит. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 380px; max-width: 560px;">
+            @if (_status is null)
+            {
+                <MudText Typo="Typo.body2">@L["common.loading"]</MudText>
+            }
+            else
+            {
+                @* строка состояния: вошли / не вошли / выяснить не удалось *@
+                <MudAlert Severity="@StatusSeverity" Dense="true" data-claude-auth="@StatusCode">
+                    @StatusText
+                </MudAlert>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    @L["claudeLogin.command"]: @_status.Command
+                </MudText>
+                @if (_status.WaitingTasks > 0)
+                {
+                    <MudText Typo="Typo.body2" data-claude-waiting="@_status.WaitingTasks">
+                        @string.Format(L["claudeLogin.waitingTasks"], _status.WaitingTasks)
+                    </MudText>
+                }
+            }
+
+            @if (_url.Length > 0)
+            {
+                @* шаг 2: ссылка и поле для кода *@
+                <MudText Typo="Typo.body2">@L["claudeLogin.openLink"]</MudText>
+                <MudLink Href="@_url" Target="_blank" Style="word-break: break-all;"
+                         data-claude-login-url>@_url</MudLink>
+                <MudTextField @bind-Value="_code" Label="@L["claudeLogin.code"]" Immediate="true"
+                              HelperText="@L["claudeLogin.codeHint"]" />
+            }
+
+            @if (_error.Length > 0)
+            {
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CloseAsync">@L["common.close"]</MudButton>
+        @if (_url.Length > 0)
+        {
+            <MudButton OnClick="CancelLoginAsync" Disabled="@_busy">@L["common.cancel"]</MudButton>
+            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                       Disabled="@(_busy || _code.Trim().Length == 0)" OnClick="SubmitAsync">
+                @L["claudeLogin.submit"]
+            </MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@_busy"
+                       OnClick="StartAsync">@L["claudeLogin.start"]</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    private ClaudeAuthStatusDto? _status;
+    private string _url = "";
+    private string _code = "";
+    private string _error = "";
+    private bool _busy;
+
+    /// <summary>Вход выполнялся в этом окне — список задач в вызвавшем экране надо обновить.</summary>
+    private bool _changed;
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            _status = await Api.GetClaudeAuthAsync();
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    /// <summary>Состояние входа одним словом: по нему выбирается и цвет, и текст,
+    /// и признак для живой проверки UI.</summary>
+    private string StatusCode => _status switch
+    {
+        null => "loading",
+        { Known: false } => "unknown",
+        { LoggedIn: true } => "in",
+        _ => "out",
+    };
+
+    private Severity StatusSeverity => StatusCode switch
+    {
+        "in" => Severity.Success,
+        "out" => Severity.Warning,
+        _ => Severity.Info,
+    };
+
+    private string StatusText => StatusCode switch
+    {
+        "in" => string.Format(L["claudeLogin.loggedIn"],
+            _status!.Email.Length > 0 ? _status.Email : "—",
+            _status.Subscription.Length > 0 ? _status.Subscription : _status.Method),
+        "out" => L["claudeLogin.loggedOut"],
+        "unknown" => L["claudeLogin.unknown"],
+        _ => L["common.loading"],
+    };
+
+    private async Task StartAsync()
+    {
+        _busy = true;
+        _error = "";
+        try
+        {
+            var state = await Api.StartClaudeLoginAsync();
+            Apply(state);
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SubmitAsync()
+    {
+        _busy = true;
+        _error = "";
+        try
+        {
+            var state = await Api.SubmitClaudeLoginCodeAsync(_code.Trim());
+            Apply(state);
+            if (state.LoggedIn)
+            {
+                _code = "";
+                Snackbar.Add(state.ReleasedTasks > 0
+                    ? string.Format(L["claudeLogin.doneReleased"], state.ReleasedTasks)
+                    : L["claudeLogin.done"], Severity.Success);
+            }
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CancelLoginAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Api.CancelClaudeLoginAsync();
+            _url = "";
+            _error = "";
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Разобрать ответ сервера: ссылка — идём на шаг 2, вход выполнен — шаг 1
+    /// сбрасывается и состояние перечитывается.</summary>
+    private void Apply(ClaudeLoginStateDto state)
+    {
+        _error = state.Error;
+        _url = state.Running ? state.Url : "";
+        if (state.LoggedIn)
+        {
+            _changed = true;
+            _ = RefreshAsync();
+        }
+    }
+
+    private async Task CloseAsync()
+    {
+        if (_url.Length > 0)
+        {
+            // окно закрывают на середине входа — брошенный процесс CLI убираем за собой
+            try
+            {
+                await Api.CancelClaudeLoginAsync();
+            }
+            catch (ApiException)
+            {
+                // сервер уже сам его снял — закрытию окна это не мешает
+            }
+        }
+        Dialog.Close(DialogResult.Ok(_changed));
+    }
+}

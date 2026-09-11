@@ -1,0 +1,62 @@
+AI2P - install: INSTALLING AND UPDATING A RELEASE (spec ch. 4.3)
+
+The script is put INTO THE RELEASE FOLDER by buildRelease and works "from here to
+there": the source is the folder where the script itself lies, the target is the
+only positional parameter.
+
+USAGE (Windows)
+  install.cmd D:\AI2P                 install or update the installation in D:\AI2P
+  install.cmd D:\AI2P -Force          do not ask and do not compare versions
+  install.cmd D:\AI2P -WhatIf         only show what would be done
+  install.cmd D:\AI2P -NoRuntimeCheck do not check the .NET runtime
+  install.cmd D:\AI2P -Lang ru        the language of the messages
+  install.cmd --help                  this help
+  install.ps1 ...                     the same, without the .cmd wrapper
+
+USAGE (Linux / macOS)
+  ./install.sh ~/ai/AI2P                    install or update
+  ./install.sh ~/ai/AI2P --force            do not ask and do not compare versions
+  ./install.sh ~/ai/AI2P --what-if          only show what would be done
+  ./install.sh ~/ai/AI2P --no-runtime-check do not check the .NET runtime
+  ./install.sh ~/ai/AI2P --lang ru          the language of the messages
+  ./install.sh --help                       this help
+
+LANGUAGE OF THE MESSAGES
+  --lang / -Lang, then the AI2P_LANG environment variable, and en by default. The
+  "language" of config.json is deliberately not asked: the interface language and
+  the language of an installation console are different things. The texts live in
+  i18n/scripts.<lang>.txt and this help in i18n/help/install.<lang>.txt - no script
+  is duplicated per language.
+
+WHAT IT DOES
+  * the target does not exist or is empty -> FIRST INSTALL: everything is copied;
+  * the target holds an installation      -> UPDATE: the versions are compared by
+    version.json, the program files are replaced, THE USER DATA IS NOT TOUCHED.
+
+  Never overwritten: data, logs, secrets.json, secrets, config.json.
+  The configuration of the new version is put next to yours as config.new.json -
+  the application merges it at the first start: the new one is the base (all the
+  new settings with their defaults), your working values go on top (ConfigMerge).
+  The database structure is brought up to date by the application there as well.
+
+THE .NET RUNTIME
+  An ordinary release (builds/<os>/release) is built WITHOUT the runtime: to start
+  it the machine needs ASP.NET Core Runtime 8.x. The script checks it and offers to
+  install it (winget on Windows, apt/dnf or the official dotnet-install.sh
+  elsewhere). A full release (builds/<os>/releasefull) does not need the runtime at
+  all - it is inside, and the check is skipped by the selfContained flag of
+  version.json.
+
+THE OS SERVICE
+  If the installation was made a service (makeAsServise, the service name is AI2P),
+  the script stops it before copying and starts it back after. It asks THE SYSTEM,
+  not a flag in the config: only the system knows the real state. A foreign service
+  that leads to another installation is never touched.
+
+SKIPPING VERSIONS
+  A release is COMPLETE, not a patch over the previous one: 1.79 can be installed
+  over 1.70 exactly the same way as over 1.78. So that an update across several
+  versions leaves no garbage, the script keeps an INVENTORY (installed.json) of
+  what this version put into the target. At the next installation the files of the
+  previous inventory that are gone from the new release are deleted - and the files
+  a human added (an own language in i18n) are not in the inventory and stay.

@@ -1,0 +1,558 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject UiState State
+
+@* ФОРМА ОБЪЕКТА ПРОЕКТА (ТЗ пп. 2.5–2.6; T-259, первый черновик).
+
+   Главное поле здесь — ПАСПОРТ: дословный текст, который уедет в промпт генерации вместо
+   ссылки «@obj:OBJ-3». Всё остальное вокруг него: как объект зовут, какого он вида, чем
+   помечен, где лежит его эталонный кадр и есть ли у него обученный адаптер LoRA.
+
+   Тэги устроены как у задачи (T-222) — выбор из заведённых плюс ввод нового, запятая
+   разделяет, — но группа у объектов СВОЯ: список тэгов приходит из /api/objects/tags,
+   а не из /api/tags.
+
+   LoRA — с T-12-S1 не задел, а работа: вместо трёх кнопок-заглушек одна «настройка LoRA»,
+   за которой стоит редактор (датасет, модели, обучение). Поле пути и состояние остались:
+   это ТЕКУЩИЙ адаптер объекта — то, что подставляется в модель при генерации; обучение
+   проставляет их само, а обученный на стороне файл по-прежнему можно вписать руками. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudStack Row="true" Spacing="2">
+                <MudTextField @bind-Value="_item.Name" Label="@L["objects.name"]" Immediate="true"
+                              data-object-name="1" Class="flex-grow-1"
+                              Error="@NameTaken" ErrorText="@L["objects.nameTaken"]" />
+                <MudSelect T="string" @bind-Value="_item.Type" Label="@L["objects.kind"]"
+                           data-object-kind="1" Style="max-width: 220px;">
+                    @foreach (var kind in ObjectKinds.All)
+                    {
+                        <MudSelectItem T="string" Value="@kind">@ObjectKinds.Title(kind, L.Lang)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+
+            @* РОДИТЕЛЬ — внутренний список объекта: персонаж описывается не одной картинкой,
+               и его эталонные кадры это его дети. Себя и своих потомков в списке нет:
+               хранилище такую связь всё равно отвергнет (цикл), и предлагать её нечестно *@
+            <MudSelect T="string" Value="@_parentId" ValueChanged="OnParentChanged"
+                       Label="@L["objects.parent"]" Clearable="true" data-object-parent="1"
+                       HelperText="@L["objects.parent.hint"]"
+                       ToStringFunc="@(id => ParentTitle(id))">
+                @foreach (var candidate in ParentCandidates)
+                {
+                    <MudSelectItem T="string" Value="@candidate.Id">@ParentTitle(candidate.Id)</MudSelectItem>
+                }
+            </MudSelect>
+
+            @* ТЭГИ объекта — своя группа, отдельная от тэгов задач *@
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudSelect T="string" MultiSelection="true" SelectedValues="@_tags"
+                           SelectedValuesChanged="OnTagsChanged"
+                           Label="@L["objects.tags"]" Clearable="true" Class="flex-grow-1"
+                           HelperText="@L["objects.tags.hint"]" data-object-tags="1"
+                           MultiSelectionTextFunc="@(list => string.Join(", ", list))">
+                    @foreach (var tag in _allTags)
+                    {
+                        <MudSelectItem T="string" Value="@tag">@tag</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTextField T="string" @bind-Value="_newTag" Immediate="true"
+                              Label="@L["objects.tags.new"]" Style="width: 200px;"
+                              data-object-tag-new="1" OnKeyDown="OnNewTagKeyDown" />
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary"
+                               title="@L["objects.tags.add"]" data-object-tag-add="1"
+                               Disabled="@(_newTag.Trim().Length == 0)" OnClick="AddNewTag" />
+            </MudStack>
+
+            @* ЭТАЛОННЫЙ ФАЙЛ (T-264): слева окно превью, справа поле пути и кнопка файлового
+               диалога. Диалог ходит по ПАПКЕ ПРОЕКТА и возвращает путь относительно неё —
+               ровно в таком виде путь и хранится; удалённый адрес (https://…) вписывают руками.
+
+               Immediate у поля НЕТ намеренно (T-194): на медленном канале поле, у которого
+               каждое нажатие уезжает на сервер, теряет символы. Превью обновляется, когда
+               ввод закончен, и по кнопке выбора файла. *@
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Start">
+                <MudPaper Outlined="true" Elevation="0" data-object-preview-box="1"
+                          Style="width: 132px; height: 132px; flex: 0 0 auto; display: flex;
+                                 align-items: center; justify-content: center; overflow: hidden;">
+                    @if (_previewBusy)
+                    {
+                        <MudProgressCircular Indeterminate="true" Size="Size.Small"
+                                             data-object-preview-busy="1" />
+                    }
+                    else if (_previewUrl is { Length: > 0 })
+                    {
+                        @* картинку тянет сам браузер, форма её не ждёт *@
+                        <img src="@_previewUrl" alt="@_item.Name" loading="lazy"
+                             data-object-preview-img="1"
+                             style="max-width: 100%; max-height: 100%; object-fit: contain;" />
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption" Align="Align.Center"
+                                 Class="pa-1 mud-text-secondary" data-object-preview-note="1">
+                            @_previewNote
+                        </MudText>
+                    }
+                </MudPaper>
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Class="flex-grow-1">
+                    <MudTextField T="string" Value="@_item.PathOrUrl" ValueChanged="OnPathChangedAsync"
+                                  Label="@L["objects.path"]" Class="flex-grow-1"
+                                  data-object-path="1" HelperText="@L["objects.path.hint"]" />
+                    <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" Color="Color.Primary"
+                                   data-object-path-browse="1" title="@L["objects.path.browse"]"
+                                   OnClick="BrowseFileAsync" />
+                </MudStack>
+            </MudStack>
+
+            @* ПАСПОРТ: ровно этот текст уедет в промпт вместо ссылки на объект.
+               Immediate здесь НЕ ставим (T-194): длинный текст на медленном канале
+               теряет символы, когда каждое нажатие уезжает на сервер и возвращается *@
+            <MudTextField @bind-Value="_item.Description" Label="@L["objects.passport"]"
+                          Lines="8" Variant="Variant.Outlined" data-object-passport="1"
+                          HelperText="@L["objects.passport.hint"]" />
+
+            @* ЧТО УЙДЁТ В МОДЕЛЬ — проверка паспорта ДО генерации. У НЕ СОХРАНЁННОГО объекта
+               номера ещё нет, поэтому кнопка появляется только у сохранённого *@
+            @if (Item is not null)
+            {
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudButton StartIcon="@Icons.Material.Filled.Link" Variant="Variant.Outlined"
+                               data-object-marker="1" OnClick="ShowMarkerAsync">
+                        @L["objects.link"]
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Preview" Variant="Variant.Outlined"
+                               data-object-preview="1" OnClick="ShowPromptAsync">
+                        @L["objects.prompt"]
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                        @ObjectRefs.Marker(_item.DisplayId)
+                    </MudText>
+                </MudStack>
+            }
+
+            @* ВНУТРЕННЕГО СПИСКА здесь больше НЕТ (T-99-S0): читать его надо в закладке
+               объекта, на вкладке «Субобъекты», где у каждой строки есть превью и кнопки.
+               В окне правки он был перечислением без единого действия и занимал место
+               у паспорта — ради него окно приходилось листать *@
+
+            @* --- АДАПТЕР LoRA (T-259, работа сделана в T-12-S1).
+               Раздел показывается ТОЛЬКО у объекта вида «адаптер LoRA» (T-264):
+               у персонажа, локации и реквизита адаптера своего нет, и свёрнутый раздел
+               рядом с паспортом только сбивал с толку. Он не свёрнут: у объекта этого вида
+               он и есть главное содержимое формы --- *@
+            @if (_item.Type == ObjectKinds.Lora)
+            {
+                <MudPaper Outlined="true" Elevation="0" Class="pa-3" data-object-lora-panel="1">
+                    <MudStack Spacing="3">
+                        <MudText Typo="Typo.subtitle2">@L["objects.lora"]</MudText>
+                        <MudSelect T="string" @bind-Value="_item.LoraStatus" data-object-lora-status="1"
+                                   Label="@L["objects.lora.status"]">
+                            @foreach (var state in LoraStates.All)
+                            {
+                                <MudSelectItem T="string" Value="@state">@L["objects.lora." + state]</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudTextField @bind-Value="_item.LoraPath" Label="@L["objects.lora.path"]"
+                                      data-object-lora-path="1" HelperText="@L["objects.lora.pathHint"]" />
+                        @* ОДНА кнопка вместо трёх (T-12-S1). Прежние «создать», «обучить» и
+                           «хранилище» были заделом T-259 и честно говорили, что метода за ними
+                           нет; теперь за всеми тремя стоит один редактор LoRA — датасет,
+                           модели и обучение. Разделять их обратно на три входа незачем:
+                           работают с адаптером не по одному действию за раз.
+                           Кнопка есть только у СОХРАНЁННОГО объекта: кадрам и строкам обучения
+                           нужен владелец, а у не заведённого объекта номера ещё нет *@
+                        @if (Item is not null)
+                        {
+                            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                                <MudButton StartIcon="@Icons.Material.Filled.Tune"
+                                           Variant="Variant.Filled" Color="Color.Primary"
+                                           data-object-lora-setup="1" OnClick="OpenLoraEditorAsync">
+                                    @L["objects.lora.setup"]
+                                </MudButton>
+                            </MudStack>
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" data-object-lora-unsaved="1">
+                                @L["objects.lora.saveFirst"]
+                            </MudAlert>
+                        }
+                    </MudStack>
+                </MudPaper>
+            }
+
+            <MudSwitch T="bool" @bind-Value="_item.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" data-object-active="1" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" data-object-save="1"
+                   Disabled="@(_item.Name.Trim().Length == 0 || NameTaken)"
+                   OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Проект объекта: список объектов свой у каждого проекта.</summary>
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    /// <summary>null — заводится новый объект.</summary>
+    [Parameter] public ObjectItem? Item { get; set; }
+
+    /// <summary>Объекты проекта — выбор родителя и проверка уникальности названия в UI.</summary>
+    [Parameter] public List<ObjectItem> Existing { get; set; } = [];
+
+    /// <summary>Тэги объектов ПРОЕКТА (своя группа) — список выбора.</summary>
+    [Parameter] public List<string> KnownTags { get; set; } = [];
+
+    /// <summary>Родитель НОВОГО объекта (T-99-S0): вкладка «Субобъекты» закладки заводит
+    /// объект сразу внутри того, который открыт. У правки существующего не действует —
+    /// там родитель свой.</summary>
+    [Parameter] public string? DefaultParentId { get; set; }
+
+    private ObjectItem _item = new();
+    private List<string> _tags = [];
+    private List<string> _allTags = [];
+    private string _newTag = "";
+    private string? _parentId;
+
+    private bool NameTaken => Existing.Any(o =>
+        o.Id != _item.Id && o.Name.Trim().Equals(_item.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Кандидаты в родители: все объекты проекта, кроме себя и своих ПОТОМКОВ. Иначе форма
+    /// предлагала бы связь, которую хранилище отвергнет как цикл, — а человек считал бы это
+    /// ошибкой продукта.
+    /// </summary>
+    private List<ObjectItem> ParentCandidates
+    {
+        get
+        {
+            if (Item is null)
+            {
+                return Existing;
+            }
+            var banned = new HashSet<string>(StringComparer.Ordinal) { Item.Id };
+            // потомки набираются волнами: дерево объектов неглубокое, но замкнуть его
+            // формой всё равно не должно быть возможно
+            bool added;
+            do
+            {
+                added = false;
+                foreach (var candidate in Existing)
+                {
+                    if (candidate.ParentId is { Length: > 0 } parent && banned.Contains(parent)
+                        && banned.Add(candidate.Id))
+                    {
+                        added = true;
+                    }
+                }
+            }
+            while (added);
+            return Existing.Where(o => !banned.Contains(o.Id)).ToList();
+        }
+    }
+
+    private string ParentTitle(string? id)
+    {
+        if (id is not { Length: > 0 })
+        {
+            return "";
+        }
+        var parent = Existing.FirstOrDefault(o => o.Id == id);
+        return parent is null ? id : $"{parent.DisplayId} {parent.Name}";
+    }
+
+    protected override void OnInitialized()
+    {
+        _allTags = KnownTags.ToList();
+        if (Item is not null)
+        {
+            // правим КОПИЮ: отмена не должна портить строку в уже прочитанном списке
+            _item = new ObjectItem
+            {
+                Id = Item.Id,
+                DisplayId = Item.DisplayId,
+                ProjectId = Item.ProjectId,
+                ParentId = Item.ParentId,
+                Name = Item.Name,
+                Type = Item.Type,
+                PathOrUrl = Item.PathOrUrl,
+                Description = Item.Description,
+                MetaJson = Item.MetaJson,
+                IsActive = Item.IsActive,
+                LoraPath = Item.LoraPath,
+                LoraStatus = Item.LoraStatus,
+                Transport = Item.Transport,
+                CommandOrUrl = Item.CommandOrUrl,
+                ToolsCacheJson = Item.ToolsCacheJson,
+                RulesJson = Item.RulesJson,
+            };
+            _tags = Item.Tags.ToList();
+            _parentId = Item.ParentId;
+        }
+        else
+        {
+            _item = new ObjectItem { ProjectId = ProjectId, Type = ObjectKinds.Character };
+            _parentId = DefaultParentId;
+        }
+        foreach (var tag in _tags.Where(t => !_allTags.Any(k => TaskTags.Same(k, t))))
+        {
+            _allTags.Add(tag);
+        }
+    }
+
+    /// <summary>
+    /// ПРЕВЬЮ эталонного файла (T-264). Загрузка асинхронная в двух смыслах: сведения
+    /// о файле спрашиваются у сервера уже ПОСЛЕ того, как форма нарисована (иначе окно
+    /// ждало бы ответа, прежде чем показаться), а саму картинку тянет браузер.
+    /// </summary>
+    private string? _previewUrl;
+    private string _previewNote = "";
+    private bool _previewBusy;
+
+    /// <summary>Путь, для которого превью уже посчитано; «\0» — не считали ни разу
+    /// (пустой путь тоже надо посчитать: у него своё пояснение).</summary>
+    private string _previewFor = "\0";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await RefreshPreviewAsync();
+        }
+    }
+
+    private async Task OnPathChangedAsync(string? value)
+    {
+        _item.PathOrUrl = value ?? "";
+        await RefreshPreviewAsync();
+    }
+
+    /// <summary>Удалённый адрес вписывают руками — существование такого файла мы не проверяем:
+    /// за ним чужой сервер, и ходить туда с нашего только ради превью не за чем.</summary>
+    private static bool IsRemote(string path) =>
+        path.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+    private async Task RefreshPreviewAsync()
+    {
+        var path = _item.PathOrUrl.Trim();
+        if (path == _previewFor)
+        {
+            return;
+        }
+        _previewFor = path;
+        _previewUrl = null;
+        _previewNote = L["objects.preview.empty"];
+        if (path.Length == 0)
+        {
+            _previewBusy = false;
+            StateHasChanged();
+            return;
+        }
+        _previewBusy = true;
+        StateHasChanged();
+
+        string? url = null;
+        var note = L["objects.preview.notImage"];
+        try
+        {
+            if (IsRemote(path))
+            {
+                // у чужого адреса о картинке говорит только расширение
+                if (ProjectFiles.IsImage(path))
+                {
+                    url = path;
+                }
+            }
+            else if (ObjectFiles.IsStore(path))
+            {
+                // кадр датасета лежит в каталоге данных организации (T-98-S0): спрашивать
+                // о нём папку проекта не у чего, а отдаёт его api/files/raw
+                if (ProjectFiles.IsImage(path) && ObjectFiles.Link(path, ProjectId) is { } link)
+                {
+                    url = FileLinks.Relative(link);
+                }
+            }
+            else
+            {
+                var info = await Api.GetProjectFileInfoAsync(ProjectId, path);
+                if (!info.Exists)
+                {
+                    note = L["objects.preview.missing"];
+                }
+                else if (info.IsImage)
+                {
+                    url = FileLinks.Relative(new FileLink(FileLinks.Project, ProjectId, path));
+                }
+            }
+        }
+        catch (ApiException ex)
+        {
+            // папки у проекта на этом сервере может не быть вовсе — так и говорим
+            note = ex.Message;
+        }
+        // пока шёл запрос, путь могли переписать: ответ на прошлый путь не показываем
+        if (_previewFor != path)
+        {
+            return;
+        }
+        _previewUrl = url;
+        _previewNote = note;
+        _previewBusy = false;
+        StateHasChanged();
+    }
+
+    /// <summary>Выбор эталонного файла в папке проекта — чтобы путь не набирали руками.
+    /// Диалог открывается с каталога уже вписанного пути.</summary>
+    private async Task BrowseFileAsync()
+    {
+        var current = _item.PathOrUrl.Trim();
+        var start = IsRemote(current) ? null : DirOf(current);
+        var parameters = new DialogParameters<ProjectFilePickerDialog>
+        {
+            { d => d.ProjectId, ProjectId },
+            { d => d.StartPath, start },
+        };
+        var dialog = await Dialogs.ShowAsync<ProjectFilePickerDialog>(L["objects.files.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string picked })
+        {
+            _item.PathOrUrl = picked;
+            await RefreshPreviewAsync();
+        }
+    }
+
+    /// <summary>Каталог вписанного пути; null — путь лежит в корне папки проекта.</summary>
+    private static string? DirOf(string path)
+    {
+        var at = path.LastIndexOfAny(['/', '\\']);
+        return at <= 0 ? null : path[..at];
+    }
+
+    private void OnParentChanged(string? value) => _parentId = value;
+
+    private void OnTagsChanged(IEnumerable<string> values) => _tags = values.ToList();
+
+    private void OnNewTagKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            AddNewTag();
+        }
+    }
+
+    /// <summary>Добавить введённые тэги: приведение то же, что в хранилище (запятая —
+    /// разделитель, повтор без учёта регистра не заводится). Новый тэг попадает и в список
+    /// выбора — иначе выбранное значение осталось бы без своего пункта.</summary>
+    private void AddNewTag()
+    {
+        var added = TaskTags.Normalize(_newTag);
+        if (added.Count == 0)
+        {
+            return;
+        }
+        var selected = _tags.ToList();
+        foreach (var tag in added)
+        {
+            if (!_allTags.Any(t => TaskTags.Same(t, tag)))
+            {
+                _allTags.Add(tag);
+            }
+            if (!selected.Any(t => TaskTags.Same(t, tag)))
+            {
+                selected.Add(tag);
+            }
+        }
+        _allTags = _allTags.OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase).ToList();
+        _tags = selected;
+        _newTag = "";
+    }
+
+    /// <summary>
+    /// ССЫЛКИ НА ОБЪЕКТ — их ДВЕ (T-99-S0), и они в двух разных полях: <c>@obj:OBJ-3</c>
+    /// для вставки в описание задачи (при запуске раскроется в паспорт) и АДРЕС закладки
+    /// <c>…/object/{id}</c> — его пересылают людям, он открывает объект и работает между
+    /// проектами.
+    /// </summary>
+    private async Task ShowMarkerAsync()
+    {
+        var parameters = new DialogParameters<ObjectLinkDialog>
+        {
+            { d => d.Marker, ObjectRefs.Marker(_item.DisplayId) },
+            { d => d.Url, State.ObjectUrl(_item.Id) },
+            { d => d.LocalUrl, State.HasExternalUrl ? State.ObjectLocalUrl(_item.Id) : "" },
+            // относительная — от корня сайта (T-196-S0)
+            { d => d.RelativeUrl, LinkUrls.RelativeOf(State.ObjectUrl(_item.Id)) },
+        };
+        var dialog = await Dialogs.ShowAsync<ObjectLinkDialog>(L["objects.link"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+        await dialog.Result;
+    }
+
+    /// <summary>
+    /// ЧТО УЙДЁТ В МОДЕЛЬ. Текст берётся с сервера, а не собирается здесь: подстановку
+    /// делает хранилище, и показывать надо ровно её — иначе форма показывала бы своё
+    /// представление о промпте, а генерация шла бы по другому.
+    /// Показывается СОХРАНЁННОЕ состояние: несохранённые правки в промпт ещё не попали.
+    /// </summary>
+    private async Task ShowPromptAsync()
+    {
+        try
+        {
+            var prompt = await Api.GetObjectPromptAsync(_item.Id);
+            var parameters = new DialogParameters<ObjectPromptDialog>
+            {
+                { d => d.Prompt, prompt.Prompt },
+                // у адаптера LoRA полей два (T-99-S0): при использовании и при обучении
+                { d => d.TrainPrompt, prompt.TrainPrompt },
+            };
+            var dialog = await Dialogs.ShowAsync<ObjectPromptDialog>(L["objects.prompt"], parameters,
+                new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+            await dialog.Result;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// РЕДАКТОР LoRA (T-12-S1) — вместо трёх прежних кнопок-заглушек. Кадры датасета и
+    /// строки обучения он сохраняет сам (это отдельные записи, и обучение идёт часами —
+    /// держать его в памяти формы до нажатия «сохранить» нельзя), а ОПИСАНИЕ возвращает
+    /// сюда: оно принадлежит объекту, и сохранится вместе с остальной формой.
+    /// </summary>
+    private async Task OpenLoraEditorAsync()
+    {
+        var parameters = new DialogParameters<LoraEditorDialog>
+        {
+            { d => d.Item, Item! },
+            { d => d.Description, _item.Description },
+        };
+        var dialog = await Dialogs.ShowAsync<LoraEditorDialog>(L["objects.lora.setup"], parameters,
+            FormDialogs.Options(MaxWidth.Large));
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string description })
+        {
+            _item.Description = description;
+        }
+    }
+
+    private void Save()
+    {
+        _item.ProjectId = ProjectId;
+        _item.ParentId = _parentId;
+        _item.Tags = TaskTags.Normalize(_tags);
+        Dialog.Close(DialogResult.Ok(_item));
+    }
+}

@@ -1,0 +1,35 @@
+@inject I18nService L
+
+@* Добавление записи справочника skills / io formats (ТЗ v1.17, todo20):
+   код (внутреннее имя, en) + описание. Пользовательские записи — «кастом», не переводятся. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_name" Label="@L["refs.code"]" Immediate="true"
+                          HelperText="@L["refs.codeHint"]"
+                          Error="@NameTaken" ErrorText="@L["refs.codeTaken"]" />
+            <MudTextField @bind-Value="_description" Label="@L["refs.description"]" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_name.Trim().Length == 0 || NameTaken)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok((_name.Trim(), _description.Trim()))))">
+            @L["common.save"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Занятые коды — для проверки уникальности.</summary>
+    [Parameter] public IReadOnlyCollection<string> TakenNames { get; set; } = [];
+
+    private string _name = "";
+    private string _description = "";
+
+    private bool NameTaken => TakenNames.Any(n =>
+        n.Trim().Equals(_name.Trim(), StringComparison.OrdinalIgnoreCase));
+}

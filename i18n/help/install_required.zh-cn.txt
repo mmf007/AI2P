@@ -1,0 +1,28 @@
+AI2P — install_required：检查并安装构建环境（技术规格 13.1 章）
+
+这是**开发者**脚本：它在构建机器上、从代码仓库中运行。
+它自己的输出只做了英文（T-64-S0 分析中的 B 层）。
+
+检查并安装什么（Windows，winget）
+  1. .NET SDK 8+                Microsoft.DotNet.SDK.8
+     + ASP.NET Core runtime 8.x Microsoft.DotNet.AspNetCore.8
+       应用是按 net8.0 构建的，必须运行在 8.x 运行时上：
+       在 9/10 运行时上 Blazor 的交互性会悄无声息地失效
+  2. CMake                      Kitware.CMake
+  3. C/C++ 编译器 MSVC          VS 2022 Build Tools + VC 工作负载
+  4. git 子模块                 git submodule update --init
+  5. Inno Setup 6               JRSoftware.InnoSetup
+       MakePackage 需要它，才能从现成的部署包构建 .exe 安装程序；
+       构建本身并不需要它
+
+检查并安装什么（Linux / macOS）
+  .NET SDK、CMake、C/C++ 编译器、git 子模块和 makeself — 最后一项是
+  MakePackage.sh 构建 .run 软件包所需要的。
+
+用法
+  install_required.bat        Windows
+  ./install_required.sh       Linux / macOS
+  install_required.bat --help 本帮助
+
+注意。安装程序可能会请求管理员确认（Windows 上是 UAC，其他系统上是 sudo）。
+安装完成后请打开一个**新的**控制台，让 PATH 的变更生效，然后再运行一次本脚本进行检查。

@@ -1,0 +1,26 @@
+# --- build artifacts (TZ v1.8, ch. 13.1) ---
+**/bin/
+**/bin_*/
+**/obj/
+**/TestResults/
+out/
+build/
+cmake-build*/
+
+# --- release output: builds/<OS>/release|releasefull and builds/packages (T-243, T-285) ---
+builds/
+
+# --- IDE ---
+.vs/
+.idea/
+*.user
+
+# --- runtime data: never in git ---
+data/
+logs/
+**/secrets.json
+secrets/
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db

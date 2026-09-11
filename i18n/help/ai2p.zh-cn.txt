@@ -1,0 +1,25 @@
+AI2P — ai2p：AI 代理的命令行客户端
+
+它是「AI2P.Server cli …」的一层薄封装。位于**安装目录**中、与程序放在一起，并以
+cli 子命令启动同一个程序 — 部署包中没有第二个可执行文件。
+
+凭据取自环境变量，这些变量由 AI2P 自己设置给代理进程：AI2P_URL（服务器的回环地址）
+和 AI2P_JOB_TOKEN（作业令牌，只在作业进行期间有效）。在作业之外客户端故意不工作。
+
+用法
+  ai2p help                     命令列表以及本作业可用的动作
+  ai2p --help                   同上
+  ai2p parent                   父任务
+  ai2p siblings                 相邻任务
+  ai2p children T-22            某任务的子任务
+  ai2p task T-15                按代号取任务
+  ai2p chat T-15                作业的聊天
+  ai2p find 「标题的一部分」      搜索任务
+  ai2p message --text "…"       给人写进任务聊天
+  ai2p subtask --title "…" --description-file d.md   创建子任务
+  ai2p status T-15 --status pending --restart        把他人任务退回工作
+  ai2p experience --text "…" --scope project         记录经验
+  ai2p file <链接>              把作业的文件取到磁盘上
+
+本作业实际被允许的动作列表由「ai2p help」打印：该响应来自服务器，并考虑了任务的
+安全规则。响应的语言是作业所属**团队**的语言，而不是本脚本的语言。

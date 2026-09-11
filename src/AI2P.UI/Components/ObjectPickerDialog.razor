@@ -1,0 +1,181 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+@* ВЫБОР ОБЪЕКТА ПРОЕКТА для ссылки в тексте (T-267) — то, что открывает кнопка «@» панели
+   MD-редактора.
+
+   Список ТОЛЬКО АКТИВНЫХ объектов: выключенный объект — это тот, которым больше не
+   пользуются (ссылки на него не рвутся, но и предлагать его незачем, T-259).
+
+   ПОИСК ПО ЗАГОЛОВКУ идёт ПО УЖЕ ПРОЧИТАННОМУ списку, а не запросом к серверу: список
+   объектов проекта — это единицы и десятки строк, зато отбор мгновенный и работает по
+   кириллице (сравнение в C#, а не COLLATE NOCASE в SQLite, который сворачивает только
+   латиницу, T-259). Номер тоже принимается: «OBJ-3» человек набирает не задумываясь.
+
+   ФИЛЬТР ПО ВИДУ (T-276) — выбор ОДНОГО вида: здесь ищут конкретную вещь («нужен персонаж»),
+   а не разглядывают список, поэтому множественный выбор был бы лишним крючком. Отбор, как
+   и поиск, идёт по прочитанному списку — второго запроса к серверу на смену вида нет.
+
+   ПРЕВЬЮ КАРТИНОК (T-276) — слева у каждой строки, грузятся браузером сами (ObjectPic):
+   персонажа узнают в лицо быстрее, чем по названию. *@
+<MudDialog>
+    <DialogContent>
+        @* окно чуть шире прежнего (T-276): в одной строке с поиском теперь стоит фильтр
+           по виду, и на 320 точках оба поля сжимались до нечитаемых *@
+        <MudStack Spacing="1" Style="min-width: 420px;" data-objpick="1">
+            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                <MudTextField T="string" Value="@_search" ValueChanged="OnSearchChanged"
+                              Label="@L["common.search"]" Immediate="true" Clearable="true"
+                              Margin="Margin.Dense" AutoFocus="true" data-objpick-search="1"
+                              Class="flex-grow-1"
+                              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search" />
+                @* вид — ОДИН (Clearable = «все виды»): тот же приём, что у фильтров задач *@
+                <MudSelect T="string" Value="@_kind" ValueChanged="OnKindChanged"
+                           Label="@L["objects.kind"]" Clearable="true" Dense="true"
+                           Margin="Margin.Dense" Style="max-width: 170px;"
+                           data-objpick-kind="1"
+                           ToStringFunc="@(k => k is null ? "" : ObjectKinds.Title(k, L.Lang))">
+                    @foreach (var kind in Kinds)
+                    {
+                        <MudSelectItem T="string" Value="@kind">@ObjectKinds.Title(kind, L.Lang)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudStack>
+            @if (!_loaded)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_items.Count == 0)
+            {
+                @* объектов в проекте нет вовсе — это не «ничего не нашлось», и сказать
+                   об этом надо иначе: заводят их на вкладке проекта *@
+                <MudAlert Severity="Severity.Info" Dense="true" data-objpick-empty="1">
+                    @L["md.objectRef.empty"]
+                </MudAlert>
+            }
+            else if (Filtered.Count == 0)
+            {
+                <MudAlert Severity="Severity.Normal" Dense="true" data-objpick-none="1">
+                    @L["md.objectRef.notFound"]
+                </MudAlert>
+            }
+            else
+            {
+                <div style="max-height: 340px; overflow: auto;" data-objpick-list="1">
+                    <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+                        <tbody>
+                            @foreach (var item in Filtered)
+                            {
+                                var current = item;
+                                <tr data-objpick-row="@current.DisplayId" style="cursor: pointer;"
+                                    @onclick="@(() => Dialog.Close(DialogResult.Ok(current)))">
+                                    <td style="white-space: nowrap; padding: 2px 4px;">
+                                        <ObjectPic Url="@PicOf(current)" Alt="@current.Name"
+                                                   Code="@current.DisplayId" SizePx="36" />
+                                    </td>
+                                    <td style="white-space: nowrap;">@current.DisplayId</td>
+                                    <td style="width: 100%;">@current.Name</td>
+                                    <td style="white-space: nowrap; opacity: .7;">
+                                        @ObjectKinds.Title(current.Type, L.Lang)
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </MudSimpleTable>
+                </div>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Проект, чьи объекты предлагаются: общего списка объектов нет (T-259).</summary>
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    private List<ObjectItem> _items = [];
+
+    /// <summary>Адреса превью (T-276) — считаются один раз, на весь прочитанный список.</summary>
+    private Dictionary<string, string> _pics = [];
+
+    private string _search = "";
+
+    /// <summary>Выбранный вид объекта (T-276); null — все виды.</summary>
+    private string? _kind;
+
+    private bool _loaded;
+
+    /// <summary>Виды, которые в этом проекте ВСТРЕЧАЮТСЯ, в порядке ObjectKinds.All.
+    /// Предлагать «оборудование» там, где его нет ни одного, значит звать в пустоту.</summary>
+    private List<string> Kinds =>
+        ObjectKinds.All.Where(k => _items.Any(i => i.Type == k)).ToList();
+
+    /// <summary>Отбор по набранному и по виду: заголовок объекта, а заодно и его номер.</summary>
+    private List<ObjectItem> Filtered
+    {
+        get
+        {
+            var search = _search.Trim();
+            var items = _kind is { Length: > 0 } kind
+                ? _items.Where(item => item.Type == kind)
+                : _items;
+            if (search.Length > 0)
+            {
+                items = items.Where(item =>
+                    item.Name.Contains(search, StringComparison.CurrentCultureIgnoreCase)
+                    || item.DisplayId.Contains(search, StringComparison.CurrentCultureIgnoreCase));
+            }
+            return items.ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            // список читается ЦЕЛИКОМ один раз: дальше отбор идёт в памяти, поэтому набор
+            // в поле поиска не гоняет запросы на каждую букву
+            var all = await Api.GetObjectsAsync(ProjectId);
+            // превью считаются по ВСЕМУ списку, а не по одним активным: картинка персонажа
+            // лежит у его детей, и выключенный узел на пути к ней (например датасет) не
+            // должен оставлять персонажа без лица
+            _pics = ObjectPics.Build(all, ProjectId);
+            _items = all
+                .Where(item => item.IsActive)
+                .OrderBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    /// <summary>Картинки грузит браузер; JS нужен только чтобы погасить ту, файла которой
+    /// на диске не оказалось (иначе в строке торчал бы битый значок).</summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_loaded && _pics.Count > 0)
+        {
+            await Js.InvokeVoidAsync("ai2p.initPics");
+        }
+    }
+
+    /// <summary>Адрес превью строки; пусто — картинки у объекта нет.</summary>
+    private string? PicOf(ObjectItem item) =>
+        _pics.TryGetValue(item.Id, out var url) ? url : null;
+
+    private void OnKindChanged(string? value) => _kind = value;
+
+    private void OnSearchChanged(string? value) => _search = value ?? "";
+}

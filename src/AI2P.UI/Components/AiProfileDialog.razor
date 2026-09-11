@@ -1,0 +1,116 @@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Редактор профайла подключения ИИ (ТЗ пп. 2.2, 2.9): провайдер, модель, параметры,
+   ссылка на ключ в секретах. Один и тот же для справочника моделей и ИИ-исполнителя
+   (у исполнителя правится файл его модели). Путь файла пользователю не показывается.
+   Неизвестные поля json сохраняются как есть. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField @bind-Value="_provider" Label="@L["profile.provider"]" />
+            @* подключение по CLI вместо API (todo29); у старых профайлов — api *@
+            <MudSelect T="string" @bind-Value="_transport" Label="@L["profile.transport"]">
+                <MudSelectItem T="string" Value="@("api")">@L["profile.transport.api"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@("cli")">@L["profile.transport.cli"]</MudSelectItem>
+            </MudSelect>
+            @if (_transport == "cli")
+            {
+                <MudTextField @bind-Value="_cliCommand" Label="@L["profile.cliCommand"]" />
+            }
+            <MudTextField @bind-Value="_model" Label="@L["profile.model"]" />
+            <MudTextField @bind-Value="_baseUrl" Label="@L["profile.baseUrl"]" />
+            <MudTextField @bind-Value="_secretRef" Label="@L["profile.secretRef"]" />
+            <MudTextField @bind-Value="_launchCommand" Label="@L["profile.launchCommand"]" />
+            <MudTextField T="string" @bind-Value="_paramsJson" Label="@L["profile.params"]"
+                          Lines="5" Variant="Variant.Outlined" Immediate="true"
+                          Style="font-family: monospace; font-size: 0.85rem;"
+                          Error="@(!ParamsValid)" ErrorText="@L["json.invalid"]" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!ParamsValid)"
+                   OnClick="SaveAsync">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Относительный путь json-файла профайла в dataDir.</summary>
+    [Parameter] public string Path { get; set; } = "";
+
+    private JsonObject _root = new();
+    private string _provider = "";
+    private string _transport = "api";
+    private string _cliCommand = "";
+    private string _model = "";
+    private string _baseUrl = "";
+    private string _secretRef = "";
+    private string _launchCommand = "";
+    private string _paramsJson = "{}";
+
+    private bool ParamsValid
+    {
+        get
+        {
+            try
+            {
+                JsonDocument.Parse(_paramsJson);
+                return true;
+            }
+            catch (JsonException)
+            {
+                return false;
+            }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var text = await Api.GetFileTextAsync(Path);
+        try
+        {
+            _root = JsonNode.Parse(text) as JsonObject ?? new JsonObject();
+        }
+        catch (JsonException)
+        {
+            _root = new JsonObject();
+        }
+        _provider = (string?)_root["provider"] ?? "";
+        var transport = ((string?)_root["transport"] ?? "").Trim();
+        _transport = transport.Length > 0 ? transport : "api";
+        _cliCommand = (string?)_root["cliCommand"] ?? "";
+        _model = (string?)_root["model"] ?? "";
+        _baseUrl = (string?)_root["baseUrl"] ?? "";
+        _secretRef = (string?)_root["secretRef"] ?? "";
+        _launchCommand = (string?)_root["launchCommand"] ?? "";
+        _paramsJson = _root["params"]?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "{}";
+    }
+
+    private async Task SaveAsync()
+    {
+        _root["provider"] = _provider.Trim();
+        _root["transport"] = _transport;
+        _root["cliCommand"] = _cliCommand.Trim();
+        _root["model"] = _model.Trim();
+        _root["baseUrl"] = _baseUrl.Trim();
+        _root["secretRef"] = _secretRef.Trim();
+        _root["launchCommand"] = _launchCommand.Trim();
+        _root["params"] = JsonNode.Parse(_paramsJson);
+        try
+        {
+            await Api.SaveFileTextAsync(Path,
+                _root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

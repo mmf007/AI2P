@@ -1,0 +1,205 @@
+@inject UiState State
+@inject I18nService L
+
+@* Представление «таблица» списка задач/шаблонов (ТЗ гл. 5, экран 1).
+   Сортировка (ТЗ v1.17): клик по заголовку колонки — по возрастанию, повторный — по убыванию;
+   направление показывает треугольник в правом нижнем углу заголовка. *@
+@if (Tasks.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["common.empty"]</MudAlert>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+        <thead>
+            <tr>
+                @foreach (var column in VisibleColumns)
+                {
+                    @* Заголовок в ДВЕ СТРОКИ (T-136): уточнение в скобках уходит на вторую
+                       строку — «Приоритет / (число)», «Ответственный / (человек)»,
+                       «Срок / (план)», «Длительность / (план) ч». Колонка становится ýже
+                       ровно настолько, насколько узки её данные, а освободившееся место
+                       забирает «Заголовок» (единственная колонка без ограничения ширины) *@
+                    var (first, second) = TwoLines(column.Key == "id" ? "ID" : L[column.Title]);
+                    <th style="@("cursor: pointer; position: relative; padding-right: 16px; " + HeadStyle(column.Key))"
+                        @onclick="@(() => SortBy(column.Key))">
+                        <span style="display: block; white-space: nowrap;">@first</span>
+                        @if (second is not null)
+                        {
+                            <span style="display: block; white-space: nowrap; font-size: 0.75em; opacity: .75;">@second</span>
+                        }
+                        @if (_sortKey == column.Key)
+                        {
+                            <span style="position: absolute; right: 4px; bottom: 2px; font-size: 0.55rem; line-height: 1;">
+                                @(_desc ? "▼" : "▲")
+                            </span>
+                        }
+                    </th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var task in SortedTasks)
+            {
+                @* узкие колонки не переносятся (T-136): перенос в них съедал бы ширину,
+                   отданную «Заголовку» *@
+                <tr style="cursor: pointer;"
+                    @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
+                    <td style="white-space: nowrap;">@task.DisplayId</td>
+                    <td>
+                        @task.Title
+                        @if (task.PendingQuestions > 0)
+                        {
+                            @* висящие вопросы агентов — хорошо заметны (ТЗ v1.17) *@
+                            <MudChip T="string" Size="Size.Small" Color="Color.Warning" Class="ml-1"
+                                     Icon="@Icons.Material.Filled.HelpOutline">@task.PendingQuestions</MudChip>
+                        }
+                    </td>
+                    <td style="white-space: nowrap;"><span class="ai2p-status" style="@State.StatusStyle(task.Status)">@State.StatusName(task.Status)</span></td>
+                    <td style="white-space: nowrap;">@L[$"task.priority.{task.Priority}"]</td>
+                    <td style="white-space: nowrap;">@task.PriorityNum</td>
+                    <td style="white-space: nowrap;">@Nick(task.ExecutorIds.FirstOrDefault())</td>
+                    <td style="white-space: nowrap;">@Nick(task.ResponsibleId)</td>
+                    <td style="white-space: nowrap;">@(task.DueDate?.ToLocalTime().ToString("d"))</td>
+                    <td style="white-space: nowrap;">@(task.PlannedHours?.ToString("0.##"))</td>
+                    <td style="white-space: nowrap;">@ProjectName(task.ProjectId)</td>
+                    @if (State.IsCluster)
+                    {
+                        @* сервер-владелец задачи (ТЗ гл. 6, этап 42): чужие правятся у себя *@
+                        <td style="white-space: nowrap;">
+                            @if (task.IsReadOnly)
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small"
+                                         Style="opacity:.6; vertical-align: middle;" />
+                            }
+                            @ServerTitle(task)
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    private static readonly (string Key, string Title)[] Columns =
+    [
+        ("id", "ID"),
+        ("title", "task.title"),
+        ("status", "task.status"),
+        ("priority", "task.priority"),
+        ("priorityNum", "task.priorityNum"),
+        ("executor", "task.executor"),
+        ("responsible", "task.responsible"),
+        ("due", "task.dueDate"),
+        ("hours", "task.plannedHours"),
+        ("project", "task.project"),
+        // сервер-владелец (ТЗ гл. 6, этап 42): колонка есть только в кластере
+        ("server", "task.server"),
+    ];
+
+    /// <summary>Колонки к показу: сервер — только когда серверов в организации больше одного.</summary>
+    private IEnumerable<(string Key, string Title)> VisibleColumns =>
+        State.IsCluster ? Columns : Columns.Where(c => c.Key != "server");
+
+    /// <summary>
+    /// Заголовок колонки в две строки (T-136): уточнение в скобках — вторая строка.
+    /// Делить по скобке, а не хранить два поля, — чтобы подпись жила в одном месте
+    /// (i18n) и одинаково читалась в форме задачи и в шапке таблицы.
+    /// </summary>
+    public static (string First, string? Second) TwoLines(string title)
+    {
+        var at = title.IndexOf(" (", StringComparison.Ordinal);
+        return at > 0 ? (title[..at], title[(at + 1)..]) : (title, null);
+    }
+
+    /// <summary>Ширина колонки: всем, кроме «Заголовка», — по содержимому (данные в них
+    /// узкие по своей природе), «Заголовку» — всё остальное место (T-136).</summary>
+    private static string HeadStyle(string key) =>
+        key == "title" ? "width: 100%;" : "width: 1%; white-space: nowrap;";
+
+    /// <summary>Код сервера задачи для колонки; пусто — сервера нет (ведёт дирижёр).</summary>
+    private string ServerTitle(TaskItem task) =>
+        task.ServerId is { Length: > 0 }
+            ? (task.ServerCode.Length > 0 ? task.ServerCode : State.ServerCodeOf(task.ServerId))
+            : L["task.server.none"];
+
+    [Parameter] public List<TaskItem> Tasks { get; set; } = [];
+
+    /// <summary>Ключ сохранения сортировки между открытиями закладки (todo23); null — не хранить.</summary>
+    [Parameter] public string? StateKey { get; set; }
+
+    private sealed class TableSortState
+    {
+        public string? Key { get; set; }
+        public bool Desc { get; set; }
+    }
+
+    private TableSortState _sort = new();
+
+    protected override void OnParametersSet()
+    {
+        if (StateKey is not null)
+        {
+            _sort = State.ComponentState<TableSortState>(StateKey);
+        }
+    }
+
+    private string? _sortKey => _sort.Key;
+    private bool _desc => _sort.Desc;
+
+    private void SortBy(string key)
+    {
+        // первый клик — по возрастанию, повторный — по убыванию (ТЗ v1.17)
+        if (_sort.Key == key)
+        {
+            _sort.Desc = !_sort.Desc;
+        }
+        else
+        {
+            _sort.Key = key;
+            _sort.Desc = false;
+        }
+        if (StateKey is not null)
+        {
+            State.PersistComponentStates(); // сортировка переживает перезапуск (гл. 11)
+        }
+    }
+
+    private IEnumerable<TaskItem> SortedTasks
+    {
+        get
+        {
+            if (_sortKey is null)
+            {
+                return Tasks;
+            }
+            var ordered = _sortKey switch
+            {
+                "id" => Tasks.OrderBy(t => DisplayIds.Order(t.DisplayId)),
+                "title" => Tasks.OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase),
+                "status" => Tasks.OrderBy(t => State.StatusName(t.Status), StringComparer.CurrentCultureIgnoreCase),
+                "priority" => Tasks.OrderBy(t => t.Priority),
+                "priorityNum" => Tasks.OrderBy(t => t.PriorityNum),
+                "executor" => Tasks.OrderBy(t => Nick(t.ExecutorIds.FirstOrDefault()), StringComparer.CurrentCultureIgnoreCase),
+                "responsible" => Tasks.OrderBy(t => Nick(t.ResponsibleId), StringComparer.CurrentCultureIgnoreCase),
+                "due" => Tasks.OrderBy(t => t.DueDate ?? DateTime.MaxValue),
+                "hours" => Tasks.OrderBy(t => t.PlannedHours ?? double.MaxValue),
+                "project" => Tasks.OrderBy(t => ProjectName(t.ProjectId), StringComparer.CurrentCultureIgnoreCase),
+                "server" => Tasks.OrderBy(t => ServerTitle(t), StringComparer.CurrentCultureIgnoreCase),
+                _ => Tasks.OrderBy(t => 0),
+            };
+            return _desc ? ordered.Reverse() : ordered;
+        }
+    }
+
+    private string Nick(string? executorId) =>
+        executorId is null ? "" : State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? "";
+
+    private string ProjectName(string? projectId) =>
+        projectId is null ? "" : State.Projects.FirstOrDefault(p => p.Id == projectId)?.Name ?? "";
+}

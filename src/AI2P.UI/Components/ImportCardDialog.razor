@@ -1,0 +1,136 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Импорт одиночного задания по URL (ТЗ v1.50, todo50): ссылка на карточку Trello, задачу
+   GitHub (T-247) или issue GitLab (T-249) + источник, откуда берутся ключи. ВИД ИСТОЧНИКА
+   ОПРЕДЕЛЯЕТ САМА ССЫЛКА, поэтому список источников сужается по мере ввода адреса и
+   переспрашивается, только если подходящих источников несколько.
+   Возвращает ImportedCardDto — содержимое подставляется в форму новой задачи. *@
+<MudDialog>
+    <DialogContent>
+        @if (!_loaded)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_sources.Count == 0)
+        {
+            <MudText Typo="Typo.body2">@L["imports.run.noSources"]</MudText>
+        }
+        else
+        {
+            <MudStack Spacing="2">
+                <MudTextField T="string" @bind-Value="_url" Label="@L["imports.card.url"]"
+                              Placeholder="@L["imports.card.urlPlaceholder"]" Immediate="true" />
+                @if (Matching.Count > 1)
+                {
+                    <MudSelect T="string" @bind-Value="_sourceId" Label="@L["imports.run.source"]">
+                        @foreach (var source in Matching)
+                        {
+                            <MudSelectItem T="string" Value="@source.Id">@source.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                @* отказ Trello — целиком и в самом окне (T-134): в хинте snackbar'а длинное
+                   объяснение «что именно не принято и что с этим делать» не помещалось *@
+                @if (_error.Length > 0)
+                {
+                    <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
+                }
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_sources.Count == 0 || _url.Trim().Length == 0 || _running)"
+                   OnClick="RunAsync">@L["imports.card.run"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    private List<ImportSource> _sources = [];
+    private string? _sourceId;
+    private string _url = "";
+    private bool _loaded;
+    private bool _running;
+    private string _error = "";
+
+    /// <summary>Виды источников, из которых можно импортировать ОДНО задание по ссылке.</summary>
+    private static readonly string[] UrlKinds =
+        [ImportKinds.Trello, ImportKinds.GitHub, ImportKinds.GitLab];
+
+    /// <summary>
+    /// Вид источника, к которому относится введённый адрес: пусто — адрес пока ни на что
+    /// не похож (человек ещё печатает), и тогда предлагаются все источники. Разбор здесь
+    /// НАРОЧНО грубый — по имени сервиса в адресе: точный разбор делает сервер, а форме
+    /// нужно только понять, чьи ключи предлагать.
+    /// </summary>
+    private string UrlKind => _url.Contains("trello.com/c/", StringComparison.OrdinalIgnoreCase)
+        ? ImportKinds.Trello
+        : _url.Contains("github.com/", StringComparison.OrdinalIgnoreCase)
+            ? ImportKinds.GitHub
+            : _url.Contains("/-/issues/", StringComparison.OrdinalIgnoreCase)
+                ? ImportKinds.GitLab
+                : "";
+
+    /// <summary>Источники, подходящие введённому адресу.</summary>
+    private List<ImportSource> Matching =>
+        UrlKind.Length == 0
+            ? _sources
+            : _sources.Where(s => string.Equals(s.Kind, UrlKind, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _sources = (await Api.GetImportSourcesAsync())
+                .Where(s => s.IsActive
+                            && UrlKinds.Contains(s.Kind.Trim().ToLowerInvariant(), StringComparer.Ordinal))
+                .ToList();
+            _sourceId = _sources.FirstOrDefault()?.Id;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private async Task RunAsync()
+    {
+        _running = true;
+        _error = "";
+        try
+        {
+            // источник передаём, ТОЛЬКО если он того же вида, что и ссылка: выбранный
+            // раньше trello-источник не должен уехать в импорт задачи GitHub — там он
+            // получил бы отказ «источник другого вида» (T-247)
+            var matching = Matching;
+            var sourceId = matching.FirstOrDefault(s => s.Id == _sourceId)?.Id
+                           ?? matching.FirstOrDefault()?.Id;
+            var card = await Api.ImportCardAsync(ProjectId, new ImportCardDto
+            {
+                Url = _url.Trim(),
+                SourceId = sourceId,
+            });
+            Dialog.Close(DialogResult.Ok(card));
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _running = false;
+        }
+    }
+}

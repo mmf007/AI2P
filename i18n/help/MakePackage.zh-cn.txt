@@ -1,0 +1,56 @@
+AI2P — MakePackage：从现成的部署包制作安装包
+
+一个单文件安装程序，可以直接交给别人，无需向他解释 install.* 和各种目录。
+
+**从部署目录运行**。buildRelease 会把本脚本放到 builds/<OS>/release 和
+builds/<OS>/releasefull 中，它的工作方式是「从这里 — 到那里」：源是脚本自身所在的
+目录，目标是 ../../packages（也就是 builds/packages）。
+
+用法（Windows）
+  MakePackage.cmd                   从部署目录运行，常规用法
+  MakePackage.cmd D:\out            把软件包放到其他目录
+  MakePackage.ps1 -Output D:\out    同上
+  MakePackage.ps1 -Source D:\release  从别的部署包构建软件包
+  MakePackage.ps1 -KeepStage        不删除临时目录（用于排查错误）
+  MakePackage.ps1 -Lang zh-cn       消息语言
+  MakePackage.cmd --help            本帮助
+
+用法（Linux / macOS）
+  ./MakePackage.sh                  从部署目录运行
+  ./MakePackage.sh /tmp/out         把软件包放到其他目录
+  ./MakePackage.sh --source DIR     从别的部署包构建软件包
+  ./MakePackage.sh --lang zh-cn     消息语言
+  ./MakePackage.sh --help           本帮助
+
+文件名自动生成，取自部署包的 version.json：
+  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
+  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
+NN 是构建号（版本号的第二部分），无需询问。在 Windows 上安装程序由 Inno Setup
+（ISCC.exe）构建，.exe 就是它的产物形式；.run 是 makeself 的产物形式：一个自解压
+归档，它自己会运行 install.sh。
+
+机器上需要什么
+  Windows      — Inno Setup 6（ISCC.exe），由 install_required.bat 安装
+                 （winget：JRSoftware.InnoSetup）
+  Linux/macOS  — makeself，由 install_required.sh 安装
+                 （apt/dnf/brew：makeself）
+如果工具不存在，脚本会如实说明。
+
+软件包中包含什么：整个部署包，**除了**用户数据（data、logs、secrets、
+secrets.json）和上次安装的清单（installed.json）。安装程序不会覆盖正在使用的
+config.json：只有当文件不存在时才放置它，而且总会在旁边放一份 config.new.json —
+应用会在首次启动时合并它们（ConfigMerge），与 install.* 的做法完全一致。
+
+操作系统服务。如果该安装是以服务方式部署的（makeAsServise，服务名 AI2P），安装
+程序会在复制前自行停止它、之后启动回来，卸载程序时则会移除它。指向其他文件夹的
+别人的服务，它不会去动。makeAsServise 本身会随软件包一起进入安装：把安装变成服务
+需要手动执行。
+
+数据放在哪里（Windows）。「为所有用户」安装是指 C:\Program Files\AI2P，普通用户
+无法写入那里。因此这种安装的工作文件（config.json、data、logs、secrets）放在
+C:\ProgramData\AI2P；安装程序会创建该目录并对本机所有用户开放写权限。「仅为我」
+安装会把程序放到用户目录 — 那里一切照旧，都在程序旁边。
+
+安装程序自身的语言。Inno Setup 脚本自带两种语言（russian 和 english）；[Code] 段中
+AI2P 的文本在构建时取自 i18n/scripts.<语言>.txt 并写入 [CustomMessages]，因此新增
+一种安装程序语言 = 一份新的文本目录加上 [Languages] 中的一行。

@@ -1,0 +1,110 @@
+@inject UiState State
+@inject I18nService L
+
+@* Представление «Тэги» списка задач (T-222): категория — ТЭГ, внутри категории обычный
+   список задач теми же колонками, что в представлении «таблица».
+
+   ВСЕ КАТЕГОРИИ ПРИ ЗАГРУЗКЕ ЗАКРЫТЫ (как в представлении «навыки» справочника моделей,
+   T-217), поэтому набор открытых категорий живёт только в компоненте и НЕ кладётся
+   в сохраняемое состояние: иначе «при загрузке закрыты» превратилось бы в «как оставил
+   в прошлый раз».
+
+   Задача с несколькими тэгами попадает в каждую свою категорию, задача без тэгов — в
+   категорию «без тэгов» в конце списка (TaskTagGroups). *@
+@if (Tasks.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["common.empty"]</MudAlert>
+}
+else
+{
+    <div data-tasks-view="tags">
+        <MudSimpleTable Dense="true" Hover="true" Style="width: 100%;">
+            <thead>
+                <tr>
+                    <th style="width: 1%; white-space: nowrap;">ID</th>
+                    <th style="width: 100%;">@L["task.title"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["task.status"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["task.priorityNum"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["task.executor"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["task.dueDate"]</th>
+                    <th style="width: 1%; white-space: nowrap;">@L["task.project"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var group in TaskTagGroups.Build(Tasks))
+                {
+                    var open = _open.Contains(group.Tag);
+                    @* data-tag-cat / data-tag-open — опора живой проверки: какая категория
+                       и раскрыта ли она (приём T-217: проверка меряет механизм, а не текст) *@
+                    <tr class="ai2p-tag-cat" style="cursor: pointer;"
+                        data-tag-cat="@group.Tag" data-tag-open="@(open ? "1" : "0")"
+                        @onclick="@(() => Toggle(group.Tag))">
+                        <td colspan="7">
+                            <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
+                                     Size="Size.Small" Style="vertical-align: middle;" />
+                            <b>@TagTitle(group.Tag)</b>
+                            <MudText Typo="Typo.caption" Class="ml-2" Style="display: inline;">
+                                @group.Tasks.Count
+                            </MudText>
+                        </td>
+                    </tr>
+                    @if (open)
+                    {
+                        @foreach (var task in group.Tasks)
+                        {
+                            <tr data-tag-row="@group.Tag" style="cursor: pointer;"
+                                @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
+                                <td style="white-space: nowrap; padding-left: 32px;">@task.DisplayId</td>
+                                <td>
+                                    @task.Title
+                                    @if (task.PendingQuestions > 0)
+                                    {
+                                        @* висящие вопросы агентов — как в остальных списках (ТЗ v1.17) *@
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Class="ml-1"
+                                                 Icon="@Icons.Material.Filled.HelpOutline">@task.PendingQuestions</MudChip>
+                                    }
+                                </td>
+                                <td style="white-space: nowrap;">
+                                    <span class="ai2p-status" style="@State.StatusStyle(task.Status)">@State.StatusName(task.Status)</span>
+                                </td>
+                                <td style="white-space: nowrap;">@task.PriorityNum</td>
+                                <td style="white-space: nowrap;">@Nick(task.ExecutorIds.FirstOrDefault())</td>
+                                <td style="white-space: nowrap;">@(task.DueDate?.ToLocalTime().ToString("d"))</td>
+                                <td style="white-space: nowrap;">@ProjectName(task.ProjectId)</td>
+                            </tr>
+                        }
+                    }
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): карточка открывается
+    /// закладкой в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    [Parameter] public List<TaskItem> Tasks { get; set; } = [];
+
+    /// <summary>Раскрытые категории. Пусто при каждом открытии представления — «все тэги
+    /// при загрузке свёрнуты» (T-222); в UiState этот набор не сохраняется намеренно.</summary>
+    private readonly HashSet<string> _open = new(StringComparer.Ordinal);
+
+    private void Toggle(string tag)
+    {
+        if (!_open.Remove(tag))
+        {
+            _open.Add(tag);
+        }
+    }
+
+    /// <summary>Заголовок категории; пустой тэг — «без тэгов».</summary>
+    private string TagTitle(string tag) => tag.Length == 0 ? L["tasks.tags.none"] : tag;
+
+    private string Nick(string? executorId) =>
+        executorId is null ? "" : State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? "";
+
+    private string ProjectName(string? projectId) =>
+        projectId is null ? "" : State.Projects.FirstOrDefault(p => p.Id == projectId)?.Name ?? "";
+}

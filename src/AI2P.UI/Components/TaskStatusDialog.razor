@@ -1,0 +1,69 @@
+@using MudBlazor.Utilities
+@inject UiState State
+@inject I18nService L
+
+@* Форма состояния справочника состояний (ТЗ v1.37, todo34_3): внутренний код (при правке
+   не меняется), название на текущем языке UI, цвет надписи (колорпикер), признак «кастом»
+   (менять можно только в debug-режиме; новые через UI — всегда кастомные), активность и
+   порядковый номер (доска и выпадающие списки; встроенные заполнены через 10). *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudTextField T="string" @bind-Value="_dto.Id" Label="@L["refs.code"]"
+                          Disabled="@(Source is not null)"
+                          Error="@IdTaken" ErrorText="@L["statuses.idTaken"]" />
+            <MudTextField T="string" @bind-Value="_dto.Name" Label="@L["statuses.name"]" />
+            <MudColorPicker Label="@L["statuses.color"]" ShowAlpha="false"
+                            Value="@(new MudColor(_dto.Color))"
+                            ValueChanged="@(c => _dto.Color = c.ToString(MudColorOutputFormats.Hex))" />
+            <MudNumericField T="int" @bind-Value="_dto.SortOrder" Label="@L["statuses.order"]" />
+            @* признак «кастом» — только в debug-режиме, как у ИИ-моделей (п. 2.9) *@
+            <MudSwitch T="bool" @bind-Value="_dto.IsCustom" Label="@L["models.custom"]"
+                       Color="Color.Primary" Disabled="@(!State.Debug)" />
+            <MudSwitch T="bool" @bind-Value="_dto.IsActive" Label="@L["common.active"]" Color="Color.Primary" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_dto)))">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — добавление нового (кастомного) состояния.</summary>
+    [Parameter] public TaskStatusDef? Source { get; set; }
+
+    /// <summary>Коды остальных состояний — проверка уникальности при добавлении.</summary>
+    [Parameter] public List<string> TakenIds { get; set; } = [];
+
+    private TaskStatusSaveDto _dto = new();
+
+    private bool IdTaken => Source is null
+        && TakenIds.Any(id => id.Equals(_dto.Id.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private bool SaveDisabled => _dto.Id.Trim().Length == 0 || IdTaken;
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            _dto = new TaskStatusSaveDto
+            {
+                Id = Source.Id,
+                Name = Source.Name,
+                Color = Source.Color,
+                IsCustom = Source.IsCustom,
+                IsActive = Source.IsActive,
+                SortOrder = Source.SortOrder,
+            };
+        }
+        else
+        {
+            // новый порядковый номер — за последним встроенным шагом через 10
+            _dto.SortOrder = (State.TaskStatuses.Count > 0 ? State.TaskStatuses.Max(s => s.SortOrder) : 0) + 10;
+        }
+    }
+}

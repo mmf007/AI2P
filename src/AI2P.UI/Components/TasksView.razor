@@ -1,0 +1,832 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+@implements IDisposable
+
+@* Списки задач (ТЗ гл. 5, экран 1): представления доска/таблица/иерархия, фильтр задач
+   (мои, исполнитель, проект, команда, статус, интервал дат по сроку) и полнотекстный
+   поиск по заголовку и описанию. Шаблоны исключаются.
+   Фильтр скрываемый (ТЗ v1.17): разворачивается кнопкой; скрытый установленный фильтр
+   показывает текстовую сводку (до 50 символов). Сортировка (ТЗ v1.17): доска/иерархия —
+   меню вариантов; таблица — клик по заголовку колонки (внутри TaskTableView).
+   FixedProjectId — встраивание во вкладку «задачи» проекта (ТЗ v1.17).
+   Представление — нижний этаж колонки на всю высоту фрейма (T-128): доска сама держит
+   свою высоту и скроллится внутри, таблица и иерархия — как раньше, по высоте содержимого. *@
+<div class="ai2p-tasks-frame">
+@* ТУЛБАР ЛИСТАЕТСЯ САМ (T-194, работа на телефоне): на узком экране ряд кнопок шире
+   фрейма, и раньше вбок уезжало ВСЁ содержимое представления — доска вместе с тулбаром.
+   Теперь листается только полоса кнопок: пальцем, колесом мыши и кнопками «‹ ›»,
+   которые появляются лишь при переполнении. Ключ полосы свой у каждого списка задач:
+   их на экране бывает несколько (фреймы, вкладка «Задачи» карточки проекта) *@
+<div class="ai2p-strip mb-2">
+    <MudIconButton Class="ai2p-strip-arrow ai2p-arrow-off" data-strip-scroll="prev"
+                   title="@L["strip.scrollPrev"]"
+                   Icon="@Icons.Material.Filled.ChevronLeft" Size="Size.Small"
+                   OnClick="@(() => ScrollToolbarAsync(-1))" />
+    <div class="ai2p-strip-inner" data-strip-inner="@StripKey">
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="ai2p-strip-row">
+    @if (FixedProjectId is null)
+    {
+        <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["tasks.title"]</MudText>
+    }
+    @* «в работе у ИИ» (T-187) — представление без фильтра и без сортировки меню:
+       ни фильтра, ни выбора порядка у него нет, поэтому весь этот ряд кнопок скрыт *@
+    @if (!IsAiWork)
+    {
+    <MudTooltip Text="@L["tasks.filter.toggle"]">
+        <MudIconButton Icon="@(_filterVisible ? Icons.Material.Filled.FilterListOff : Icons.Material.Filled.FilterList)"
+                       Color="@(FilterActive ? Color.Primary : Color.Default)"
+                       OnClick="@(() => _filterVisible = !_filterVisible)" />
+    </MudTooltip>
+    }
+    @if (FilterActive && !IsAiWork)
+    {
+        @* очистка всего фильтра одной кнопкой — и в свёрнутом, и в развёрнутом виде (ТЗ v1.18) *@
+        <MudTooltip Text="@L["tasks.filter.clear"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small" Color="Color.Primary"
+                           OnClick="ClearFilterAsync" />
+        </MudTooltip>
+    }
+    @if (!_filterVisible && FilterActive && !IsAiWork)
+    {
+        @* сводка установленного фильтра: не более 50 символов, далее «…» (ТЗ v1.17) *@
+        <MudText Typo="Typo.caption" Style="opacity: .8;">@FilterSummary</MudText>
+    }
+    @if (_view != "table" && !IsAiWork)
+    {
+        @* сортировка доски и иерархии (ТЗ v1.17): иконка «две стрелки», меню вариантов.
+           Активатор — встроенная иконка MudMenu (правка v1.18, todo21): свой активатор
+           с MudTooltip внутри ActivatorContent не пробрасывал клик — меню не открывалось *@
+        <MudMenu Icon="@Icons.Material.Filled.SwapVert" Dense="true"
+                 Color="@(_sort is null ? Color.Default : Color.Primary)"
+                 AriaLabel="@L["tasks.sort"]">
+            @foreach (var key in SortKeys)
+            {
+                <MudMenuItem Icon="@(_sort == key ? Icons.Material.Filled.Check : null)"
+                             OnClick="@(() => OnSortChanged(key))">
+                    @L["tasks.sort." + key]
+                </MudMenuItem>
+            }
+            <MudDivider />
+            <MudMenuItem Icon="@(_sort is null ? Icons.Material.Filled.Check : null)"
+                         OnClick="@(() => OnSortChanged(null))">
+                @L["tasks.sort.none"]
+            </MudMenuItem>
+        </MudMenu>
+    }
+    @* иерархия целиком: свернуть/развернуть все узлы (T-136) — правее иконки сортировки *@
+    @if (_view == "tree")
+    {
+        <MudTooltip Text="@L["tasks.tree.collapseAll"]">
+            <MudIconButton Icon="@Icons.Material.Filled.UnfoldLess" Size="Size.Small"
+                           OnClick="@(() => _tree?.CollapseAll())" />
+        </MudTooltip>
+        <MudTooltip Text="@L["tasks.tree.expandAll"]">
+            <MudIconButton Icon="@Icons.Material.Filled.UnfoldMore" Size="Size.Small"
+                           OnClick="@(() => _tree?.ExpandAll())" />
+        </MudTooltip>
+    }
+    <MudSpacer />
+    <MudSelect T="string" Value="@_view" ValueChanged="OnViewChanged" Label="@L["common.view"]"
+               Dense="true" Margin="Margin.Dense" Style="max-width: 160px;">
+        <MudSelectItem T="string" Value="@("board")">@L["tasks.view.board"]</MudSelectItem>
+        <MudSelectItem T="string" Value="@("table")">@L["tasks.view.table"]</MudSelectItem>
+        <MudSelectItem T="string" Value="@("tree")">@L["tasks.view.tree"]</MudSelectItem>
+        @* «тэги» (T-222): категория — тэг, внутри обычный список как в таблице;
+           при загрузке все категории свёрнуты *@
+        <MudSelectItem T="string" Value="@TagsKey">@L["tasks.view.tags"]</MudSelectItem>
+        @* «в работе у ИИ» (T-187) — только в общем списке задач: он сводит работу агентов
+           по ВСЕМ проектам и серверам, и во вкладке одного проекта смысла не имеет *@
+        @if (FixedProjectId is null)
+        {
+            <MudSelectItem T="string" Value="@AiWorkKey">@L["tasks.view.aiwork"]</MudSelectItem>
+        }
+    </MudSelect>
+    @* В АРХИВЕ ФУНКЦИЙ ПРАВКИ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат *@
+    @* импорт задач из внешней системы (ТЗ v1.28, todo30): всегда в текущий проект *@
+    @if (CurrentImportProjectId is not null && !State.InArchive)
+    {
+        <MudTooltip Text="@L["imports.run.title"]">
+            <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
+                           Disabled="@(!State.CanEdit)" OnClick="ImportAsync" />
+        </MudTooltip>
+        <MudTooltip Text="@L["imports.card.title"]">
+            @* data-import-card — опора живой проверки окна импорта по ссылке (T-247):
+               у кнопки-иконки нет ни подписи, ни заголовка, искать её нечем *@
+            <MudIconButton Icon="@Icons.Material.Filled.AddLink" data-import-card="1"
+                           Disabled="@(!State.CanEdit)" OnClick="ImportCardAsync" />
+        </MudTooltip>
+    }
+    @* кнопки-иконки с подсказками (гл. 11, эргономика) *@
+    @if (!State.InArchive)
+    {
+        <MudTooltip Text="@L["board.newTask"]">
+            @* data-newtask — проект ЭТОЙ формы: опора живой проверки списка шаблонов (T-157) *@
+            <MudIconButton Icon="@Icons.Material.Filled.Add"
+                           data-newtask="@(FixedProjectId ?? "")"
+                           Disabled="@(!State.CanEdit)" OnClick="NewTaskAsync" />
+        </MudTooltip>
+    }
+    <MudTooltip Text="@L["common.refresh"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" />
+    </MudTooltip>
+</MudStack>
+    </div>
+    <MudIconButton Class="ai2p-strip-arrow" data-strip-scroll="next"
+                   title="@L["strip.scrollNext"]"
+                   Icon="@Icons.Material.Filled.ChevronRight" Size="Size.Small"
+                   OnClick="@(() => ScrollToolbarAsync(1))" />
+</div>
+
+@if (_filterVisible && !IsAiWork)
+{
+    <MudPaper Outlined="true" Elevation="0" Class="pa-2 mb-3">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField T="string" @bind-Value="_search" Label="@L["common.search"]"
+                              Placeholder="@L["tasks.search.placeholder"]"
+                              Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search"
+                              OnAdornmentClick="ReloadAsync" Immediate="true"
+                              OnKeyDown="OnSearchKeyDown" Margin="Margin.Dense" Clearable="true" />
+            </MudItem>
+            @if (FixedProjectId is null)
+            {
+                <MudItem xs="12" sm="6" md="2">
+                    <MudSelect T="string" Value="@_projectId" ValueChanged="OnProjectFilterChanged"
+                               Label="@L["tasks.filter.project"]" Clearable="true" Dense="true" Margin="Margin.Dense">
+                        @foreach (var project in State.Projects)
+                        {
+                            <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="string" Value="@_teamId" ValueChanged="OnTeamFilterChanged"
+                           Label="@L["tasks.filter.team"]" Clearable="true" Dense="true" Margin="Margin.Dense">
+                    @foreach (var team in State.Teams)
+                    {
+                        <MudSelectItem T="string" Value="@team.Id">@team.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="string" Value="@_executorId" ValueChanged="OnExecutorFilterChanged"
+                           Label="@L["tasks.filter.executor"]" Clearable="true" Dense="true" Margin="Margin.Dense">
+                    @foreach (var executor in State.Executors)
+                    {
+                        <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="string" Value="@_status" ValueChanged="OnStatusFilterChanged"
+                           Label="@L["tasks.filter.status"]" Clearable="true" Dense="true" Margin="Margin.Dense">
+                    @foreach (var status in State.ActiveTaskStatuses)
+                    {
+                        <MudSelectItem T="string" Value="@status.Id">@status.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="1" Class="d-flex align-center">
+                <MudCheckBox T="bool" Value="@_mine" ValueChanged="OnMineChanged" Dense="true"
+                             Label="@L["tasks.filter.mine"]" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudDatePicker Date="@_dueFrom" DateChanged="OnDueFromChanged" Label="@L["tasks.filter.from"]"
+                               Clearable="true" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudDatePicker Date="@_dueTo" DateChanged="OnDueToChanged" Label="@L["tasks.filter.to"]"
+                               Clearable="true" Margin="Margin.Dense" />
+            </MudItem>
+            @* фильтр по серверам-владельцам (ТЗ гл. 6, этап 42): в кластере задачи всех
+               серверов лежат в одной реплике, и без фильтра свои задачи терялись бы среди
+               чужих. Множественный выбор; пусто — все серверы. Показывается только когда
+               серверов больше одного *@
+            @if (State.IsCluster)
+            {
+                <MudItem xs="12" sm="6" md="3">
+                    <MudSelect T="string" SelectedValues="@_servers" SelectedValuesChanged="OnServersChanged"
+                               Label="@L["tasks.filter.server"]" MultiSelection="true"
+                               Dense="true" Margin="Margin.Dense" Clearable="true"
+                               ToStringFunc="@(id => ServerTitle(id))">
+                        <MudSelectItem T="string" Value="@TaskService_NoServer">@L["task.server.none"]</MudSelectItem>
+                        @foreach (var server in State.OrgServers)
+                        {
+                            <MudSelectItem T="string" Value="@server.ServerId">@ServerTitle(server.ServerId)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+            @* фильтр по ТЭГАМ (T-222): множественный выбор из заведённых тэгов, пусто — все
+               задачи. Несколько выбранных тэгов соединяются по ИЛИ — человек отбирает
+               «всё про UI или про сборку», а пересечение почти всегда пусто *@
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="string" SelectedValues="@_tags" SelectedValuesChanged="OnTagsFilterChanged"
+                           Label="@L["tasks.filter.tags"]" MultiSelection="true"
+                           Dense="true" Margin="Margin.Dense" Clearable="true"
+                           data-filter-tags="1"
+                           MultiSelectionTextFunc="@(list => string.Join(", ", list))">
+                    @foreach (var tag in _allTags)
+                    {
+                        <MudSelectItem T="string" Value="@tag">@tag</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            @* фильтр по числовому приоритету (ТЗ v1.26) *@
+            <MudItem xs="12" sm="6" md="2">
+                <MudNumericField T="int?" Value="@_priorityMin" ValueChanged="OnPriorityMinChanged"
+                                 Label="@L["tasks.filter.priorityMin"]" Min="0" Clearable="true"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="2">
+                <MudNumericField T="int?" Value="@_priorityMax" ValueChanged="OnPriorityMaxChanged"
+                                 Label="@L["tasks.filter.priorityMax"]" Min="0" Clearable="true"
+                                 Margin="Margin.Dense" />
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+}
+
+@if (!_loaded)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    @* ПОВТОРНОЕ чтение списка больше не убирает представление с экрана (T-4-S1). Раньше на
+       время запроса вместо дерева (доски, таблицы) показывалась полоса прогресса: компонент
+       разрушался, а вместе с ним — начатый перенос задачи по иерархии. Список перечитывается
+       на любое изменение состояния, поэтому на телефоне, где жест длится секунды, перенос
+       регулярно пропадал молча — та самая жалоба «драг не работает». Теперь полоса тонкая и
+       стоит НАД списком, своим постоянным местом в разметке *@
+    <div class="ai2p-view-busy">
+        @if (_busy)
+        {
+            <MudProgressLinear Indeterminate="true" Style="height: 2px;" />
+        }
+    </div>
+    @switch (_view)
+    {
+        case AiWorkKey:
+            @* «в работе у ИИ» (T-187): своя выборка с сервера и своё автообновление *@
+            <AiWorkView />
+            break;
+        case "table":
+            <TaskTableView Tasks="_tasks" StateKey="@("taskTable:" + StateKey)" />
+            break;
+        case "tree":
+            @* @ref — кнопки «свернуть/развернуть все» в тулбаре (T-136) *@
+            <TaskTreeView @ref="_tree" Tasks="_tasks" RootSort="@SortComparison()" OnReload="ReloadAsync" />
+            break;
+        case TagsKey:
+            @* «тэги» (T-222): категории по тэгам, внутри — список как в таблице.
+               Порядок внутри категории — выбранная сортировка тулбара *@
+            <TaskTagsView Tasks="@Sorted(_tasks)" />
+            break;
+        default:
+            @* порядок колонок доски запоминается на аккаунт+проект (T-128) *@
+            <BoardView Tasks="@Sorted(_tasks)" ProjectId="@(FixedProjectId ?? _projectId)" />
+            break;
+    }
+}
+</div>
+
+@code {
+    /// <summary>Ключи вариантов сортировки доски/иерархии (ТЗ v1.17; время изменения — T-223).
+    /// Список и сами компараторы общие с вкладкой шаблонов — <see cref="TaskSort"/>.</summary>
+    private static string[] SortKeys => TaskSort.Keys;
+
+    /// <summary>Код представления «в работе у ИИ» (T-187): всё, чем заняты агенты сейчас.</summary>
+    private const string AiWorkKey = "aiwork";
+
+    /// <summary>Код представления «тэги» (T-222): категории по тэгам, внутри — список задач.</summary>
+    private const string TagsKey = "tags";
+
+    /// <summary>Встраивание во вкладку «задачи» проекта (ТЗ v1.17): фильтр по проекту фиксирован,
+    /// новая задача получает этот проект и его команду по умолчанию.</summary>
+    [Parameter] public string? FixedProjectId { get; set; }
+
+    /// <summary>Показано «в работе у ИИ» (T-187): у него нет ни фильтра, ни выбора сортировки —
+    /// список сам знает, что показывать, и обновляется сам.</summary>
+    private bool IsAiWork => _view == AiWorkKey;
+
+    private List<TaskItem> _tasks = [];
+    /// <summary>Список прочитан хотя бы раз — представление можно рисовать. СБРАСЫВАТЬ этот
+    /// флаг на повторных чтениях нельзя (T-4-S1): разрушенное представление уносит с собой
+    /// начатый перенос задачи и свёрнутость узлов дерева.</summary>
+    private bool _loaded;
+    /// <summary>Идёт чтение списка — над представлением тонкая полоса (T-4-S1).</summary>
+    private bool _busy;
+    private string _view = "board";
+    /// <summary>Живое представление «иерархия» — кнопки «свернуть/развернуть все» (T-136).</summary>
+    private TaskTreeView? _tree;
+    private bool _filterVisible;
+    private string? _sort;
+
+    // фильтр (ТЗ гл. 5): по умолчанию — задачи текущего проекта
+    private string? _projectId;
+    private string? _teamId;
+    private string? _executorId;
+    private string? _status;
+    private bool _mine;
+    private DateTime? _dueFrom;
+    private DateTime? _dueTo;
+    private int? _priorityMin;
+    private int? _priorityMax;
+    /// <summary>Фильтр по серверам-владельцам (ТЗ гл. 6, этап 42); пусто — все серверы.</summary>
+    private HashSet<string> _servers = [];
+    /// <summary>Фильтр по тэгам (T-222); пусто — все задачи. Несколько тэгов — по ИЛИ.</summary>
+    private HashSet<string> _tags = [];
+    /// <summary>Все заведённые тэги организации — список выбора фильтра (T-222).</summary>
+    private List<string> _allTags = [];
+    private string _search = "";
+    private string? _lastCurrentProjectId;
+
+    /// <summary>Значение фильтра «задачи без сервера» — их ведёт дирижёр (ТЗ гл. 6).</summary>
+    private const string TaskService_NoServer = "none";
+
+    /// <summary>«S1 (ноутбук)» для фильтра; «none» — задачи без сервера.</summary>
+    private string ServerTitle(string? serverId)
+    {
+        if (serverId is not { Length: > 0 } || serverId == TaskService_NoServer)
+        {
+            return L["task.server.none"];
+        }
+        var server = State.OrgServers.FirstOrDefault(x => x.ServerId == serverId);
+        if (server is null)
+        {
+            return serverId;
+        }
+        return server.Name.Length > 0 ? $"{server.Code} ({server.Name})" : server.Code;
+    }
+
+    /// <summary>Представление, фильтр и сортировка запоминаются на время сессии и
+    /// восстанавливаются при возврате на закладку (todo23).</summary>
+    private sealed class TasksViewState
+    {
+        public bool Saved { get; set; }
+        public string View { get; set; } = "board";
+        public string? Sort { get; set; }
+        public bool FilterVisible { get; set; }
+        public string? ProjectId { get; set; }
+        public string? TeamId { get; set; }
+        public string? ExecutorId { get; set; }
+        public string? Status { get; set; }
+        public bool Mine { get; set; }
+        public DateTime? DueFrom { get; set; }
+        public DateTime? DueTo { get; set; }
+        public int? PriorityMin { get; set; }
+        public int? PriorityMax { get; set; }
+        /// <summary>Выбранные серверы-владельцы (ТЗ гл. 6, этап 42); пусто — все.</summary>
+        public List<string> Servers { get; set; } = [];
+        /// <summary>Выбранные тэги (T-222); пусто — все задачи.</summary>
+        public List<string> Tags { get; set; } = [];
+        public string Search { get; set; } = "";
+    }
+
+    private TasksViewState _saved = new();
+
+    private string StateKey => "tasksView:" + (FixedProjectId ?? "root");
+
+    /// <summary>Ключ листаемой полосы тулбара (T-194): списков задач на экране бывает
+    /// несколько — фреймы рабочей области и вкладка «Задачи» карточки проекта.</summary>
+    private string StripKey => "tasks:" + (FixedProjectId ?? "root");
+
+    /// <summary>Переполнение тулбара мерит браузер, и мерить надо после КАЖДОГО рендера:
+    /// состав кнопок меняется от представления и от того, установлен ли фильтр (T-194).</summary>
+    protected override Task OnAfterRenderAsync(bool firstRender) =>
+        Js.InvokeVoidAsync("ai2p.initStrips", null).AsTask();
+
+    /// <summary>Листание тулбара кнопками «‹ ›» (T-194); dir: -1 — влево, 1 — вправо.</summary>
+    private async Task ScrollToolbarAsync(int dir)
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("ai2p.scrollStrip", StripKey, dir);
+        }
+        catch (JSException)
+        {
+            // представление уже перерисовано/закрыто — листать нечего
+        }
+    }
+
+    /// <summary>Установлен ли фильтр (для сводки при скрытом фильтре, ТЗ v1.17);
+    /// фиксированный проект и проект по умолчанию фильтром не считаются.</summary>
+    private bool FilterActive =>
+        _teamId is not null || _executorId is not null || _status is not null || _mine
+        || _dueFrom is not null || _dueTo is not null || _search.Trim().Length > 0
+        || _priorityMin is not null || _priorityMax is not null || _servers.Count > 0
+        || _tags.Count > 0
+        || (FixedProjectId is null && _projectId != State.CurrentProjectId);
+
+    /// <summary>Текстовая сводка фильтра: не более 50 символов, далее «…» (ТЗ v1.17).</summary>
+    private string FilterSummary
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (_search.Trim().Length > 0)
+            {
+                parts.Add($"«{_search.Trim()}»");
+            }
+            if (FixedProjectId is null && _projectId != State.CurrentProjectId)
+            {
+                parts.Add(_projectId is null
+                    ? L["tasks.filter.allProjects"]
+                    : State.Projects.FirstOrDefault(p => p.Id == _projectId)?.Name ?? "");
+            }
+            if (_teamId is not null)
+            {
+                parts.Add(State.Teams.FirstOrDefault(t => t.Id == _teamId)?.Name ?? "");
+            }
+            if (_executorId is not null)
+            {
+                parts.Add(State.Executors.FirstOrDefault(e => e.Id == _executorId)?.Nick ?? "");
+            }
+            if (_status is not null)
+            {
+                parts.Add(L["status." + _status]);
+            }
+            if (_mine)
+            {
+                parts.Add(L["tasks.filter.mine"]);
+            }
+            if (_dueFrom is not null || _dueTo is not null)
+            {
+                parts.Add($"{_dueFrom?.ToString("d")}—{_dueTo?.ToString("d")}");
+            }
+            if (_priorityMin is not null || _priorityMax is not null)
+            {
+                parts.Add($"{L["task.priorityNum"]} {_priorityMin?.ToString() ?? ""}—{_priorityMax?.ToString() ?? ""}");
+            }
+            if (_servers.Count > 0)
+            {
+                parts.Add(string.Join(", ", _servers.Select(ServerTitle)));
+            }
+            if (_tags.Count > 0)
+            {
+                parts.Add(string.Join(", ", _tags));   // тэги (T-222)
+            }
+            var summary = string.Join("; ", parts.Where(p => p.Length > 0));
+            return summary.Length <= 50 ? summary : summary[..50] + "…";
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += OnStateChanged;
+        // восстановление состояния прошлого открытия (todo23): вид, фильтр, сортировка
+        _saved = State.ComponentState<TasksViewState>(StateKey);
+        if (_saved.Saved)
+        {
+            _view = _saved.View;
+            _sort = _saved.Sort;
+            _filterVisible = _saved.FilterVisible;
+            _projectId = _saved.ProjectId;
+            _teamId = _saved.TeamId;
+            _executorId = _saved.ExecutorId;
+            _status = _saved.Status;
+            _mine = _saved.Mine;
+            _dueFrom = _saved.DueFrom;
+            _dueTo = _saved.DueTo;
+            _priorityMin = _saved.PriorityMin;
+            _priorityMax = _saved.PriorityMax;
+            _servers = _saved.Servers.ToHashSet(StringComparer.Ordinal);
+            _tags = _saved.Tags.ToHashSet(StringComparer.Ordinal);   // тэги (T-222)
+            _search = _saved.Search;
+        }
+        else
+        {
+            _projectId = FixedProjectId ?? State.CurrentProjectId;
+        }
+        _lastCurrentProjectId = State.CurrentProjectId;
+        await ReloadAsync();
+    }
+
+    /// <summary>Снимок состояния при закрытии/переключении закладки (todo23).</summary>
+    private void SaveViewState()
+    {
+        _saved.Saved = true;
+        _saved.View = _view;
+        _saved.Sort = _sort;
+        _saved.FilterVisible = _filterVisible;
+        _saved.ProjectId = _projectId;
+        _saved.TeamId = _teamId;
+        _saved.ExecutorId = _executorId;
+        _saved.Status = _status;
+        _saved.Mine = _mine;
+        _saved.DueFrom = _dueFrom;
+        _saved.DueTo = _dueTo;
+        _saved.PriorityMin = _priorityMin;
+        _saved.PriorityMax = _priorityMax;
+        _saved.Servers = _servers.ToList();
+        _saved.Tags = _tags.ToList();   // тэги (T-222)
+        _saved.Search = _search;
+    }
+
+    private async void OnStateChanged()
+    {
+        // смена текущего проекта в шапке — обновить фильтр по проекту (кроме встроенного режима)
+        if (FixedProjectId is null && _lastCurrentProjectId != State.CurrentProjectId)
+        {
+            _lastCurrentProjectId = State.CurrentProjectId;
+            _projectId = State.CurrentProjectId;
+        }
+        // перечитывать список на любое изменение (todo19): задача, сохранённая из карточки/диалога
+        // в другом месте, должна появляться на доске без ручного «обновить»
+        await ReloadAsync();
+        StateHasChanged();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _busy = true;
+            // конец интервала — включительно: до конца дня (интервалы могут быть открытыми, гл. 5)
+            var dueTo = _dueTo?.Date.AddDays(1).AddSeconds(-1);
+            _tasks = (await Api.GetTasksAsync(
+                    projectId: FixedProjectId ?? _projectId,
+                    teamId: _teamId,
+                    executorId: _executorId,
+                    mineId: _mine ? State.LocalUser.Id : null,
+                    status: _status,
+                    dueFrom: _dueFrom?.Date,
+                    dueTo: dueTo,
+                    search: _search.Trim().Length == 0 ? null : _search.Trim(),
+                    priorityMin: _priorityMin,
+                    priorityMax: _priorityMax,
+                    servers: _servers.Count == 0 ? null : _servers,
+                    tags: _tags.Count == 0 ? null : _tags))
+                .ToList();
+            // список тэгов для фильтра (T-222): читается вместе со списком задач — тэг
+            // заводится правкой любой задачи, и отдельной кнопки «обновить тэги» быть не должно.
+            // Выбранные тэги остаются в списке, даже если их сняли с последней задачи, —
+            // иначе фильтр показывал бы пустоту без единого способа её снять
+            _allTags = (await Api.GetTagsAsync()).Concat(_tags)
+                .Distinct(StringComparer.CurrentCultureIgnoreCase)
+                .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+            _loaded = true;
+            // вид/фильтр/сортировка запоминаются и переживают перезапуск (гл. 11):
+            // каждое изменение фильтра проходит через ReloadAsync
+            SaveViewState();
+            State.PersistComponentStates();
+        }
+    }
+
+    private Task OnSearchKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Enter" ? ReloadAsync() : Task.CompletedTask;
+
+    private Task OnProjectFilterChanged(string? value) { _projectId = value; return ReloadAsync(); }
+    private Task OnTeamFilterChanged(string? value) { _teamId = value; return ReloadAsync(); }
+    private Task OnExecutorFilterChanged(string? value) { _executorId = value; return ReloadAsync(); }
+    private Task OnStatusFilterChanged(string? value) { _status = value; return ReloadAsync(); }
+    private Task OnMineChanged(bool value) { _mine = value; return ReloadAsync(); }
+    private Task OnDueFromChanged(DateTime? value) { _dueFrom = value; return ReloadAsync(); }
+    private Task OnDueToChanged(DateTime? value) { _dueTo = value; return ReloadAsync(); }
+    private Task OnPriorityMinChanged(int? value) { _priorityMin = value; return ReloadAsync(); }
+    private Task OnPriorityMaxChanged(int? value) { _priorityMax = value; return ReloadAsync(); }
+
+    private Task OnServersChanged(IEnumerable<string> values)
+    {
+        _servers = values.ToHashSet(StringComparer.Ordinal);
+        return ReloadAsync();
+    }
+
+    /// <summary>Выбор тэгов в фильтре (T-222).</summary>
+    private Task OnTagsFilterChanged(IEnumerable<string> values)
+    {
+        _tags = values.ToHashSet(StringComparer.Ordinal);
+        return ReloadAsync();
+    }
+
+    private Task OnViewChanged(string value)
+    {
+        _view = value;
+        SaveViewState();
+        State.PersistComponentStates();
+        return Task.CompletedTask;
+    }
+
+    private void OnSortChanged(string? key)
+    {
+        _sort = key;
+        SaveViewState();
+        State.PersistComponentStates();
+    }
+
+    /// <summary>Очистка всего фильтра одной кнопкой (ТЗ v1.18, todo21): возврат к состоянию
+    /// по умолчанию (проект — текущий, остальное пусто) и перечитывание списка.</summary>
+    private Task ClearFilterAsync()
+    {
+        _search = "";
+        _projectId = FixedProjectId ?? State.CurrentProjectId;
+        _teamId = null;
+        _executorId = null;
+        _status = null;
+        _mine = false;
+        _dueFrom = null;
+        _dueTo = null;
+        _priorityMin = null;
+        _priorityMax = null;
+        _servers.Clear();
+        _tags.Clear();   // тэги (T-222)
+        return ReloadAsync();
+    }
+
+    /// <summary>Ник первого исполнителя задачи — для сортировки «по исполнителю».</summary>
+    private string Nick(TaskItem t) => t.ExecutorIds.Count == 0
+        ? ""
+        : State.Executors.FirstOrDefault(e => e.Id == t.ExecutorIds[0])?.Nick ?? "";
+
+    /// <summary>Компаратор выбранной сортировки (ТЗ v1.17); null — серверный порядок.</summary>
+    private Comparison<TaskItem>? SortComparison() => TaskSort.Comparison(_sort, Nick);
+
+    private List<TaskItem> Sorted(List<TaskItem> tasks) => TaskSort.Sorted(tasks, _sort, Nick);
+
+    /// <summary>Проект, в который идёт импорт (ТЗ v1.28): вкладка проекта — её проект,
+    /// иначе текущий проект из шапки.</summary>
+    private string? CurrentImportProjectId => FixedProjectId ?? State.CurrentProjectId;
+
+    /// <summary>Импорт задач из внешней системы (ТЗ v1.28, todo30): переспрос источника
+    /// (справочник импортов) и чекбоксов, затем запуск на сервере.</summary>
+    private async Task ImportAsync()
+    {
+        var projectId = CurrentImportProjectId;
+        if (projectId is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ImportRunDialog> { { d => d.ProjectId, projectId } };
+        var dialog = await Dialogs.ShowAsync<ImportRunDialog>(L["imports.run.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+    }
+
+    /// <summary>Импорт одиночного задания по URL (ТЗ v1.50, todo50): переспрос ссылки,
+    /// затем содержимое карточки (файлы уже скачаны) подставляется в форму новой задачи.</summary>
+    private async Task ImportCardAsync()
+    {
+        var projectId = CurrentImportProjectId;
+        if (projectId is null)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ImportCardDialog> { { d => d.ProjectId, projectId } };
+        var dialog = await Dialogs.ShowAsync<ImportCardDialog>(L["imports.card.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ImportedCardDto card })
+        {
+            return;
+        }
+        // содержимое карточки — в форму новой задачи; проект формы = проект импорта
+        var formParameters = new DialogParameters<TaskDialog>
+        {
+            { d => d.PresetProjectId, projectId },
+            { d => d.PresetTeamId, DefaultTeamOf(projectId) },
+            { d => d.Preset, card },
+        };
+        var form = await Dialogs.ShowAsync<TaskDialog>(L["task.form.new"], formParameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        var saved = await form.Result;
+        if (saved is { Canceled: false, Data: TaskSaveDto dto })
+        {
+            try
+            {
+                var created = await Api.CreateTaskAsync(dto);
+                // обсуждение карточки — в чат созданной задачи (T-152): авторами
+                // числятся люди Trello («trello:<логин>»), порядок и время — как там
+                if (card.Comments.Count > 0)
+                {
+                    var moved = await Api.ImportChatAsync(created.Id, card.Comments);
+                    if (moved.Comments > 0)
+                    {
+                        Snackbar.Add(string.Format(L["imports.card.chat"], moved.Comments),
+                            Severity.Success);
+                    }
+                }
+                await ReloadAsync();
+                State.NotifyChanged();
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    /// <summary>«Новая задача» (todo31): сначала диалог выбора — пустая задача (прежняя
+    /// форма) или шаблон верхнего уровня (создание из шаблона с переспросом, п. 2.4).
+    /// Список шаблонов — по проекту ЭТОЙ формы (T-157): во вкладке «задачи» карточки
+    /// проекта это её проект, а не текущий проект пользователя.</summary>
+    private async Task NewTaskAsync()
+    {
+        var pickParameters = new DialogParameters<NewTaskDialog>
+        {
+            { d => d.ProjectId, FixedProjectId },
+        };
+        var pickDialog = await Dialogs.ShowAsync<NewTaskDialog>(L["task.form.new"], pickParameters,
+            new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var picked = await pickDialog.Result;
+        if (picked is not { Canceled: false, Data: NewTaskDialog.Choice choice })
+        {
+            return;
+        }
+        if (choice.Template is { } template)
+        {
+            await NewTaskFromTemplateAsync(template);
+            return;
+        }
+        await NewEmptyTaskAsync();
+    }
+
+    private async Task NewTaskFromTemplateAsync(TaskItem template)
+    {
+        try
+        {
+            var created = await InstantiateFlow.RunAsync(Dialogs, Api, L, template.Id);
+            if (created is null)
+            {
+                return; // отмена переспроса
+            }
+            await ReloadAsync();
+            State.NotifyChanged();
+            Snackbar.Add(L["task.instantiate.created"], Severity.Success);
+            State.OpenTask(created.Id, created.DisplayId, created.Title);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task NewEmptyTaskAsync()
+    {
+        var parameters = new DialogParameters<TaskDialog>();
+        if (FixedProjectId is not null)
+        {
+            // вкладка «задачи» проекта (ТЗ v1.17): текущими считаются этот проект и его команда
+            parameters.Add(d => d.PresetProjectId, FixedProjectId);
+            parameters.Add(d => d.PresetTeamId, DefaultTeamOf(FixedProjectId));
+        }
+        var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.new"], parameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: TaskSaveDto dto })
+        {
+            try
+            {
+                await Api.CreateTaskAsync(dto);
+                await ReloadAsync();
+                State.NotifyChanged(); // эксплорер тоже обновится
+            }
+            catch (ApiException ex)
+            {
+                Snackbar.Add(ex.Message, Severity.Error);
+            }
+        }
+    }
+
+    private string? DefaultTeamOf(string projectId)
+    {
+        var settings = State.Projects.FirstOrDefault(p => p.Id == projectId)?.SettingsJson;
+        if (settings is null)
+        {
+            return null;
+        }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(settings);
+            return doc.RootElement.TryGetProperty("defaultTeamId", out var v) ? v.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    public void Dispose()
+    {
+        SaveViewState();
+        State.Changed -= OnStateChanged;
+    }
+}

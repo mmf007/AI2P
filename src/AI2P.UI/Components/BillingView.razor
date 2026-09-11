@@ -1,0 +1,283 @@
+@using System.Globalization
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Биллинг (ТЗ v1.15, todo18): сбор стоимости работы; представления таблица/календарь,
+   фильтры по периоду, проекту, команде, нику исполнителя, внутреннему имени (модели). *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["billing.title"]</MudText>
+    <MudSpacer />
+    <MudToggleGroup T="string" Value="_view" ValueChanged="OnViewChanged" Color="Color.Primary"
+                    Size="Size.Small" CheckMark="true">
+        <MudToggleItem Value="@("table")">@L["billing.view.table"]</MudToggleItem>
+        <MudToggleItem Value="@("calendar")">@L["billing.view.calendar"]</MudToggleItem>
+    </MudToggleGroup>
+    <MudTooltip Text="@L["common.refresh"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" />
+    </MudTooltip>
+</MudStack>
+
+@* фильтры (ТЗ v1.15): период, проект, команда, ник, внутреннее имя = модель *@
+<MudPaper Elevation="0" Class="pa-2 mb-3">
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+        <MudDatePicker Label="@L["billing.from"]" @bind-Date="_from" Clearable="true"
+                       Margin="Margin.Dense" Style="max-width: 160px;" />
+        <MudDatePicker Label="@L["billing.to"]" @bind-Date="_to" Clearable="true"
+                       Margin="Margin.Dense" Style="max-width: 160px;" />
+        <MudSelect T="string" @bind-Value="_projectId" Label="@L["billing.filter.project"]" Clearable="true"
+                   Dense="true" Margin="Margin.Dense" Style="max-width: 180px;">
+            @foreach (var p in State.Projects)
+            {
+                <MudSelectItem T="string" Value="@p.Id">@p.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_teamId" Label="@L["billing.filter.team"]" Clearable="true"
+                   Dense="true" Margin="Margin.Dense" Style="max-width: 180px;">
+            @foreach (var t in State.Teams)
+            {
+                <MudSelectItem T="string" Value="@t.Id">@t.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_executorId" Label="@L["billing.filter.nick"]" Clearable="true"
+                   Dense="true" Margin="Margin.Dense" Style="max-width: 180px;">
+            @foreach (var e in State.Executors)
+            {
+                <MudSelectItem T="string" Value="@e.Id">@e.Nick</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" @bind-Value="_modelId" Label="@L["billing.filter.model"]" Clearable="true"
+                   Dense="true" Margin="Margin.Dense" Style="max-width: 180px;">
+            @foreach (var m in State.Models)
+            {
+                <MudSelectItem T="string" Value="@m.Id">@m.Name</MudSelectItem>
+            }
+        </MudSelect>
+        @* кнопка-иконка с подсказкой (гл. 11, эргономика) *@
+        <MudTooltip Text="@L["common.search"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Search" Variant="Variant.Filled"
+                           Color="Color.Primary" OnClick="LoadAsync" />
+        </MudTooltip>
+    </MudStack>
+</MudPaper>
+
+@* итоги по валютам *@
+@if (_records.Count > 0)
+{
+    <MudStack Row="true" Spacing="4" Class="mb-2">
+        <MudText Typo="Typo.body2">@L["billing.total.records"]: <b>@_records.Count</b></MudText>
+        @foreach (var group in _records.Where(r => r.Currency.Length > 0).GroupBy(r => r.Currency))
+        {
+            <MudText Typo="Typo.body2">
+                @L["billing.total.cost"] (@group.Key): <b>@group.Sum(r => r.Cost).ToString("0.####")</b>
+            </MudText>
+        }
+        @* токены считаются ТОЛЬКО по агентам (T-153-S0): у человека их не было никогда,
+           у «авто ПО» их нет по существу — программа токенов не тратит *@
+        <MudText Typo="Typo.body2">
+            @L["billing.total.tokens"]:
+            <b>@_records.Where(r => r.Kind == ExecutorKind.Ai).Sum(r => r.InputTokens + r.OutputTokens)</b>
+        </MudText>
+    </MudStack>
+}
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (_records.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["common.empty"]</MudAlert>
+}
+else if (_view == "table")
+{
+    @* таблица (ТЗ v1.15): проект, команда, исполнитель, внутреннее имя, начало, длительность, стоимость, валюта, токены *@
+    <div style="overflow-x: auto;">
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <th>@L["billing.col.project"]</th>
+                    <th>@L["billing.col.team"]</th>
+                    <th>@L["billing.col.executor"]</th>
+                    <th>@L["billing.col.internalName"]</th>
+                    <th>@L["billing.col.task"]</th>
+                    <th>@L["billing.col.started"]</th>
+                    <th>@L["billing.col.duration"]</th>
+                    <th style="text-align: right;">@L["billing.col.cost"]</th>
+                    <th>@L["billing.col.currency"]</th>
+                    <th style="text-align: right;">@L["billing.col.tokens"]</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _records)
+                {
+                    <tr>
+                        <td>@r.ProjectName</td>
+                        <td>@r.TeamName</td>
+                        <td>
+                            <MudIcon Icon="@ExecutorUi.Icon(r.Kind)" Size="Size.Small" /> @r.ExecutorNick
+                        </td>
+                        <td>@r.InternalName</td>
+                        <td>@r.TaskDisplayId</td>
+                        <td>@r.StartedAt.ToLocalTime().ToString("g")</td>
+                        <td>@Duration(r.DurationSeconds)</td>
+                        <td style="text-align: right;">@r.Cost.ToString("0.######")</td>
+                        <td>@r.Currency</td>
+                        <td style="text-align: right;">
+                            @(r.Kind == ExecutorKind.Ai ? (r.InputTokens + r.OutputTokens).ToString() : "—")
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    </div>
+}
+else
+{
+    @* календарь (ТЗ v1.15): месячная сетка, в ячейке дня — сумма стоимости и число записей *@
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronLeft" OnClick="@(() => ShiftMonth(-1))" />
+        <MudText Typo="Typo.h6">@_month.ToString("MMMM yyyy", Culture)</MudText>
+        <MudIconButton Icon="@Icons.Material.Filled.ChevronRight" OnClick="@(() => ShiftMonth(1))" />
+    </MudStack>
+    <table class="ai2p-billing-cal">
+        <thead>
+            <tr>
+                @foreach (var day in DayNames())
+                {
+                    <th>@day</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var week in MonthWeeks())
+            {
+                <tr>
+                    @foreach (var day in week)
+                    {
+                        <td class="@(day.Month == _month.Month ? "" : "other")">
+                            @if (day != default)
+                            {
+                                <div class="day">@day.Day</div>
+                                @if (_byDay.TryGetValue(day.Date, out var stat))
+                                {
+                                    <div class="amount">@stat.Cost.ToString("0.####")</div>
+                                    <div class="count">@stat.Count @L["billing.cal.jobs"]</div>
+                                }
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+<style>
+    .ai2p-billing-cal { border-collapse: collapse; width: 100%; }
+    .ai2p-billing-cal th, .ai2p-billing-cal td { border: 1px solid var(--mud-palette-lines-default); vertical-align: top; width: 14.28%; }
+    .ai2p-billing-cal th { padding: 4px; text-align: center; font-weight: 600; }
+    .ai2p-billing-cal td { height: 72px; padding: 3px; }
+    .ai2p-billing-cal td.other { opacity: .4; }
+    .ai2p-billing-cal .day { font-size: 0.8rem; opacity: .7; }
+    .ai2p-billing-cal .amount { font-weight: 700; }
+    .ai2p-billing-cal .count { font-size: 0.7rem; opacity: .7; }
+</style>
+
+@code {
+    private static readonly CultureInfo Culture = CultureInfo.CurrentCulture;
+
+    private string _view = "table";
+    private bool _loading;
+    private List<BillingRecordDto> _records = [];
+
+    private DateTime? _from;
+    private DateTime? _to;
+    private string? _projectId;
+    private string? _teamId;
+    private string? _executorId;
+    private string? _modelId;
+
+    private DateTime _month = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private readonly Dictionary<DateTime, (double Cost, int Count)> _byDay = [];
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task OnViewChanged(string view)
+    {
+        _view = view;
+        await Task.CompletedTask;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        try
+        {
+            _records = await Api.GetBillingAsync(_from, _to, _projectId, _teamId, _executorId, _modelId);
+            RecomputeCalendar();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void RecomputeCalendar()
+    {
+        _byDay.Clear();
+        foreach (var r in _records)
+        {
+            var day = r.StartedAt.ToLocalTime().Date;
+            var prev = _byDay.GetValueOrDefault(day);
+            _byDay[day] = (prev.Cost + r.Cost, prev.Count + 1);
+        }
+    }
+
+    private void ShiftMonth(int delta) => _month = _month.AddMonths(delta);
+
+    private static string Duration(double seconds)
+    {
+        var ts = TimeSpan.FromSeconds(seconds);
+        return ts.TotalHours >= 1
+            ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
+            : $"{ts.Minutes}:{ts.Seconds:00}";
+    }
+
+    /// <summary>Названия дней недели, начиная с понедельника.</summary>
+    private static IEnumerable<string> DayNames()
+    {
+        for (var i = 0; i < 7; i++)
+        {
+            yield return Culture.DateTimeFormat.AbbreviatedDayNames[((int)DayOfWeek.Monday + i) % 7];
+        }
+    }
+
+    /// <summary>Недели месяца как строки по 7 дат (с добивкой соседними месяцами до понедельника/воскресенья).</summary>
+    private IEnumerable<DateTime[]> MonthWeeks()
+    {
+        var first = new DateTime(_month.Year, _month.Month, 1);
+        // сдвиг до понедельника
+        var offset = ((int)first.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        var start = first.AddDays(-offset);
+        for (var w = 0; w < 6; w++)
+        {
+            var week = new DateTime[7];
+            for (var d = 0; d < 7; d++)
+            {
+                week[d] = start.AddDays(w * 7 + d);
+            }
+            // не рисуем полностью «чужую» неделю в конце
+            if (w >= 4 && week[0].Month != _month.Month && week[6].Month != _month.Month)
+            {
+                yield break;
+            }
+            yield return week;
+        }
+    }
+}

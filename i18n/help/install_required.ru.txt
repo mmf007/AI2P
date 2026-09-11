@@ -1,0 +1,29 @@
+AI2P — install_required: ПРОВЕРКА И УСТАНОВКА СРЕДЫ СБОРКИ (ТЗ гл. 13.1)
+
+Это скрипт РАЗРАБОТЧИКА: он запускается на машине сборки, из репозитория.
+Его собственный вывод сделан только на английском (ярус B разбора T-64-S0).
+
+ЧТО ПРОВЕРЯЕТ И СТАВИТ (Windows, winget)
+  1. .NET SDK 8+                Microsoft.DotNet.SDK.8
+     + ASP.NET Core runtime 8.x Microsoft.DotNet.AspNetCore.8
+       приложение собрано под net8.0 и обязано идти на рантайме 8.x:
+       на рантайме 9/10 интерактивность Blazor молча отваливается
+  2. CMake                      Kitware.CMake
+  3. Компилятор C/C++ MSVC      VS 2022 Build Tools + рабочая нагрузка VC
+  4. Подмодули git              git submodule update --init
+  5. Inno Setup 6               JRSoftware.InnoSetup
+       нужен MakePackage, чтобы собрать установщик .exe из готовой выкладки;
+       для самой сборки он не нужен
+
+ЧТО ПРОВЕРЯЕТ И СТАВИТ (Linux / macOS)
+  .NET SDK, CMake, компилятор C/C++, подмодули git и makeself — последний нужен
+  MakePackage.sh, чтобы собрать пакет .run.
+
+ИСПОЛЬЗОВАНИЕ
+  install_required.bat        Windows
+  ./install_required.sh       Linux / macOS
+  install_required.bat --help эта справка
+
+ЗАМЕЧАНИЕ. Установщики могут спросить подтверждение администратора (UAC на Windows,
+sudo на остальных). После установки откройте НОВУЮ консоль, чтобы подхватились
+изменения PATH, и запустите скрипт ещё раз для проверки.

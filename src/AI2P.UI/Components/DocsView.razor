@@ -1,0 +1,192 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+@* ЧТЕНИЕ ПОСТАВЛЯЕМОЙ ДОКУМЕНТАЦИИ (T-17-S1, ТЗ гл. 14).
+
+   Не окно, а ОБЫЧНАЯ ЗАКЛАДКА рабочей области: документацию читают подолгу и рядом с
+   работой — модальное окно закрыло бы собой экран и не дало бы заглянуть в задачу.
+   Открывается кнопкой левого тулбара, нижней строкой эксплорера и пунктом меню «Виды».
+
+   Начинается чтение с ОГЛАВЛЕНИЯ на языке интерфейса (doc/<язык>/index.md, а у языка без
+   него — doc/<язык>/README.md, T-51-S0); переходы по
+   внутренним ссылкам идут В ЭТОЙ ЖЕ закладке (пометка ссылок — DocLinks.Mark, перехват
+   клика — ai2p.initDocLinks), а кнопка «назад» вверху возвращает на прежнюю страницу и
+   активна только после первого такого перехода.
+
+   Где мы находимся и откуда пришли, хранит UiState: закладку переключают, компонент при
+   этом пересоздаётся — путь чтения переживает и это. *@
+<div class="ai2p-doc" style="height: 100%; display: flex; flex-direction: column; min-height: 0;">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+        @* «назад» — первой кнопкой слева: пока переходов не было, она погашена *@
+        <MudTooltip Text="@L["docs.back"]">
+            <span>
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowBack" data-doc-back="1"
+                               Disabled="@(!State.DocCanGoBack)" OnClick="BackAsync" />
+            </span>
+        </MudTooltip>
+        <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["menu.docs"]</MudText>
+        @* где мы сейчас: путь страницы внутри каталога документации *@
+        <MudText Typo="Typo.caption" data-doc-path="@_page?.RelPath" Style="opacity:.7;">
+            @(_page?.RelPath ?? "")
+        </MudText>
+        <MudSpacer />
+        @* ССЫЛКИ НА ЭТУ СТРАНИЦУ (T-207-S0) — правым верхним углом, как у карточки задачи:
+           окно то же самое, меняется только адрес *@
+        <MudTooltip Text="@L["docs.link"]">
+            <span>
+                <MudIconButton Icon="@Icons.Material.Filled.Link" data-doc-link="1"
+                               Disabled="@(_page is null)" OnClick="ShowLinkAsync" />
+            </span>
+        </MudTooltip>
+    </MudStack>
+
+    @if (_page is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (!_page.Found)
+    {
+        <MudStack Spacing="2">
+            <MudAlert Severity="Severity.Info" Dense="true" data-doc-missing="1">@L["docs.missing"]</MudAlert>
+            <MudText Typo="Typo.caption" Style="word-break: break-all;">@_page.Hint</MudText>
+        </MudStack>
+    }
+    else
+    {
+        @if (!string.Equals(_page.Language, L.Lang, StringComparison.OrdinalIgnoreCase))
+        {
+            @* перевода на язык интерфейса ещё нет — честно об этом говорим (как у документа
+               модели): пустой страницы человек не увидит, но и подмену языка от него
+               прятать нельзя *@
+            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2" data-doc-otherlang="1">
+                @L["docs.otherLang"]: @_page.Language
+            </MudAlert>
+        }
+        <div class="ai2p-md-preview" id="@_id" data-doc-body="1">@((MarkupString)Html)</div>
+        <MudText Typo="Typo.caption" Class="mt-2" Style="opacity:.6; word-break: break-all;">@_page.Path</MudText>
+    }
+</div>
+
+@code {
+    /// <summary>Область текста: по её id ставится перехват кликов по внутренним ссылкам.</summary>
+    private readonly string _id = "ai2p-doc-" + Guid.NewGuid().ToString("N");
+
+    private DocPageDto? _page;
+    private DotNetObjectReference<DocsView>? _selfRef;
+
+    /// <summary>Показанную страницу надо прокрутить к началу — но ровно один раз (T-163:
+    /// доводка прокрутки на каждом рендере отматывает назад то, что читатель прокрутил).</summary>
+    private bool _scrollPending;
+
+    protected override async Task OnInitializedAsync()
+    {
+        L.OnChange += OnLanguageChanged;
+        await LoadAsync(State.DocPath);
+    }
+
+    /// <summary>Смена языка интерфейса «на лету» (гл. 9): страница обязана перечитаться —
+    /// у документации свой файл на каждый язык.</summary>
+    private async void OnLanguageChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            await LoadAsync(State.DocPath);
+            StateHasChanged();
+        });
+    }
+
+    /// <summary>Страница, которую мы уже прочитали. Нужна, чтобы заметить, что путь чтения
+    /// сменили СНАРУЖИ (переход по ссылке /doc/{путь} при уже открытой закладке, T-207-S0):
+    /// закладка при таком переходе не пересоздаётся, и <c>OnInitializedAsync</c> не повторяется.
+    /// Начальное значение — заведомо не путь: пустая строка означает «первая страница».</summary>
+    private string? _loadedPath;
+
+    private async Task LoadAsync(string relPath)
+    {
+        try
+        {
+            _page = await Api.GetDocPageAsync(relPath);
+            // страница могла найтись под другим именем (пустой запрос — README.md):
+            // «назад» обязано вести именно на неё
+            if (_page.RelPath.Length > 0)
+            {
+                State.DocShown(_page.RelPath);
+            }
+            _scrollPending = true;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _page = new DocPageDto { Hint = ex.Message, RelPath = relPath };
+        }
+        // читаем то, что просят: после DocShown путь мог уточниться (пустой → README.md)
+        _loadedPath = State.DocPath;
+    }
+
+    /// <summary>Готовый HTML страницы: внутренние ссылки помечены и станут переходами
+    /// внутри этой же закладки, а картинки взяты у своего эндпойнта (DocLinks, T-97-S0).</summary>
+    private string Html => DocLinks.MarkImages(
+        DocLinks.Mark(Md.ToHtml(_page?.Text ?? ""), _page?.RelPath ?? ""),
+        _page?.Language ?? "", _page?.RelPath ?? "");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // путь чтения сменили снаружи — переходом по ссылке /doc/{путь} (T-207-S0):
+        // закладка уже открыта, пересоздания не будет, и заметить это можно только здесь
+        if (!string.Equals(_loadedPath, State.DocPath, StringComparison.Ordinal))
+        {
+            await LoadAsync(State.DocPath);
+            StateHasChanged();
+            return;
+        }
+        if (_page is null || !_page.Found)
+        {
+            return;
+        }
+        _selfRef ??= DotNetObjectReference.Create(this);
+        // повторные вызовы — no-op (data-атрибут в JS), но звать надо после КАЖДОГО рендера:
+        // область текста появляется не сразу, а когда страница прочитана
+        await Js.InvokeVoidAsync("ai2p.initDocLinks", _id, _selfRef);
+        if (_scrollPending)
+        {
+            _scrollPending = false;
+            await Js.InvokeVoidAsync("ai2p.docScrollTop", _id);
+        }
+    }
+
+    /// <summary>Клик по внутренней ссылке документа (перехват в ai2p.initDocLinks):
+    /// следующая страница показывается НА МЕСТЕ прежней, новой закладки не появляется.</summary>
+    [JSInvokable]
+    public async Task OnDocLinkAsync(string path)
+    {
+        State.DocOpen(path ?? "");
+        await LoadAsync(State.DocPath);
+        StateHasChanged();
+    }
+
+    /// <summary>Ссылки на открытую страницу документации (T-207-S0) — тем же окном, что
+    /// ссылка на задачу: краткая (от корня сайта), внутренняя (петлевая) и внешняя
+    /// (по имени сервера; у сервера с петлевым именем её нет).</summary>
+    private Task ShowLinkAsync() => DocLink.ShowAsync(Dialogs, State, L, _page?.RelPath ?? State.DocPath);
+
+    /// <summary>Шаг назад по пройденным страницам.</summary>
+    private async Task BackAsync()
+    {
+        if (State.DocBack() is not { } previous)
+        {
+            return;
+        }
+        await LoadAsync(previous);
+    }
+
+    public void Dispose()
+    {
+        L.OnChange -= OnLanguageChanged;
+        _selfRef?.Dispose();
+    }
+}

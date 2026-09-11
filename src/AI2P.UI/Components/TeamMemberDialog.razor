@@ -1,0 +1,81 @@
+@inject UiState State
+@inject I18nService L
+
+@* Форма добавления участника команды (todo22): всё об участнике заполняется здесь —
+   исполнитель, проф. роль, руководитель (иерархия, ТЗ v1.17), тимлид. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudSelect T="string" @bind-Value="_member.ExecutorId" Label="@L["executors.nick"]"
+                       Dense="true" Margin="Margin.Dense">
+                @* только активные исполнители, ещё не входящие в состав (дубликаты запрещены) *@
+                @foreach (var executor in FreeExecutors)
+                {
+                    <MudSelectItem T="string" Value="@executor.Id">
+                        <MudIcon Icon="@ExecutorUi.Icon(executor.Kind)"
+                                 Size="Size.Small" Class="mr-1" Style="vertical-align: text-bottom;" />
+                        @executor.Nick
+                    </MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="_member.RoleId" Label="@L["teams.role"]"
+                       Dense="true" Margin="Margin.Dense" Clearable="true">
+                @foreach (var role in State.Roles)
+                {
+                    <MudSelectItem T="string" Value="@role.Id">@role.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @* руководитель — участник этой же команды (иерархия, ТЗ v1.17) *@
+            <MudSelect T="string" Value="@_member.ParentExecutorId" ValueChanged="OnParentChanged"
+                       Label="@L["teams.manager"]" Dense="true" Margin="Margin.Dense" Clearable="true"
+                       Placeholder="@L["teams.topLevel"]">
+                @foreach (var other in Team.Members.Where(m => m.ExecutorId.Length > 0))
+                {
+                    <MudSelectItem T="string" Value="@other.ExecutorId">@Nick(other.ExecutorId)</MudSelectItem>
+                }
+            </MudSelect>
+            @* тимлид — только участник верхнего уровня (ТЗ v1.17) *@
+            <MudTooltip Text="@L["teams.leadHint"]">
+                <MudCheckBox T="bool" @bind-Value="_member.IsLead" Label="@L["teams.lead"]"
+                             Dense="true" Disabled="@(_member.ParentExecutorId is not null)" />
+            </MudTooltip>
+            @* активность именно в этой команде (T-129): не путать с активностью исполнителя
+               в справочнике — один и тот же исполнитель бывает включён в одной команде
+               и выключен в другой *@
+            <MudTooltip Text="@L["teams.memberActiveHint"]">
+                <MudCheckBox T="bool" @bind-Value="_member.IsActive" Label="@L["teams.memberActive"]"
+                             Dense="true" />
+            </MudTooltip>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_member.ExecutorId.Length == 0)"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_member)))">@L["common.add"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Команда, в которую добавляется участник (для руководителей и фильтра занятых).</summary>
+    [Parameter, EditorRequired] public Team Team { get; set; } = default!;
+
+    private readonly TeamMember _member = new();
+
+    private IEnumerable<Executor> FreeExecutors => State.Executors.Where(e =>
+        e.IsActive && Team.Members.All(m => m.ExecutorId != e.Id));
+
+    private string Nick(string executorId) =>
+        State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? executorId;
+
+    private void OnParentChanged(string? parentId)
+    {
+        _member.ParentExecutorId = parentId;
+        if (parentId is not null)
+        {
+            _member.IsLead = false; // тимлид — только верхний уровень (ТЗ v1.17)
+        }
+    }
+}

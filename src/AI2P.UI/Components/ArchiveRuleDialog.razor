@@ -1,0 +1,182 @@
+@inject UiState State
+@inject I18nService L
+
+@* ФОРМА ЗАПИСИ ПРАВИЛА АРХИВАЦИИ (T-41-S0). Состав полей прямо по заданию и ОДИН И ТОТ ЖЕ
+   у обеих групп правил — общих правил организации и правил конкретного архива: форма про
+   группу не знает вовсе, её различает только тот, кто форму открыл.
+
+   Три поля показываются не всегда, и это не украшательство:
+   — СОСТОЯНИЕ ЗАДАЧИ спрашивается только у правил про задачи (у остальных видов вместо
+     него активность данных);
+   — СОСТОЯНИЯ ПОТОМКОВ — только у видов с иерархией (задачи и шаблоны): иерархия
+     архивируется целиком, и один потомок мимо списка отменяет архивацию всей ветки.
+     Пустой список означает «любое состояние», а не «никакое»;
+   — ДНИ либо МЕСЯЦЫ И ГОДА — смотря какой срок выбран, временной или календарный. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            <MudSelect T="string" Value="@_rule.Target" ValueChanged="OnTargetChanged"
+                       Label="@L["arcrules.target"]" data-arcrule-target="1">
+                @foreach (var target in ArchiveRuleTargets.All)
+                {
+                    <MudSelectItem T="string" Value="@target">@L["arcrules.target." + target]</MudSelectItem>
+                }
+            </MudSelect>
+
+            @if (ArchiveRuleTargets.HasTaskStatus(_rule.Target))
+            {
+                <MudSelect T="string" @bind-Value="_rule.TaskStatus" Label="@L["arcrules.status"]"
+                           data-arcrule-status="1">
+                    @foreach (var status in State.TaskStatuses)
+                    {
+                        <MudSelectItem T="string" Value="@status.Id">@status.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else
+            {
+                <MudSelect T="string" @bind-Value="_rule.Activity" Label="@L["arcrules.activity"]"
+                           data-arcrule-activity="1">
+                    @foreach (var activity in ArchiveRuleActivity.All)
+                    {
+                        <MudSelectItem T="string" Value="@activity">@L["arcrules.activity." + activity]</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+
+            @if (ArchiveRuleTargets.IsHierarchical(_rule.Target))
+            {
+                <MudSelect T="string" MultiSelection="true" SelectedValues="_children"
+                           SelectedValuesChanged="OnChildrenChanged" Label="@L["arcrules.children"]"
+                           HelperText="@L["arcrules.children.hint"]" data-arcrule-children="1"
+                           MultiSelectionTextFunc="@(_ => ChildrenText)">
+                    @foreach (var status in State.TaskStatuses)
+                    {
+                        <MudSelectItem T="string" Value="@status.Id">@status.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+
+            <MudSelect T="string" @bind-Value="_rule.DateField" Label="@L["arcrules.date"]"
+                       data-arcrule-date="1">
+                @foreach (var date in ArchiveRuleDates.All)
+                {
+                    <MudSelectItem T="string" Value="@date">@L["arcrules.date." + date]</MudSelectItem>
+                }
+            </MudSelect>
+
+            <MudSelect T="string" @bind-Value="_rule.AgeKind" Label="@L["arcrules.age"]"
+                       data-arcrule-age="1">
+                @foreach (var kind in ArchiveRuleAges.All)
+                {
+                    <MudSelectItem T="string" Value="@kind">@L["arcrules.age." + kind]</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_rule.AgeKind == ArchiveRuleAges.Days)
+            {
+                <MudNumericField T="int" @bind-Value="_rule.AgeDays" Min="0" Max="36500"
+                                 Label="@L["arcrules.days"]" data-arcrule-days="1"
+                                 Style="max-width: 200px;" />
+            }
+            else
+            {
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="int" @bind-Value="_rule.AgeYears" Min="0" Max="100"
+                                     Label="@L["arcrules.years"]" data-arcrule-years="1"
+                                     Style="max-width: 160px;" />
+                    <MudNumericField T="int" @bind-Value="_rule.AgeMonths" Min="0" Max="1200"
+                                     Label="@L["arcrules.months"]" data-arcrule-months="1"
+                                     Style="max-width: 160px;" />
+                </MudStack>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["arcrules.calendar.hint"]</MudText>
+            }
+
+            <MudSwitch T="bool" @bind-Value="_rule.IsActive" Label="@L["common.active"]"
+                       Color="Color.Primary" data-arcrule-active="1" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@SaveDisabled"
+                   OnClick="Save" data-arcrule-save="1">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>null — новое правило.</summary>
+    [Parameter] public ArchiveRule? Source { get; set; }
+
+    /// <summary>Архив правила; пусто — ОБЩЕЕ правило организации.</summary>
+    [Parameter] public string? ArchiveId { get; set; }
+
+    private ArchiveRule _rule = new();
+    private IReadOnlyCollection<string> _children = [];
+
+    protected override void OnInitialized()
+    {
+        if (Source is not null)
+        {
+            _rule = new ArchiveRule
+            {
+                Id = Source.Id,
+                DisplayId = Source.DisplayId,
+                ArchiveId = Source.ArchiveId,
+                Target = Source.Target,
+                TaskStatus = Source.TaskStatus,
+                ChildStatuses = [.. Source.ChildStatuses],
+                Activity = Source.Activity,
+                DateField = Source.DateField,
+                AgeKind = Source.AgeKind,
+                AgeDays = Source.AgeDays,
+                AgeMonths = Source.AgeMonths,
+                AgeYears = Source.AgeYears,
+                IsActive = Source.IsActive,
+            };
+        }
+        else
+        {
+            // умолчания нового правила: задачи в состоянии «готово», по дате изменения,
+            // временной срок в год — самое частое правило и заведомо безопасное
+            _rule.ArchiveId = ArchiveId;
+            _rule.TaskStatus = TaskStatuses.Done;
+            _rule.AgeDays = 365;
+        }
+        _children = _rule.ChildStatuses.ToList();
+    }
+
+    private void OnTargetChanged(string target)
+    {
+        _rule.Target = target;
+        // состояние задачи спрашивается только у правил про задачи; пустое значение
+        // хранилище отвергло бы, поэтому умолчание подставляем сразу
+        if (ArchiveRuleTargets.HasTaskStatus(target) && _rule.TaskStatus.Length == 0)
+        {
+            _rule.TaskStatus = TaskStatuses.Done;
+        }
+    }
+
+    private void OnChildrenChanged(IReadOnlyCollection<string> values)
+    {
+        _children = values;
+        _rule.ChildStatuses = values.ToList();
+    }
+
+    /// <summary>Подпись списка состояний потомков: пусто здесь значит «любое», и молчащее
+    /// поле читалось бы как «ни одно» — то есть как запрет архивации вовсе.</summary>
+    private string ChildrenText =>
+        _rule.ChildStatuses.Count == 0
+            ? L["arcrules.children.any"]
+            : string.Join(", ", State.TaskStatuses
+                .Where(s => _rule.ChildStatuses.Contains(s.Id))
+                .Select(s => s.Name));
+
+    private bool SaveDisabled =>
+        (ArchiveRuleTargets.HasTaskStatus(_rule.Target) && _rule.TaskStatus.Length == 0)
+        || (_rule.AgeKind == ArchiveRuleAges.Days
+            ? _rule.AgeDays <= 0
+            : _rule.AgeMonths + _rule.AgeYears <= 0);
+
+    private void Save() => Dialog.Close(DialogResult.Ok(_rule));
+}

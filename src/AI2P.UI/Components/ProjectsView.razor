@@ -1,0 +1,134 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Список проектов (ТЗ гл. 11): первая форма при первом заходе; выбор запоминается;
+   показывается признак «активен». Правка v1.18 (todo21): снова просто список —
+   клик по проекту открывает отдельную закладку «Проект» (вкладки основное/задачи/команда). *@
+<MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+    <MudText Typo="Typo.h5" Class="ai2p-view-title">@L["projects.title"]</MudText>
+    <MudSpacer />
+    @* кнопка-иконка с подсказкой (гл. 11, эргономика) *@
+    @* права по ролям (ТЗ п. 2.2, этап 39): читателю и редактору проекты не создаются *@
+    <MudTooltip Text="@L["projects.add"]">
+        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                       Disabled="@(!State.CanManageProjects)" OnClick="AddAsync" />
+    </MudTooltip>
+</MudStack>
+
+@if (State.Projects.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">@L["projects.firstRun"]</MudAlert>
+}
+else
+{
+    <MudSimpleTable Dense="true" Hover="true">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>@L["common.name"]</th>
+                <th>@L["projects.folder"]</th>
+                <th>@L["common.active"]</th>
+                <th>@L["common.created"]</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var project in State.Projects)
+            {
+                @* клик по строке открывает закладку «Проект» (ТЗ v1.18, todo21) *@
+                <tr style="cursor: pointer;"
+                    @onclick="@(() => State.OpenProject(project.Id, project.DisplayId, project.Name, FrameIndex))">
+                    <td>@project.DisplayId</td>
+                    <td>@project.Name</td>
+                    <td>@FolderOf(project)</td>
+                    <td>
+                        <MudIcon Icon="@(project.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                 Color="@(project.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                    </td>
+                    <td>@project.CreatedAt.ToLocalTime().ToString("g")</td>
+                    @* удаление проекта (T-44-S0): форма выбора «перенести в архив или
+                       удалить совсем». stopPropagation обязателен — клик по строке
+                       открывает закладку проекта, и без него она открылась бы поверх формы *@
+                    <td style="white-space: nowrap;"
+                        @onclick="@(() => { })" @onclick:stopPropagation="true">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       Color="Color.Error" title="@L["common.delete"]"
+                                       Disabled="@(!State.CanManageProjects)"
+                                       data-project-delete="@project.DisplayId"
+                                       OnClick="@(() => DeleteAsync(project))" />
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+}
+
+@code {
+    /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
+    /// по клику на элементе списка открываются в этом же фрейме.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
+    /// <summary>Каталог проекта НА ЭТОМ СЕРВЕРЕ (ТЗ гл. 6, этап 42): значение подставляет
+    /// сервер — у каждого компьютера каталог свой, в настройках проекта его больше нет.</summary>
+    private static string FolderOf(Project project) => project.FolderPath;
+
+    /// <summary>Создание нового проекта (гл. 11); редактирование — в закладке «Проект» (v1.18).</summary>
+    private async Task AddAsync()
+    {
+        var dialog = await Dialogs.ShowAsync<ProjectDialog>(L["projects.add"]);
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ProjectCreateDto dto })
+        {
+            return;
+        }
+        try
+        {
+            var created = await Api.CreateProjectAsync(dto);
+            await State.RefreshReferenceDataAsync();
+            await State.SetCurrentProjectAsync(created.Id);
+            State.OpenProject(created.Id, created.DisplayId, created.Name, FrameIndex);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// УДАЛЕНИЕ ПРОЕКТА (T-44-S0, выпуск 1.105) — форма выбора «перенести в архив или
+    /// удалить совсем». В архив проект уезжает целиком: его задачи, шаблоны, объекты, опыт,
+    /// логи и настройки самого проекта, — и унести его нельзя, пока хоть одна его задача
+    /// (на любой глубине) не в состоянии черновик/проверка/готово/отменено; какая именно
+    /// мешает, форма скажет. «Удалить совсем» уносит тот же состав в корзину.
+    /// </summary>
+    private async Task DeleteAsync(Project project)
+    {
+        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+            ArchiveMoveTargets.Project, project.Id, $"{project.DisplayId} {project.Name}");
+        if (choice is null)
+        {
+            return;
+        }
+        try
+        {
+            if (choice == ArchiveOrDeleteDialog.Archive)
+            {
+                await Api.MoveToArchiveAsync(ArchiveMoveTargets.Project, project.Id);
+            }
+            else
+            {
+                await Api.DeleteProjectAsync(project.Id);
+            }
+            State.CloseEntityTab(UiState.ViewProject, project.Id);
+            await State.RefreshReferenceDataAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

@@ -1,0 +1,16 @@
+AI2P — build: СБОРКА ВСЕГО РЕШЕНИЯ
+
+Проекты C# плюс (в будущем) нативные подпроекты C/C++ на CMake (ТЗ гл. 4.2).
+Это скрипт РАЗРАБОТЧИКА: он запускается на машине сборки, из репозитория, и его
+собственный вывод сделан только на английском (ярус B разбора T-64-S0).
+
+ИСПОЛЬЗОВАНИЕ
+  build.cmd [Debug|Release]        Windows, по умолчанию Debug
+  build.ps1 -Configuration Release то же самое, без обёртки .cmd
+  ./build.sh [Debug|Release]       Linux / macOS
+  build.cmd --help                 эта справка
+  build.cmd --help -Lang ru        язык этой справки
+
+ДАЛЬШЕ
+  dotnet run --project src/AI2P.Server        запустить сервер для разработки
+  buildRelease.cmd                            сделать релизную выкладку из исходников

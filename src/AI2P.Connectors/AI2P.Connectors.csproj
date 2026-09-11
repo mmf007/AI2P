@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\AI2P.Core\AI2P.Core.csproj" />
+    <ProjectReference Include="..\AI2P.Storage\AI2P.Storage.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.35.1" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
+    <!-- DPAPI для ключа организации в secrets.json (ТЗ гл. 10, этап 45): на Windows
+         значение защищается областью текущего пользователя, на остальных системах
+         пакет просто не используется (проверка платформы в OrgSecretKey) -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.*" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

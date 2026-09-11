@@ -1,0 +1,83 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Установка/обновление ключа API модели (ТЗ v1.42, todo36_5; хранилище — v1.52, этап 45):
+   старое значение никогда не показывается — вводится новое. Ключ принадлежит ОРГАНИЗАЦИИ:
+   он шифруется её ключом и реплицируется на все её серверы, а сам ключ организации живёт
+   только в secrets.json этого компьютера. В UI и логи значение не попадает.
+   После установки ключа модель становится активной. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3">
+            @if (!HasOrgKey)
+            {
+                @* сервер только подключился к чужой организации и ключа ещё не получил *@
+                <MudAlert Severity="Severity.Warning" Dense="true">@L["models.keyNoOrgKey"]</MudAlert>
+            }
+            <MudText Typo="Typo.body2">
+                @(HasKey ? L["models.keyPresentHint"] : L["models.keyMissingHint"])
+            </MudText>
+            <MudText Typo="Typo.caption">@L["models.keyOrgHint"]</MudText>
+            @* путь файла ключа на этом компьютере (T-234): ключ можно положить и файлом,
+               и человеку надо знать — куда именно *@
+            @if (KeyFile.Length > 0)
+            {
+                <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-key-file>
+                    @L["models.keyFile"]: @KeyFile
+                </MudText>
+            }
+            <MudTextField @bind-Value="_value" Label="@L["models.keyValue"]"
+                          InputType="InputType.Password" Immediate="true"
+                          HelperText="@($"{L["models.keyRef"]}: {SecretRef}")" />
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   Disabled="@(_value.Trim().Length == 0 || _saving || !HasOrgKey)" OnClick="SaveAsync">
+            @L["common.save"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string ModelId { get; set; } = "";
+
+    /// <summary>Ссылка на ключ в секретах (anthropic.apiKey и т. п.) — показывается подсказкой.</summary>
+    [Parameter] public string SecretRef { get; set; } = "";
+
+    /// <summary>Путь файла ключа на этом компьютере (подкаталог <c>secrets/</c>, T-234):
+    /// ключ можно положить и файлом, поэтому путь показывается прямо в форме.</summary>
+    [Parameter] public string KeyFile { get; set; } = "";
+
+    /// <summary>Ключ уже установлен — форма обновляет его (старое значение не показывается).</summary>
+    [Parameter] public bool HasKey { get; set; }
+
+    /// <summary>Сервер получил ключ организации (ТЗ гл. 10, этап 45); без него сохранять нечем.</summary>
+    [Parameter] public bool HasOrgKey { get; set; } = true;
+
+    private string _value = "";
+    private bool _saving;
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        try
+        {
+            await Api.SetModelKeyAsync(ModelId, _value);
+            _value = ""; // значение в памяти формы не держим
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

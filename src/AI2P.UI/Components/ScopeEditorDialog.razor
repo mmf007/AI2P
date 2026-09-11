@@ -1,0 +1,268 @@
+@using System.Text.Json
+@using System.Text.Json.Nodes
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* Редактор декларации возможностей (ТЗ пп. 2.9, 7.3) — один и тот же для справочника
+   ИИ-моделей и исполнителей (ИИ и человек). Полностью интерактивный UI (ТЗ v1.17, todo20):
+   ручная правка JSON не нужна — inputs/outputs из справочника io formats, skills из
+   справочника skills с оценкой 0–100, лимиты и цены числами. Правится json-файл;
+   путь пользователю не показывается; незнакомые поля файла сохраняются как есть. *@
+<MudDialog>
+    <DialogContent>
+        @if (_root is null)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudTextField @bind-Value="_id" Label="@L["scope.id"]" Margin="Margin.Dense" />
+
+                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_inputs"
+                           Label="@L["scope.inputs"]" Dense="true" Margin="Margin.Dense">
+                    @foreach (var format in FormatOptions(_inputs))
+                    {
+                        <MudSelectItem T="string" Value="@format">@FormatLabel(format)</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_outputs"
+                           Label="@L["scope.outputs"]" Dense="true" Margin="Margin.Dense">
+                    @foreach (var format in FormatOptions(_outputs))
+                    {
+                        <MudSelectItem T="string" Value="@format">@FormatLabel(format)</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <MudText Typo="Typo.subtitle2">@L["scope.skills"]</MudText>
+                @foreach (var row in _skills)
+                {
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                        <MudSelect T="string" @bind-Value="row.Name" Dense="true" Margin="Margin.Dense"
+                                   Style="min-width: 240px;">
+                            @foreach (var name in SkillOptions(row.Name))
+                            {
+                                <MudSelectItem T="string" Value="@name">@SkillLabel(name)</MudSelectItem>
+                            }
+                        </MudSelect>
+                        @* оценка владения по 100-балльной шкале (ТЗ п. 7.3) *@
+                        <MudNumericField T="int" @bind-Value="row.Score" Label="@L["scope.score"]"
+                                         Min="0" Max="100" Margin="Margin.Dense" Style="max-width: 120px;" />
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                       OnClick="@(() => _skills.Remove(row))" />
+                    </MudStack>
+                }
+                <div>
+                    <MudButton StartIcon="@Icons.Material.Filled.Add" Size="Size.Small" OnClick="AddSkill">
+                        @L["scope.addSkill"]
+                    </MudButton>
+                </div>
+
+                <MudText Typo="Typo.subtitle2">@L["scope.limits"]</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="long?" @bind-Value="_context" Label="@L["scope.limits.context"]"
+                                     Min="0" Margin="Margin.Dense" Clearable="true" />
+                    <MudNumericField T="long?" @bind-Value="_maxOutput" Label="@L["scope.limits.maxOutput"]"
+                                     Min="0" Margin="Margin.Dense" Clearable="true" />
+                </MudStack>
+
+                <MudText Typo="Typo.subtitle2">@L["scope.cost"]</MudText>
+                <MudStack Row="true" Spacing="2">
+                    <MudNumericField T="double?" @bind-Value="_inPer1M" Label="@L["scope.cost.in"]"
+                                     Min="0" Margin="Margin.Dense" Clearable="true" />
+                    <MudNumericField T="double?" @bind-Value="_outPer1M" Label="@L["scope.cost.out"]"
+                                     Min="0" Margin="Margin.Dense" Clearable="true" />
+                </MudStack>
+            </MudStack>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_root is null)"
+                   OnClick="SaveAsync">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Относительный путь json-файла декларации в dataDir.</summary>
+    [Parameter] public string Path { get; set; } = "";
+
+    /// <summary>Имя для шаблона декларации, если файла ещё нет.</summary>
+    [Parameter] public string DefaultName { get; set; } = "";
+
+    private sealed class SkillRow
+    {
+        public string Name { get; set; } = "";
+        public int Score { get; set; } = 50;
+    }
+
+    private JsonObject? _root;
+    private string _id = "";
+    private IReadOnlyCollection<string> _inputs = [];
+    private IReadOnlyCollection<string> _outputs = [];
+    private readonly List<SkillRow> _skills = [];
+    private long? _context;
+    private long? _maxOutput;
+    private double? _inPer1M;
+    private double? _outPer1M;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var text = await Api.GetFileTextAsync(Path);
+        try
+        {
+            _root = text.Trim().Length == 0 ? [] : JsonNode.Parse(text) as JsonObject ?? [];
+        }
+        catch (JsonException)
+        {
+            // повреждённый файл: редактор начинает с чистой декларации (сохранение перезапишет)
+            Snackbar.Add(L["json.invalid"], Severity.Warning);
+            _root = [];
+        }
+
+        _id = _root["id"]?.GetValue<string>() ?? DefaultName.ToLowerInvariant();
+        _inputs = ReadStrings(_root["inputs"], fallback: ["text/markdown"]);
+        _outputs = ReadStrings(_root["outputs"], fallback: ["text/markdown"]);
+        if (_root["skills"] is JsonArray skills)
+        {
+            foreach (var node in skills)
+            {
+                switch (node)
+                {
+                    case JsonObject obj when obj["name"]?.GetValue<string>() is { Length: > 0 } name:
+                        _skills.Add(new SkillRow
+                        {
+                            Name = name,
+                            Score = ReadInt(obj["score"]) ?? 50,
+                        });
+                        break;
+                    case JsonValue value when value.TryGetValue<string>(out var plain) && plain.Length > 0:
+                        _skills.Add(new SkillRow { Name = plain });
+                        break;
+                }
+            }
+        }
+        _context = ReadLong(_root["limits"]?["context"]);
+        _maxOutput = ReadLong(_root["limits"]?["max_output"]);
+        _inPer1M = ReadDouble(_root["cost"]?["in_per_1m"]);
+        _outPer1M = ReadDouble(_root["cost"]?["out_per_1m"]);
+    }
+
+    /// <summary>Варианты io formats: справочник (ТЗ v1.17) + значения из файла (не теряются).</summary>
+    private IEnumerable<string> FormatOptions(IReadOnlyCollection<string> selected) =>
+        State.IoFormats.Select(f => f.Name).Union(selected, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
+
+    private IEnumerable<string> SkillOptions(string selected) =>
+        State.Skills.Select(s => s.Name)
+            .Union(selected.Length > 0 ? [selected] : Array.Empty<string>(), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Код — en; для встроенных значений добавляется перевод (ТЗ v1.17).</summary>
+    private string FormatLabel(string name)
+    {
+        var format = State.IoFormats.FirstOrDefault(f =>
+            f.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (format is null)
+        {
+            return name;
+        }
+        var label = format.IsCustom ? format.Description : Localized("ioformat." + format.Name, format.Description);
+        return label.Length > 0 ? $"{name} — {label}" : name;
+    }
+
+    private string SkillLabel(string name)
+    {
+        var skill = State.Skills.FirstOrDefault(s =>
+            s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (skill is null)
+        {
+            return name;
+        }
+        var label = skill.IsCustom ? skill.Description : Localized("skill." + skill.Name, skill.Description);
+        return label.Length > 0 ? $"{name} — {label}" : name;
+    }
+
+    /// <summary>Перевод встроенного значения; нет перевода — описание из справочника.</summary>
+    private string Localized(string key, string fallback) => L[key] == key ? fallback : L[key];
+
+    private void AddSkill()
+    {
+        var free = State.Skills.FirstOrDefault(s =>
+            _skills.All(row => !row.Name.Equals(s.Name, StringComparison.OrdinalIgnoreCase)));
+        _skills.Add(new SkillRow { Name = free?.Name ?? "" });
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_root is null)
+        {
+            return;
+        }
+        // известные поля перезаписываются, незнакомые (включая _seed) сохраняются как есть
+        _root["id"] = _id.Trim();
+        _root["inputs"] = new JsonArray(_inputs.Select(v => (JsonNode)v!).ToArray());
+        _root["outputs"] = new JsonArray(_outputs.Select(v => (JsonNode)v!).ToArray());
+        _root["skills"] = new JsonArray(_skills
+            .Where(row => row.Name.Trim().Length > 0)
+            .Select(row => (JsonNode)new JsonObject { ["name"] = row.Name.Trim(), ["score"] = row.Score })
+            .ToArray());
+        var limits = _root["limits"] as JsonObject ?? [];
+        SetOrRemove(limits, "context", _context is null ? null : JsonValue.Create(_context.Value));
+        SetOrRemove(limits, "max_output", _maxOutput is null ? null : JsonValue.Create(_maxOutput.Value));
+        _root["limits"] = limits.DeepClone();
+        var cost = _root["cost"] as JsonObject ?? [];
+        SetOrRemove(cost, "in_per_1m", _inPer1M is null ? null : JsonValue.Create(_inPer1M.Value));
+        SetOrRemove(cost, "out_per_1m", _outPer1M is null ? null : JsonValue.Create(_outPer1M.Value));
+        _root["cost"] = cost.DeepClone();
+
+        try
+        {
+            await Api.SaveFileTextAsync(Path,
+                _root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            Dialog.Close(DialogResult.Ok(true));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private static void SetOrRemove(JsonObject obj, string key, JsonNode? value)
+    {
+        if (value is null)
+        {
+            obj.Remove(key);
+        }
+        else
+        {
+            obj[key] = value;
+        }
+    }
+
+    private static IReadOnlyCollection<string> ReadStrings(JsonNode? node, string[] fallback)
+    {
+        if (node is not JsonArray array)
+        {
+            return fallback;
+        }
+        return array.OfType<JsonValue>()
+            .Select(v => v.TryGetValue<string>(out var s) ? s : null)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s!)
+            .ToList();
+    }
+
+    private static int? ReadInt(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<int>(out var n) ? n : null;
+
+    private static long? ReadLong(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<long>(out var n) ? n : null;
+
+    private static double? ReadDouble(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<double>(out var n) ? n : null;
+}

@@ -1,0 +1,17 @@
+<Project>
+
+  <!-- КАТАЛОГИ ПРОГОНОВ ТЕСТОВ bin_tNNN НЕ ЯВЛЯЮТСЯ ИСХОДНИКАМИ (T-58-S0).
+       Прогон тестов собирается в свой каталог (-p:BaseOutputPath=bin_tNNN/), чтобы не
+       драться с соседом за bin/. Но SDK по умолчанию исключает из элементов проекта
+       только bin/ и obj/ — всё, что лежит в bin_tNNN, веб- и razor-проекты подхватывают
+       как Content и тащат в выкладку. Оттуда и берётся NETSDK1152 «несколько выходных
+       файлов публикации с одним и тем же относительным путём»: AI2P.UI.deps.json и
+       AI2P.UI.staticwebassets.runtime.json приезжают и из AI2P.UI\bin_tNNN, и из
+       AI2P.Server\bin_tNNN. Прежде это лечили уборкой каталогов перед каждым publish
+       (и забыть об этом ничего не стоило — сборка 1.107 у заказчика на этом и встала);
+       теперь такие каталоги не попадают в проект вовсе, на любой глубине. -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin_t*/**;**/bin_t*/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+</Project>

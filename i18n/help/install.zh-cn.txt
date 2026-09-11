@@ -1,0 +1,55 @@
+AI2P — install：安装与更新发布部署包（技术规格 4.3 章）
+
+本脚本由 buildRelease 自己放入**部署目录**，工作方式是「从这里 — 到那里」：
+源是脚本自身所在的目录，目标是唯一的参数。
+
+用法（Windows）
+  install.cmd D:\AI2P                 把 D:\AI2P 中的安装装上或更新
+  install.cmd D:\AI2P -Force          不询问，也不比对版本
+  install.cmd D:\AI2P -WhatIf         只显示将要做什么
+  install.cmd D:\AI2P -NoRuntimeCheck 不检查 .NET 运行时
+  install.cmd D:\AI2P -Lang zh-cn     消息语言
+  install.cmd --help                  本帮助
+  install.ps1 …                       同上，不经 .cmd 封装
+
+用法（Linux / macOS）
+  ./install.sh ~/ai/AI2P                    安装或更新
+  ./install.sh ~/ai/AI2P --force            不询问，也不比对版本
+  ./install.sh ~/ai/AI2P --what-if          只显示将要做什么
+  ./install.sh ~/ai/AI2P --no-runtime-check 不检查 .NET 运行时
+  ./install.sh ~/ai/AI2P --lang zh-cn       消息语言
+  ./install.sh --help                       本帮助
+
+消息语言
+  先看 --lang / -Lang，再看环境变量 AI2P_LANG，默认 en。config.json 中的
+  "language" 键**故意**不被读取：应用的界面语言和安装控制台的语言是两回事。
+  文本放在 i18n/scripts.<语言>.txt 中，本帮助放在 i18n/help/install.<语言>.txt 中；
+  脚本本身不按语言复制多份。
+
+做什么
+  * 目标不存在或为空  -> 首次安装：全部复制；
+  * 目标中已有安装    -> 更新：按 version.json 比对版本，
+    替换程序文件，**用户数据不会被触动**。
+
+  永远不会被覆盖的有：data、logs、secrets.json、secrets、config.json。
+  新版本的配置以 config.new.json 的形式放在旁边 — 应用会在首次启动时合并它：
+  以新配置为底（所有新参数用默认值），再覆盖上用户的工作值（ConfigMerge）。
+  数据库结构也由应用在那时自行迁移。
+
+.NET 运行时
+  普通部署包（builds/<OS>/release）构建时**不含**运行时：要运行它，机器上需要
+  ASP.NET Core Runtime 8.x — 脚本会检查它并提议安装（Windows 上用 winget，其他系统
+  上用 apt/dnf 或官方的 dotnet-install.sh）。完整部署包（builds/<OS>/releasefull）
+  完全不需要运行时：它就在包内，脚本会按 version.json 中的 selfContained 标记跳过检查。
+
+操作系统服务
+  如果该安装是以服务方式部署的（makeAsServise，服务名 AI2P），脚本会在复制前自行
+  停止它，并在之后启动回来。它询问的是**系统**，而不是配置中的标记：真实状态只有
+  系统知道。指向其他安装的别人的服务，脚本永远不会去动。
+
+跨版本升级
+  部署包是**完整**的，而不是对上一版本的补丁：把 1.79 装到 1.70 之上，和装到 1.78
+  之上完全一样。为了让跨越多个版本的更新不留垃圾，脚本会维护一份**清单**
+  （installed.json）：本版本往目标中放了哪些文件。下次安装时，上一份清单中在新
+  部署包里已不存在的文件会被删除；而人自己添加的文件（比如自己的语言文件放在
+  i18n 中）不在清单里，因此会被保留。

@@ -1,0 +1,204 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+@* Все файлы задачи (ТЗ v1.28, todo30; доработка todo37): ссылки из .md задачи и чата
+   плюс сами файлы результатов (artifacts/, источник «результат»).
+   Колонки: превью картинки, имя-ссылка (клик — открыть в браузере), описание, источник,
+   «скопировать ссылку» и «загрузить» (штатный загрузчик браузера).
+   Удаление — ТОЛЬКО у каждого файла отдельно, кнопкой в его строке; переспрос показывается
+   ОТДЕЛЬНЫМ окном (T-136). Раньше <c>MudMessageBox</c> объявлялся прямо в разметке этой
+   формы, а MudBlazor рисует вложенный диалог содержимым внешнего — сверху формы висели
+   чужой вопрос про удаление и кнопки «ОТМЕНА»/«УДАЛИТЬ», выглядевшие как «удалить всё». *@
+<MudDialog>
+    <DialogContent>
+        @if (!_loaded)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_files.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Style="opacity:.7">@L["task.files.empty"]</MudText>
+        }
+        else
+        {
+            @* горизонтальной прокрутки быть не должно (T-136): таблица во всю ширину окна,
+               длинные имена файлов переносятся, а не растягивают её *@
+            <MudSimpleTable Dense="true" Hover="true" Style="width: 100%; table-layout: fixed;">
+                <thead>
+                    <tr>
+                        <th style="width:64px">@L["task.files.preview"]</th>
+                        <th style="width:38%">@L["task.files.name"]</th>
+                        <th>@L["task.files.description"]</th>
+                        <th style="width:120px">@L["task.files.sourceHeader"]</th>
+                        <th style="width:132px"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var file in _files)
+                {
+                    <tr>
+                        <td style="width:64px">
+                            @if (IsImage(file))
+                            {
+                                @* превью — сама картинка, уменьшенная по высоте строки *@
+                                <img src="@OpenUrl(file)" alt="@file.Name"
+                                     style="max-width: 56px; max-height: 40px; display: block; object-fit: cover;" />
+                            }
+                            else
+                            {
+                                <MudIcon Icon="@KindIcon(file)" Size="Size.Small" />
+                            }
+                        </td>
+                        <td style="overflow-wrap: anywhere;">
+                            <MudLink Href="@OpenUrl(file)" Target="_blank">@file.Name</MudLink>
+                        </td>
+                        <td style="overflow-wrap: anywhere;">@file.Description</td>
+                        <td style="opacity:.6">@L["task.files.source." + file.Source]</td>
+                        <td style="white-space: nowrap;">
+                            <MudTooltip Text="@L["task.files.copyLink"]">
+                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Size="Size.Small"
+                                               OnClick="@(() => CopyLinkAsync(file))" />
+                            </MudTooltip>
+                            @* загрузка штатным загрузчиком браузера: download=true у наших файлов,
+                               атрибут download — у внешних ссылок (todo37) *@
+                            <MudTooltip Text="@L["task.files.download"]">
+                                <MudIconButton Icon="@Icons.Material.Filled.Download" Size="Size.Small"
+                                               Href="@DownloadUrl(file)" download="@file.Name" Target="_blank" />
+                            </MudTooltip>
+                            @* удаление файла (ТЗ v1.45, todo37_3): иначе большие видеорезультаты
+                               из артефактов не убрать; удаляются только файлы самой задачи *@
+                            @if (file.CanDelete)
+                            {
+                                <MudTooltip Text="@L["task.files.delete"]">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                                   Color="Color.Error" OnClick="@(() => DeleteAsync(file))" />
+                                </MudTooltip>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </MudSimpleTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Close())">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public string TaskId { get; set; } = "";
+
+    private static readonly string[] ImageExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"];
+    private static readonly string[] VideoExtensions = [".mp4", ".webm", ".mov", ".mkv", ".avi"];
+
+    private List<TaskFileDto> _files = [];
+    private bool _loaded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _files = await Api.GetTaskFilesAsync(TaskId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    /// <summary>Расширение файла по имени ссылки (у внешних URL его может и не быть).</summary>
+    private static string Extension(TaskFileDto file) =>
+        System.IO.Path.GetExtension(file.Name).ToLowerInvariant();
+
+    private static bool IsImage(TaskFileDto file) => ImageExtensions.Contains(Extension(file));
+
+    private static string KindIcon(TaskFileDto file) =>
+        VideoExtensions.Contains(Extension(file))
+            ? Icons.Material.Filled.Movie
+            : Icons.Material.Filled.InsertDriveFile;
+
+    /// <summary>Адрес, по которому файл ОТКРЫВАЕТСЯ (T-142): есть локальная копия — берём
+    /// её. Файл в гигабайты не должен ехать по сети только потому, что ссылку на него
+    /// записал агент с другого сервера (или этот же, но по внешнему имени).</summary>
+    private static string OpenUrl(TaskFileDto file) =>
+        file.LocalUrl.Length > 0 ? file.LocalUrl : file.Url;
+
+    /// <summary>Ссылка для скачивания: у наших файловых эндпойнтов — `download=true`
+    /// (сервер отдаёт с Content-Disposition), внешние URL берутся как есть.
+    /// Именно `true`, а не `1` (todo37_2): параметр эндпойнта — `bool?`, а разбор
+    /// минимального API идёт через `bool.TryParse`, который «1» не понимает, — ссылка
+    /// с `download=1` отвечала 400 и файл не скачивался.</summary>
+    private static string DownloadUrl(TaskFileDto file)
+    {
+        var url = OpenUrl(file);
+        return url.Contains("/api/files/", StringComparison.OrdinalIgnoreCase)
+               || url.StartsWith("api/files/", StringComparison.OrdinalIgnoreCase)
+            ? url + (url.Contains('?') ? "&" : "?") + "download=true"
+            : url;
+    }
+
+    /// <summary>Удалить файл задачи (ТЗ v1.45, todo37_3): с переспросом, список перечитывается.
+    /// Переспрос — ОТДЕЛЬНОЕ окно поверх формы (T-136), а не разметка внутри неё.</summary>
+    private async Task DeleteAsync(TaskFileDto file)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["task.files.delete"],
+            $"{L["task.files.deleteConfirm"]}\n\n{file.Name}",
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeleteTaskFileAsync(TaskId, file.Path);
+            _files = await Api.GetTaskFilesAsync(TaskId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Ссылка на файл — тем же окном, что и ссылка на задачу (T-142): локальная (адрес,
+    /// по которому подключён сам человек, — файл отдаётся с этого диска) и внешняя
+    /// (по имени сервера из настроек — её отправляют наружу). Локальной нет, когда файла
+    /// здесь нет: каталоги проекта на разных серверах разные.
+    ///
+    /// Копируются АБСОЛЮТНЫЕ адреса: относительный вне приложения бесполезен.
+    /// </summary>
+    private Task CopyLinkAsync(TaskFileDto file)
+    {
+        var external = Absolute(file.ExternalUrl.Length > 0 ? file.ExternalUrl : file.Url);
+        var local = file.LocalUrl.Length > 0 ? Absolute(file.LocalUrl) : "";
+        var parameters = new DialogParameters<TaskLinkDialog>
+        {
+            { d => d.Url, external },
+            { d => d.LocalUrl, local },
+            // относительная — только у НАШЕГО файла (T-196-S0)
+            { d => d.RelativeUrl, FileLinks.Parse(file.Url) is null
+                ? "" : LinkUrls.RelativeOf(local.Length > 0 ? local : external) },
+        };
+        return Dialogs.ShowAsync<TaskLinkDialog>(file.Name, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    /// <summary>Относительный адрес — от адреса, по которому открыт экран. Берётся
+    /// `AbsoluteUri`, а не `ToString()`: второй РАСКРЫВАЕТ процентное кодирование, и
+    /// кириллица в имени файла уезжала в буфер обмена голыми буквами.</summary>
+    private string Absolute(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var absolute)
+            ? absolute.AbsoluteUri
+            : Nav.ToAbsoluteUri(url).AbsoluteUri;
+}
