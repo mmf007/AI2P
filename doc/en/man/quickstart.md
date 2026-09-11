@@ -10,7 +10,7 @@ It takes 10–15 minutes, most of which is the download.
 
 ## Step 1. Download
 
-The distributions live here: **${refpackages}**
+[The distributions live here](https://github.com/mmf007/AI2P/releases)   
 
 There are two files for every system, and choosing between them means answering one question,
 "is the runtime needed separately?":

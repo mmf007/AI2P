@@ -10,7 +10,7 @@ Hacen falta de 10 a 15 minutos, y la mayor parte es la descarga.
 
 ## Paso 1. Descargar
 
-Los distributivos están aquí: **${refpackages}**
+[Los distributivos están aquí](https://github.com/mmf007/AI2P/releases)  
 
 Hay dos archivos para cada sistema, y elegir entre ellos es elegir «si hace falta el runtime
 aparte»:

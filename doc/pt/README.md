@@ -73,7 +73,8 @@ ao lado do programa.
   para os modelos locais. Sem modelo, o sistema funciona como um planejador comum para pessoas.
 
 ## Início rápido
-Para o primeiro início em poucos minutos veja [Início rápido](man/quickstart.md)
+Para o primeiro início em poucos minutos veja [Início rápido](man/quickstart.md)  
+[As distribuições ficam aqui](https://github.com/mmf007/AI2P/releases)     
 
 ## Documentação
 Para a documentação detalhada veja [Documentação](index.md)

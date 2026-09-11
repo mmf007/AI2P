@@ -74,8 +74,9 @@ claves están junto al programa.
   gráfica para los modelos locales. Sin modelo, el sistema funciona como un planificador normal
   para personas.
 
-## Inicio rápido
-Para el primer arranque en unos minutos consulte [Inicio rápido](man/quickstart.md)
+## Inicio rápido  
+Para el primer arranque en unos minutos consulte [Inicio rápido](man/quickstart.md)  
+[Los distributivos están aquí](https://github.com/mmf007/AI2P/releases) 
 
 ## Documentación
 Para la documentación detallada consulte [Documentación](index.md)

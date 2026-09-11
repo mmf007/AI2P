@@ -74,7 +74,8 @@ The data goes nowhere: the database, the project files and the keys lie next to 
   local models. Without a model the system works as an ordinary planner for people.
 
 ## Quick start
-For the first run in a few minutes see [Quick start](man/quickstart.md)
+For the first run in a few minutes see [Quick start](man/quickstart.md)  
+[The distributions live here](https://github.com/mmf007/AI2P/releases)   
 
 ## Documentation
 For the detailed documentation see [Documentation](index.md)

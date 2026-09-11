@@ -62,7 +62,8 @@ AI2P 就是通常意义上的 Trello 或 Jira：项目、任务、执行者、�
   没有模型时，系统就是一个普通的、供人使用的任务规划器。
 
 ## 快速开始
-几分钟内完成首次启动，请看[快速开始](man/quickstart.md)
+几分钟内完成首次启动，请看[快速开始](man/quickstart.md)  
+[安装包在这里](https://github.com/mmf007/AI2P/releases)   
 
 ## 文档
 详细文档请看[文档目录](index.md)
