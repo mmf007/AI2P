@@ -1337,17 +1337,40 @@ public static class ApiEndpoints
             }
             // пределы — СВОИ У ДАТАСЕТА: общие настройки приложения были его снимком в день
             // заведения, а требования моделей разные
-            var limits = LoraLimitsDto(LoraDatasetLimits.Parse(dataset.DatasetJson));
-            var bytes = Convert.FromBase64String(dto.DataBase64);
-            if (bytes.Length > limits.MaxKb * 1024L)
+            var setLimits = LoraDatasetLimits.Parse(dataset.DatasetJson);
+            var limits = LoraLimitsDto(setLimits);
+            // ЗВУКОВОЙ ДАТАСЕТ (T-250-S0) идёт мимо пережатия картинок целиком: запись
+            // браузер не перекодирует (холст умеет только картинки), поэтому файл берётся
+            // ИЗ ИСХОДНИКА в хранилище как есть — и ни вес в килобайтах, ни размер в точках
+            // к нему неприменимы. Проверка у него своя: расширение из объявленных
+            var audio = setLimits.IsAudio;
+            byte[] bytes;
+            if (audio)
             {
-                throw new ArgumentException(Loc.T("msg.lora.18", bytes.Length / 1024, limits.MaxKb));
+                if (dto.StagePath is not { Length: > 0 } src || !Files().IsInside(src)
+                    || !File.Exists(Files().Abs(src)))
+                {
+                    throw new ArgumentException(Loc.T("msg.lora.21", dto.StagePath));
+                }
+                if (!ProjectFiles.IsAudio(dto.FileName) && !ProjectFiles.IsAudio(src))
+                {
+                    throw new ArgumentException(Loc.T("msg.lora.47", dto.FileName));
+                }
+                bytes = File.ReadAllBytes(Files().Abs(src));
             }
-            if (ImageProbe.Size(bytes) is { } size
-                && (size.Width > limits.MaxWidth || size.Height > limits.MaxHeight))
+            else
             {
-                throw new ArgumentException(Loc.T("msg.lora.19", size.Width, size.Height,
-                    limits.MaxWidth, limits.MaxHeight));
+                bytes = Convert.FromBase64String(dto.DataBase64);
+                if (bytes.Length > limits.MaxKb * 1024L)
+                {
+                    throw new ArgumentException(Loc.T("msg.lora.18", bytes.Length / 1024, limits.MaxKb));
+                }
+                if (ImageProbe.Size(bytes) is { } size
+                    && (size.Width > limits.MaxWidth || size.Height > limits.MaxHeight))
+                {
+                    throw new ArgumentException(Loc.T("msg.lora.19", size.Width, size.Height,
+                        limits.MaxWidth, limits.MaxHeight));
+                }
             }
             // КАДРЫ ЛЕЖАТ В КАТАЛОГЕ ДАННЫХ ОРГАНИЗАЦИИ (T-98-S0), а не в папке проекта:
             // папка проекта у каждого сервера своя и не реплицируется, и датасет, собранный
@@ -1355,7 +1378,13 @@ public static class ApiEndpoints
             // поэтому кадр уезжает партнёру сам — вместе со строкой объекта.
             // У каждого датасета свой подкаталог: датасеты собирают под разные модели, и
             // одноимённые кадры двух датасетов затирали бы друг друга
-            var ext = limits.Format == "jpeg" ? ".jpg" : ".png";
+            // расширение ставит СЕРВЕР: у картинки — по формату настроек (её и пережали
+            // в него), у записи — родное расширение исходника (перекодировать её некому)
+            var ext = audio
+                ? (Path.GetExtension(dto.FileName) is { Length: > 1 } own
+                    ? own
+                    : Path.GetExtension(dto.StagePath) is { Length: > 1 } from ? from : ".wav")
+                : limits.Format == "jpeg" ? ".jpg" : ".png";
             var name = SafeFileName(dto.FileName, ext);
             var rel = ObjectFiles.DatasetDirRel(project?.Slug ?? "_no_project", item.DisplayId,
                 dataset.DisplayId) + "/" + name;
@@ -1368,7 +1397,7 @@ public static class ApiEndpoints
             {
                 ProjectId = item.ProjectId,
                 ParentId = dataset.Id,
-                Type = ObjectKinds.Image,
+                Type = audio ? ObjectKinds.Audio : ObjectKinds.Image,
                 Name = $"{dataset.DisplayId} {Path.GetFileNameWithoutExtension(name)}",
                 PathOrUrl = ObjectFiles.Store(rel),
                 Description = dto.Description,
@@ -1409,10 +1438,18 @@ public static class ApiEndpoints
                 {
                     throw new ArgumentException(Loc.T("msg.lora.21", local));
                 }
-                // берём только КАРТИНКИ, и это не косметика: путь приходит из формы, а
-                // прочитанный файл ложится в хранилище и отдаётся наружу ссылкой — без
-                // этой проверки одной строкой запроса выносился бы любой файл диска
-                if (!ProjectFiles.IsImage(path))
+                // берём только КАРТИНКИ (а у звукового датасета — только ЗАПИСИ), и это не
+                // косметика: путь приходит из формы, а прочитанный файл ложится в хранилище
+                // и отдаётся наружу ссылкой — без этой проверки одной строкой запроса
+                // выносился бы любой файл диска
+                if (LoraDatasetMedia.Normalize(dto.Media) == LoraDatasetMedia.Audio)
+                {
+                    if (!ProjectFiles.IsAudio(path))
+                    {
+                        throw new ArgumentException(Loc.T("msg.lora.47", Path.GetFileName(path)));
+                    }
+                }
+                else if (!ProjectFiles.IsImage(path))
                 {
                     throw new ArgumentException(Loc.T("msg.lora.22", Path.GetFileName(path)));
                 }
@@ -1421,7 +1458,9 @@ public static class ApiEndpoints
             }
             if (name.Trim().Length == 0)
             {
-                name = "image.png";
+                name = LoraDatasetMedia.Normalize(dto.Media) == LoraDatasetMedia.Audio
+                    ? "audio.wav"
+                    : "image.png";
             }
             var rel = Files().SaveUpload("_lora", "stage-" + name, bytes);
             return Results.Ok(new LoraStageResultDto { Path = rel, Name = name, Size = bytes.Length });
@@ -1790,7 +1829,8 @@ public static class ApiEndpoints
                 // чего ждёт агент (T-187): тот же расчёт, что в представлении «в работе у ИИ», —
                 // за статусом задачи пишется одно и то же и в форме, и в списке
                 Pause = AiPause.Of(waitingJob is not null, waitingJob?.WaitKind ?? "",
-                    startAfter, task.PendingQuestions, DateTime.UtcNow, hierarchyRun, blockers),
+                    startAfter, task.PendingQuestions, DateTime.UtcNow, hierarchyRun, blockers,
+                    loopBody: task.Status == TaskStatuses.Paused && TaskFlowRun.InLoopBody(task.LaunchJson)),
                 ParentDisplayId = parent?.DisplayId,
                 ParentTitle = parent?.Title,
                 HierarchyRootId = hierarchyRoot?.Id,
@@ -1856,8 +1896,9 @@ public static class ApiEndpoints
             SkillId = r.SkillId ?? "",
             SkillName = r.SkillName,
             Text = r.Text,
-            // «загружать всегда» и тэги записи (T-24-S0)
+            // «загружать всегда» и тэги записи (T-24-S0), активность (T-265-S0)
             AlwaysLoad = r.AlwaysLoad,
+            IsActive = r.IsActive,
             Tags = r.Tags,
             CreatedBy = NickOf(r.CreatedBy),
             CreatedAt = r.CreatedAt,
@@ -1897,23 +1938,180 @@ public static class ApiEndpoints
                 .ListGeneral((skills ?? "").Split(',',
                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                 .Select(ExpDto).ToList())));
+        // ПРОВЕРКА ОБЛАСТИ (T-269-S0): текст с признаками проектного (код задачи, путь файла,
+        // расширение исходника, имя проекта) в общие правила не проходит — форма показывает
+        // предупреждение и повторяет вызов с Force, инструменту агента отказ окончательный
         api.MapPost("/experience/general", (ExperienceSaveDto dto) =>
             Handle(() => Results.Ok(ExpDto(
                 Experience().CreateGeneral(dto.Text, Actor(), dto.SkillId,
-                    dto.AlwaysLoad, dto.Tags)))));
+                    dto.AlwaysLoad, dto.Tags, dto.Force)))));
         // правка из формы шлёт запись целиком, поэтому «загружать всегда» и тэги идут вместе
         // с текстом; тэги, не переданные вовсе (null), остаются прежними — так правка текста
         // инструментом агента не сносит то, что проставил человек
         api.MapPut("/experience/{id}", (string id, ExperienceSaveDto dto) =>
             Handle(() => Results.Ok(ExpDto(
                 Experience().Update(id, dto.Text, Actor(), dto.SkillId, changeSkill: true,
-                    alwaysLoad: dto.AlwaysLoad, tags: dto.Tags)))));
+                    alwaysLoad: dto.AlwaysLoad, tags: dto.Tags, isActive: dto.IsActive,
+                    force: dto.Force)))));
+        // ПЕРЕНОС ЗАПИСИ МЕЖДУ ОБЛАСТЯМИ (T-269-S0): общие правила ↔ опыт проекта ↔ опыт узла
+        // шаблона. Меняется только привязка — id, текст, тэги, навык, авторство и история
+        // остаются теми же; до этого «перенести» значило удалить и завести заново. Переносит
+        // только сервер-владелец записи, поставляемое правило дистрибутива не переносится
+        api.MapPost("/experience/{id}/move", (string id, ExperienceMoveDto dto) =>
+            Handle(() => Results.Ok(ExpDto(Experience().Move(id, dto.Scope, dto.ProjectId,
+                dto.TemplateTaskId, Actor(), dto.Force)))));
+        // РЕВИЗИЯ ОБЩЕГО ОПЫТА (T-269-S0): какие общие правила выглядят проектными — той же
+        // проверкой, что стоит на пути записи. Один проход с переносом пачкой в выбранный
+        // проект — и общий опыт чистый
+        api.MapGet("/experience/general/suspects", () =>
+            Handle(() => Results.Ok(Experience().GeneralSuspects().Select(row =>
+                new ExperienceSuspectDto
+                {
+                    Record = ExpDto(row.Record),
+                    Kinds = row.Signs.Select(s => s.Kind).Distinct().ToList(),
+                    Samples = ExperienceScopeCheck.Samples(row.Signs),
+                }).ToList())));
+        // АКТИВНОСТЬ ЗАПИСИ (T-265-S0) отдельным вызовом: кнопка в строке списка меняет одно
+        // поле и не переписывает текст, навык и тэги значениями давно прочитанного списка.
+        // Чужую запись переключить нельзя — проверка владения внутри сервиса (ТЗ гл. 6)
+        api.MapPost("/experience/{id}/active", (string id, ExperienceActiveDto dto) =>
+            Handle(() => Results.Ok(ExpDto(Experience().SetActive(id, dto.IsActive, Actor())))));
         api.MapDelete("/experience/{id}", (string id) =>
             Handle(() =>
             {
                 Experience().Delete(id, Actor());
                 return Results.NoContent();
             }));
+        // ПОИСК ПО ОПЫТУ (T-268-S0): строка поиска в списках опыта. Человек ищет ТЕМ ЖЕ
+        // механизмом, что и агент инструментом search_experience, — один поиск на двоих,
+        // иначе «у агента нашлось, а у меня нет» разбирать было бы нечем.
+        // scope — область (project/template/general; пусто или «all» — все), project —
+        // ограничение проектом, includeInactive — вместе с неактивными записями
+        api.MapGet("/experience/search", (string? q, string? scope, string? project,
+                bool? includeInactive, int? limit) =>
+            Handle(() => Results.Ok(Experience()
+                .Search(q ?? "", scope is "all" ? null : scope, limit ?? 30,
+                    includeInactive ?? false, project)
+                .Select(hit => new ExperienceHitDto
+                {
+                    Record = ExpDto(hit.Record),
+                    Score = hit.Score,
+                    Scope = ExperienceService.ScopeOf(hit.Record),
+                }).ToList())));
+        // работает ли лексический индекс: FTS5 собран не во всякой сборке SQLite, и человеку
+        // стоит знать, что поиск идёт запасным способом
+        api.MapGet("/experience/search/state", () =>
+            Handle(() => Results.Ok(new ExperienceSearchStateDto
+            {
+                IndexReady = Experience().SearchIndexReady,
+            })));
+        // --- ИСПОЛЬЗОВАННЫЙ ОПЫТ ЗАДАЧИ (T-266-S0): вкладка «Использованный опыт» карточки ---
+        // что система подставила агенту в задание. У задачи хранятся ТОЛЬКО идентификаторы,
+        // поэтому текст и область дочитываются здесь; удалённая (унесённая в архив) запись
+        // отдаётся строкой с Available=false — идентификатор при этом остаётся
+        api.MapGet("/tasks/{id}/experience/used", (string id) =>
+            Handle(() => Results.Ok(Experience().ListUsedByTask(id).Select(use => new ExperienceUsedDto
+            {
+                ExperienceId = use.ExperienceId,
+                Available = use.Record is not null,
+                Scope = use.Record is null
+                    ? ""
+                    : use.Record.IsGeneral ? "general" : use.Record.IsProjectLevel ? "project" : "template",
+                TemplateDisplayId = use.Record is null || use.Record.TemplateTaskId.Length == 0
+                    ? ""
+                    : Tasks().Get(use.Record.TemplateTaskId)?.DisplayId ?? "",
+                SkillName = use.Record?.SkillName ?? "",
+                // код навыка и «загружать всегда» (T-293-S0): запись правится прямо из журнала,
+                // и форме нужны те же поля, что на вкладке «Опыт»
+                SkillId = use.Record?.SkillId ?? "",
+                Text = use.Record?.Text ?? "",
+                Tags = use.Record?.Tags ?? [],
+                AlwaysLoad = use.Record?.AlwaysLoad ?? false,
+                IsActive = use.Record?.IsActive ?? false,
+                JobId = use.JobId,
+                UsedAt = use.UsedAt,
+            }).ToList())));
+        // СТАТИСТИКА использования записи (T-266-S0): сколько задач её получило и когда
+        // в последний раз. Задел для шаблона «Анализ опыта»: запись, которую не брали ни разу,
+        // — кандидат в неактивные
+        api.MapGet("/experience/{id}/usage", (string id) =>
+            Handle(() =>
+            {
+                var stat = Experience().UsageOf(id);
+                return Results.Ok(new ExperienceUsageDto
+                {
+                    ExperienceId = stat.ExperienceId,
+                    Count = stat.Count,
+                    LastUsedAt = stat.LastUsedAt,
+                });
+            }));
+
+        // --- НАБОРЫ ОПЫТА (T-270-S0): закладка «Настройки → Наборы опыта» ---
+        //
+        // Стиль работы — это пачка записей опыта, которую ставят и снимают ЦЕЛИКОМ и возят
+        // между установками. Файл набора лежит в каталоге данных рядом с plugins/ и models/,
+        // а ОБЛАСТЬ установки (общий опыт / проект / узел шаблона) выбирает человек в момент
+        // установки: в файле её нет и быть не должно.
+        ExperiencePackService Packs() => Ctx().ExperiencePacks;
+        ExperiencePackDto PackDto(ExperiencePack pack, string? lang)
+        {
+            var (scope, projectId, templateTaskId) = Packs().Placement(pack.Code);
+            return new ExperiencePackDto
+            {
+                Code = pack.Code,
+                Name = pack.Name.IsEmpty ? pack.Code : pack.Name.Text(lang),
+                Description = pack.Description.Text(lang),
+                Records = pack.Records.Count,
+                Templates = pack.Templates.Count,
+                Installed = Packs().InstalledRecords(pack.Code).Count,
+                Scope = scope,
+                ProjectId = projectId,
+                ProjectName = projectId.Length > 0 ? Projects().Get(projectId)?.Name ?? "" : "",
+                TemplateTaskId = templateTaskId,
+                TemplateDisplayId = templateTaskId.Length > 0
+                    ? Tasks().Get(templateTaskId)?.DisplayId ?? ""
+                    : "",
+                // документ показывается кнопкой «i» ВНУТРИ приложения, поэтому путь — страница
+                // языкового каталога документации, а не файл каталога данных (как у плагинов)
+                Doc = pack.Doc.TryGetValue(lang ?? Loc.Lang, out var page) && page.Length > 0
+                    ? page
+                    : ExperiencePack.DocPageOf(pack.Code),
+            };
+        }
+        api.MapGet("/packs", (string? lang) => Handle(() =>
+            Results.Ok(Packs().List().Select(p => PackDto(p, lang)).ToList())));
+        api.MapPost("/packs/{code}/install", (string code, ExperiencePackInstallDto dto,
+                string? lang) =>
+            Handle(() =>
+            {
+                var pack = Packs().Get(code);
+                if (pack is null)
+                {
+                    return Results.NotFound();
+                }
+                var (records, templates) = Packs().Install(pack, dto.Scope, dto.ProjectId,
+                    dto.TemplateTaskId, Actor(), lang);
+                return Results.Ok(new ExperiencePackResultDto
+                {
+                    Code = pack.Code, Count = records, Templates = templates,
+                });
+            }));
+        // снятие — по той же пометке владельца pack:<код>, которой установка пометила записи
+        api.MapPost("/packs/{code}/remove", (string code) =>
+            Handle(() => Results.Ok(new ExperiencePackResultDto
+            {
+                Code = code,
+                Count = Packs().Remove(code, Actor()),
+            })));
+        // ВЫГРУЗКА отобранных записей в файл набора: обмена опытом между установками
+        // до этого не было вовсе
+        api.MapPost("/packs/export", (ExperiencePackExportDto dto, string? lang) =>
+            Handle(() => Results.Ok(new ExperiencePackResultDto
+            {
+                Code = dto.Code,
+                Count = dto.RecordIds.Count,
+                Path = Packs().Export(dto.Code, dto.Name, dto.Description, dto.RecordIds, lang),
+            })));
 
         // статистика шаблона (ТЗ п. 2.11, todo32): смены состояния задач, привязанных к шаблону
         api.MapGet("/tasks/{id}/template-stats", (string id) =>
@@ -2251,7 +2449,10 @@ public static class ApiEndpoints
             }, statusCode: 202);
         }
 
-        api.MapPost("/tasks/{id}/start", async (string id, bool? force) =>
+        // autoChildren (T-274-S0) — ответ переспроса «автоматически выполнять новых потомков»:
+        // true снимает с задачи запрет автозапуска, false ставит его. Параметра нет — пометка
+        // не трогается (так зовут запуск автоматические проходы)
+        api.MapPost("/tasks/{id}/start", async (string id, bool? force, bool? autoChildren) =>
         {
             try
             {
@@ -2259,7 +2460,8 @@ public static class ApiEndpoints
                 {
                     return RunRequestResult(id, RunRequestKinds.Task, withErrors: false);
                 }
-                return Results.Ok(await Orchestrator().StartTaskAsync(id, Actor(), force ?? false));
+                return Results.Ok(await Orchestrator().StartTaskAsync(id, Actor(), force ?? false,
+                    autoChildren));
             }
             catch (Exception ex) when (ex is ArgumentException or (InvalidOperationException and not ObjectDisposedException))
             {
@@ -2294,27 +2496,31 @@ public static class ApiEndpoints
             }
             var lora = LoraSettings.Parse(profileJson);
             var refImage = RefImageSettings.Parse(profileJson);
+            var refAudio = RefAudioSettings.Parse(profileJson);
             var modelName = Models().Get(executor.ModelId ?? "")?.Name ?? executor.Nick;
             var folder = task.ProjectId is null ? null : Projects().Get(task.ProjectId)?.FolderPath;
             var loads = Ctx().ObjectLoads;
             var plan = loads.Plan(task.ProjectId, Tasks().ReadDescription(task), lora, refImage,
-                modelName, folder, executor.ModelId);
+                modelName, folder, executor.ModelId, refAudio);
             return Results.Ok(new
             {
                 model = modelName,
                 loraSupported = lora.Supported,
                 loraReason = lora.Reason,
                 refImageKind = refImage.Kind,
+                refAudioKind = refAudio.Kind,
                 ok = plan.Ok,
                 loras = plan.Loras.Select(l => new
                 {
                     l.ObjectCode, l.ObjectName, file = Path.GetFileName(l.File), l.Strength,
                 }),
                 images = plan.Images,
+                audios = plan.Audios,
                 problems = plan.Problems,
                 notes = plan.Notes,
                 readyLoras = loads.ReadyLoras(task.ProjectId),
-                substitutes = loads.Substitutes(executor.Id, plan.LoraFailed, plan.ImageFailed)
+                substitutes = loads
+                    .Substitutes(executor.Id, plan.LoraFailed, plan.ImageFailed, plan.AudioFailed)
                     .Select(s => new { s.Executor.Id, s.Executor.Nick, s.Why }),
             });
         }));
@@ -3638,6 +3844,11 @@ public static class ApiEndpoints
             // почта уведомлений (T-272): пароль наружу не отдаётся — только признак
             // «задан» и путь файла, куда его можно положить руками
             Mail = MailDto(configHolder.Config, secrets),
+            // автообновление (T-208): флажки, время суточной проверки и коды заведённых
+            // ими записей расписания — в настройках держится ссылка на расписание
+            // расписания лежат в базе ОРГАНИЗАЦИИ, а настройки — про сервер: на сервере
+            // без открытой организации кодов записей просто нет, и это не повод отказать
+            Update = UpdateDto(configHolder.Config, current.Org?.Schedules),
         });
         api.MapPut("/settings", (SettingsDto dto) => Handle(() =>
         {
@@ -3680,9 +3891,122 @@ public static class ApiEndpoints
                     secrets.Write(config.Mail.ToOptions().PasswordRef, password);
                 }
             }
+            // АВТООБНОВЛЕНИЕ (T-208). Флажки — настройка этого компьютера, а суточная
+            // проверка у СЕРВИСНОГО запуска живёт записью расписания: её и заводим здесь,
+            // снятый флажок — удаляем. Консольному запуску запись не нужна вовсе:
+            // он проверяется при старте, и вечная запись в расписании путала бы человека
+            if (dto.Update is { } update)
+            {
+                config.Update.AutoCheck = update.AutoCheck;
+                config.Update.AutoUpdate = update.AutoUpdate;
+                config.Update.Time = AppUpdate.NormalizeTime(update.Time);
+                config.Update.Url = update.Url.Trim();
+                SyncUpdateSchedules(current.Org?.Schedules, config, ServerActor());
+            }
             config.Save(configHolder.Path);
             return Results.NoContent();
         }));
+
+        // --- ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208) ---
+        // Проверка ходит в сеть, поэтому она ЯВНАЯ (кнопка «Проверить обновления»), а не
+        // побочное действие открытия настроек: чужой сервер отвечает не всегда и не быстро
+        var appUpdate = services.GetRequiredService<AppUpdateService>();
+        api.MapGet("/update/check", () => HandleAsync(async () =>
+            Results.Ok(await appUpdate.CheckAsync())));
+        // «кого снесёт перезапуск»: спрашивается ПЕРЕД обновлением и показывается человеку.
+        // Организации — все ОТКРЫТЫЕ на этом сервере: перезапуск не выбирает, чьи агенты
+        // остановить, и предупреждение обязано говорить о том же
+        api.MapGet("/update/agents", () => Handle(() =>
+        {
+            var agents = new List<string>();
+            foreach (var context in registry.OpenContexts)
+            {
+                var active = context.Jobs.ListActive().Select(j => j.Id);
+                agents.AddRange(OrgAgents.Stoppable(context.Tasks.AiWork(), active)
+                    .Select(item => $"{context.Org.Code}: {item.Task.DisplayId} — {item.Task.Title}"));
+            }
+            return Results.Ok(new UpdateAgentsDto { Agents = agents });
+        }));
+        api.MapPost("/update/run", () => HandleAsync(async () =>
+        {
+            // ответ прошлой проверки, а не новая: между «Проверить» и «Обновить» проходят
+            // секунды, а лишний поход в сеть — это ещё один повод отказать на ровном месте
+            var found = appUpdate.Last is { Available: true } last ? last : await appUpdate.CheckAsync();
+            return Results.Ok(await appUpdate.StartAsync(found));
+        }));
+    }
+
+    /// <summary>Настройки автообновления наружу (T-208): флажки, время, адрес выпусков
+    /// и коды записей расписания, которыми живёт суточная проверка у службы.</summary>
+    private static UpdateSettingsDto UpdateDto(Ai2pConfig config, ScheduleService? schedules)
+    {
+        // только СВОИ записи (ТЗ гл. 6): чужая, приехавшая репликацией, срабатывает у своего
+        // сервера и обновляет ЕГО установку — показывать её кодом наших флажков нельзя
+        var mine = schedules?.ListMine(includeInactive: true) ?? [];
+        string CodeOf(string action) => mine
+            .FirstOrDefault(s => s.Action == action && s.DeletedAt is null)?.DisplayId ?? "";
+        return new UpdateSettingsDto
+        {
+            AutoCheck = config.Update.AutoCheck,
+            AutoUpdate = config.Update.AutoUpdate,
+            Time = AppUpdate.NormalizeTime(config.Update.Time),
+            Url = config.Update.Url,
+            ReleasesUrl = AppUpdate.ReleasesPageUrl(config.Update.RepoUrl()),
+            IsService = ServiceRun.IsService,
+            CheckScheduleCode = CodeOf(ScheduleActions.AppCheck),
+            UpdateScheduleCode = CodeOf(ScheduleActions.AppUpdate),
+        };
+    }
+
+    /// <summary>
+    /// ЗАПИСИ РАСПИСАНИЯ ПО ФЛАЖКАМ АВТООБНОВЛЕНИЯ (T-208). Флажок поставлен — запись
+    /// заводится (ежедневно, время из настройки), снят — удаляется: «чекбоксы убрали —
+    /// записи удаляются из расписания» (задание). Время правится и здесь, и в самой
+    /// записи расписания — она главнее, поэтому существующей записи мы меняем только
+    /// период, а всё остальное в ней остаётся как поставил человек.
+    ///
+    /// Записи заводятся ТОЛЬКО у сервисного запуска: консольный проверяется при старте.
+    /// </summary>
+    private static void SyncUpdateSchedules(ScheduleService? schedules, Ai2pConfig config,
+        string? actorId)
+    {
+        if (schedules is null)
+        {
+            return;
+        }
+        void Sync(string action, bool wanted)
+        {
+            var existing = schedules.ListMine(includeInactive: true)
+                .FirstOrDefault(s => s.Action == action && s.DeletedAt is null);
+            if (!wanted || !ServiceRun.IsService)
+            {
+                if (existing is not null && schedules.CanWrite(existing))
+                {
+                    schedules.Delete(existing.Id, actorId);
+                }
+                return;
+            }
+            var period = AppUpdate.DailyPeriodJson(config.Update.Time);
+            if (existing is null)
+            {
+                schedules.Create(new Schedule
+                {
+                    Action = action,
+                    Kind = "periodic",
+                    PeriodJson = period,
+                    IsActive = true,
+                }, actorId);
+                return;
+            }
+            if (existing.PeriodJson != period && schedules.CanWrite(existing))
+            {
+                existing.PeriodJson = period;
+                existing.Kind = "periodic";
+                schedules.Update(existing, actorId);
+            }
+        }
+        Sync(ScheduleActions.AppCheck, config.Update.AutoCheck);
+        Sync(ScheduleActions.AppUpdate, config.Update.AutoUpdate);
     }
 
     /// <summary>

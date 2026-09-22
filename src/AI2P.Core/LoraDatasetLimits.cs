@@ -25,6 +25,20 @@ namespace AI2P.Core;
 /// </summary>
 public sealed class LoraDatasetLimits
 {
+    /// <summary>Умолчание длительности записи, когда модель о ней ничего не сказала.</summary>
+    public const int DefaultMaxSeconds = 240;
+
+    /// <summary>Умолчание частоты дискретизации (Гц) — 44 100, как у звуковой дорожки CD.</summary>
+    public const int DefaultSampleRate = 44100;
+
+    /// <summary>
+    /// ИЗ ЧЕГО СОБРАН ЭТОТ ДАТАСЕТ (T-250-S0): <see cref="LoraDatasetMedia"/>. От него
+    /// зависит, ЧЕМ пределы вообще являются: у картинок это ширина, высота и вес файла,
+    /// у записей — длительность, частота дискретизации и число каналов. Сверка ширины и
+    /// высоты у звукового датасета не делается ВОВСЕ: их у записи нет.
+    /// </summary>
+    public string Media { get; set; } = LoraDatasetMedia.Image;
+
     /// <summary>Наибольшая ширина кадра в точках; кадр крупнее ужимается при добавлении.</summary>
     public int MaxWidth { get; set; } = 1024;
 
@@ -43,9 +57,42 @@ public sealed class LoraDatasetLimits
     /// <summary>Сколько кадров имеет смысл брать максимум; 0 — не сказано.</summary>
     public int MaxItems { get; set; }
 
+    /// <summary>Наименьшая длительность записи в секундах (звук); 0 — не задана.</summary>
+    public int MinSeconds { get; set; }
+
+    /// <summary>Наибольшая длительность записи в секундах (звук).</summary>
+    public int MaxSeconds { get; set; } = DefaultMaxSeconds;
+
+    /// <summary>Частота дискретизации записей датасета (Гц).</summary>
+    public int SampleRate { get; set; } = DefaultSampleRate;
+
+    /// <summary>Каналов: 1 — моно, 2 — стерео.</summary>
+    public int Channels { get; set; } = 2;
+
+    /// <summary>Датасет собран из ЗВУКОВЫХ ЗАПИСЕЙ.</summary>
+    public bool IsAudio => LoraDatasetMedia.Normalize(Media) == LoraDatasetMedia.Audio;
+
+    /// <summary>Форматы файла записи, которые понимаем мы сами (и наши тренеры).</summary>
+    public static readonly string[] AudioFormats = ["wav", "mp3", "flac", "ogg", "m4a", "opus"];
+
     /// <summary>Формат приведён к «png» либо «jpeg»: другого холст браузера не отдаёт.</summary>
     public static string NormalizeFormat(string? value) =>
         Normalize(value) == "jpeg" ? "jpeg" : "png";
+
+    /// <summary>
+    /// Формат к общему виду С ОГЛЯДКОЙ НА ВИД ДАТАСЕТА: у картинок выбор из двух (холст
+    /// браузера другого не отдаёт), у записей — из тех, что умеют читать тренеры звука;
+    /// незнакомое значение у звука — «wav» (он без потерь и читается всем).
+    /// </summary>
+    public static string NormalizeFormat(string? value, string media)
+    {
+        if (LoraDatasetMedia.Normalize(media) != LoraDatasetMedia.Audio)
+        {
+            return NormalizeFormat(value);
+        }
+        var text = Normalize(value);
+        return Array.IndexOf(AudioFormats, text) >= 0 ? text : "wav";
+    }
 
     /// <summary>
     /// Разобрать настройку из текста. Пусто, мусор или чужой JSON — умолчания: настройка
@@ -67,12 +114,17 @@ public sealed class LoraDatasetLimits
             }
             return new LoraDatasetLimits
             {
+                Media = LoraDatasetMedia.Normalize(JsonRead.Str(e, "media", LoraDatasetMedia.Image)),
                 MaxWidth = JsonRead.Int(e, "maxWidth", 1024),
                 MaxHeight = JsonRead.Int(e, "maxHeight", 1024),
                 MaxKb = JsonRead.Int(e, "maxKb", 2048),
-                Format = NormalizeFormat(JsonRead.Str(e, "format", "png")),
+                Format = JsonRead.Str(e, "format", "png"),
                 MinItems = JsonRead.Int(e, "minItems", 0),
                 MaxItems = JsonRead.Int(e, "maxItems", 0),
+                MinSeconds = JsonRead.Int(e, "minSeconds", 0),
+                MaxSeconds = JsonRead.Int(e, "maxSeconds", DefaultMaxSeconds),
+                SampleRate = JsonRead.Int(e, "sampleRate", DefaultSampleRate),
+                Channels = JsonRead.Int(e, "channels", 2),
             }.Sane();
         }
         catch (JsonException)
@@ -86,12 +138,17 @@ public sealed class LoraDatasetLimits
     {
         var node = new JsonObject
         {
+            ["media"] = LoraDatasetMedia.Normalize(Media),
             ["maxWidth"] = MaxWidth,
             ["maxHeight"] = MaxHeight,
             ["maxKb"] = MaxKb,
             ["format"] = Format,
             ["minItems"] = MinItems,
             ["maxItems"] = MaxItems,
+            ["minSeconds"] = MinSeconds,
+            ["maxSeconds"] = MaxSeconds,
+            ["sampleRate"] = SampleRate,
+            ["channels"] = Channels,
         };
         return node.ToJsonString();
     }
@@ -100,24 +157,37 @@ public sealed class LoraDatasetLimits
     /// означал бы «кадров размером ноль», то есть добавить нельзя ни одного.</summary>
     public LoraDatasetLimits Sane()
     {
+        Media = LoraDatasetMedia.Normalize(Media);
+        // ширина, высота и вес кадра остаются рабочими и у звукового датасета: вид
+        // датасета человек переключает туда и обратно, и обнулённые пределы картинок
+        // после возврата к картинкам означали бы «добавить нельзя ни одного кадра»
         MaxWidth = MaxWidth > 0 ? MaxWidth : 1024;
         MaxHeight = MaxHeight > 0 ? MaxHeight : 1024;
         MaxKb = MaxKb > 0 ? MaxKb : 2048;
-        Format = NormalizeFormat(Format);
+        Format = NormalizeFormat(Format, Media);
         MinItems = MinItems > 0 ? MinItems : 0;
         MaxItems = MaxItems > 0 ? MaxItems : 0;
+        MinSeconds = MinSeconds > 0 ? MinSeconds : 0;
+        MaxSeconds = MaxSeconds > 0 ? MaxSeconds : DefaultMaxSeconds;
+        SampleRate = SampleRate > 0 ? SampleRate : DefaultSampleRate;
+        Channels = Channels is 1 or 2 ? Channels : 2;
         return this;
     }
 
     /// <summary>Точная копия — форма правит снимок, а не то, что лежит в записи.</summary>
     public LoraDatasetLimits Copy() => new()
     {
+        Media = Media,
         MaxWidth = MaxWidth,
         MaxHeight = MaxHeight,
         MaxKb = MaxKb,
         Format = Format,
         MinItems = MinItems,
         MaxItems = MaxItems,
+        MinSeconds = MinSeconds,
+        MaxSeconds = MaxSeconds,
+        SampleRate = SampleRate,
+        Channels = Channels,
     };
 
     /// <summary>
@@ -132,14 +202,23 @@ public sealed class LoraDatasetLimits
     public static LoraDatasetLimits FromModel(LoraDataset model, LoraDatasetLimits? fallback = null)
     {
         var basis = fallback?.Copy() ?? new LoraDatasetLimits();
+        // ВИД ДАТАСЕТА берётся у модели, а не у прежних настроек: подставляя пределы
+        // звуковой модели в датасет картинок, человек именно этого и хочет — собрать
+        // датасет под неё, а пределы одного вида к другому неприменимы вовсе
+        var media = LoraDatasetMedia.Normalize(model.Media);
         return new LoraDatasetLimits
         {
+            Media = media,
             MaxWidth = model.Width > 0 ? model.Width : basis.MaxWidth,
             MaxHeight = model.Height > 0 ? model.Height : basis.MaxHeight,
             MaxKb = model.MaxKb > 0 ? model.MaxKb : basis.MaxKb,
-            Format = PickFormat(model.Formats, basis.Format),
+            Format = PickFormat(model.Formats, basis.Format, media),
             MinItems = model.MinItems > 0 ? model.MinItems : basis.MinItems,
             MaxItems = model.MaxItems > 0 ? model.MaxItems : basis.MaxItems,
+            MinSeconds = model.MinSeconds > 0 ? model.MinSeconds : basis.MinSeconds,
+            MaxSeconds = model.MaxSeconds > 0 ? model.MaxSeconds : basis.MaxSeconds,
+            SampleRate = model.SampleRate > 0 ? model.SampleRate : basis.SampleRate,
+            Channels = model.Channels > 0 ? model.Channels : basis.Channels,
         }.Sane();
     }
 
@@ -147,16 +226,21 @@ public sealed class LoraDatasetLimits
     /// Какой формат брать из перечисленных моделью: PNG, если он есть; иначе первый
     /// понятный нам; ничего не сказано — оставить прежний.
     /// </summary>
-    public static string PickFormat(IEnumerable<string>? formats, string current = "png")
+    public static string PickFormat(IEnumerable<string>? formats, string current = "png",
+        string media = LoraDatasetMedia.Image)
     {
+        // у звука тем же правилом берётся WAV: он без потерь, и его читают все тренеры
+        var audio = LoraDatasetMedia.Normalize(media) == LoraDatasetMedia.Audio;
+        var allowed = audio ? AudioFormats : ["png", "jpeg"];
+        var best = audio ? "wav" : "png";
         var known = (formats ?? []).Select(Normalize)
-            .Where(f => f is "png" or "jpeg")
+            .Where(f => Array.IndexOf(allowed, f) >= 0)
             .ToList();
         if (known.Count == 0)
         {
-            return NormalizeFormat(current);
+            return NormalizeFormat(current, media);
         }
-        return known.Contains("png") ? "png" : known[0];
+        return known.Contains(best) ? best : known[0];
     }
 
     /// <summary>
@@ -170,13 +254,42 @@ public sealed class LoraDatasetLimits
     public List<string> Compare(LoraDataset model)
     {
         var problems = new List<string>();
-        if (model.Width > 0 && MaxWidth > model.Width)
+        var media = LoraDatasetMedia.Normalize(Media);
+        var modelMedia = LoraDatasetMedia.Normalize(model.Media);
+        // ВИД ДАТАСЕТА сверяется первым и только у модели, которая вообще что-то объявила:
+        // молчащая модель не спорит ни с картинками, ни с записями
+        if (model.HasLimits && media != modelMedia)
         {
-            problems.Add(Loc.T("msg.lora.23", MaxWidth, model.Width));
+            problems.Add(Loc.T("msg.lora.48", Loc.T("lora.limits.media." + media),
+                Loc.T("lora.limits.media." + modelMedia)));
         }
-        if (model.Height > 0 && MaxHeight > model.Height)
+        if (modelMedia == LoraDatasetMedia.Audio)
         {
-            problems.Add(Loc.T("msg.lora.24", MaxHeight, model.Height));
+            // у записи ширины и высоты нет вовсе — вместо них ДЛИТЕЛЬНОСТЬ, частота
+            // дискретизации и число каналов
+            if (model.MaxSeconds > 0 && MaxSeconds > model.MaxSeconds)
+            {
+                problems.Add(Loc.T("msg.lora.44", MaxSeconds, model.MaxSeconds));
+            }
+            if (model.SampleRate > 0 && SampleRate > model.SampleRate)
+            {
+                problems.Add(Loc.T("msg.lora.45", SampleRate, model.SampleRate));
+            }
+            if (model.Channels > 0 && Channels > model.Channels)
+            {
+                problems.Add(Loc.T("msg.lora.46", Channels, model.Channels));
+            }
+        }
+        else
+        {
+            if (model.Width > 0 && MaxWidth > model.Width)
+            {
+                problems.Add(Loc.T("msg.lora.23", MaxWidth, model.Width));
+            }
+            if (model.Height > 0 && MaxHeight > model.Height)
+            {
+                problems.Add(Loc.T("msg.lora.24", MaxHeight, model.Height));
+            }
         }
         if (model.MaxKb > 0 && MaxKb > model.MaxKb)
         {
@@ -187,7 +300,7 @@ public sealed class LoraDatasetLimits
             problems.Add(Loc.T("msg.lora.26", MaxItems, model.MaxItems));
         }
         var accepted = (model.Formats ?? []).Select(Normalize).Where(f => f.Length > 0).ToList();
-        if (accepted.Count > 0 && !accepted.Contains(NormalizeFormat(Format)))
+        if (accepted.Count > 0 && !accepted.Contains(NormalizeFormat(Format, media)))
         {
             problems.Add(Loc.T("msg.lora.27", Format.ToUpperInvariant(),
                 string.Join(", ", accepted.Select(f => f.ToUpperInvariant()))));

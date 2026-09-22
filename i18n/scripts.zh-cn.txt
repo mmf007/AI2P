@@ -79,6 +79,8 @@ scr.inst.71=已过时、本会被删除的：{0}
 scr.inst.72=[WARN] 服务 {0} 未能启动。文件已更新。
 scr.inst.73=       原因：{0} 中的日志以及服务本身的状态。
 scr.inst.74=未知
+scr.inst.75=[ERROR] 目标目录位于发布目录内部（或反之）。
+scr.inst.76=        把目录复制进它自身会不断喂给自己的遍历并占满磁盘。请指定发布目录之外的目录。
 
 # ---------- makeAsServise.ps1 / makeAsServise.sh ----------
 scr.svc.1=AI2P：任务与 AI 代理服务器。Web 界面 — 端口取自安装目录的 config.json。

@@ -163,6 +163,7 @@ public sealed class StorageFixture : IDisposable
         // подключение исполнителя (T-129), иначе он висит в списке команды «не подключен»
         TeamWork = new TeamWorkService(Teams, Executors, Projects, Events, Connectors, LocalModels);
         Orchestrator = new JobOrchestrator(Tasks, Jobs, Executors, Projects, Teams, Files, Chat, Connectors, Security, Picker, Experience, null, TeamWork, null, Objects);
+        // модель-суфлёр (T-288-S0): в приложении её подставляет обвязка организации
         // справочник импортов (ТЗ v1.28, todo30)
         Imports = new ImportSourceService(Db, Events);
         // расписание запуска задач (ТЗ п. 2.12, todo34)
@@ -402,8 +403,10 @@ public sealed class AiModelAndExecutorTests : IDisposable
         //   GPT-6-Astra, Claude-Fable-5.1, Gemini-3.8-Flash, Muse-Spark-1.3,
         //   DeepSeek-V4.1-Flash, GLM-5.3 — текст; GPT-Image-2.5, Wan-3.0-Prime и
         //   MiniMax-H3-Max — медиа через шлюз fal.ai)
+        // + 2 записи с референсным аудио через шлюз fal.ai (T-251-S0, сверка каталога
+        //   14.09.2026: Chatterbox-TTS и Zonos-2-TTS — синтез речи по образцу голоса)
         // — точный состав проверяет T214Tests
-        Assert.Equal(77, models.Count);
+        Assert.Equal(79, models.Count);
         Assert.All(models, m => Assert.False(m.IsCustom));           // из дистрибутива
         var claude = models.Single(m => m.Name == "Claude-Fable-5");
         Assert.Equal($"models/profile_{claude.Id}.json", claude.ProfilePath);

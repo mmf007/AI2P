@@ -36,6 +36,10 @@
    у ВСЕЙ организации — записи реплицируются, и сделано это будет всюду *@
 <MudMessageBox @ref="_pluginRemoveBox" Title="@L["plugins.remove"]" Message="@L["plugins.removeConfirm"]"
                YesText="@L["plugins.remove"]" CancelText="@L["common.cancel"]" />
+@* переспрос обновления приложения (T-208): перезапуск сервера снимет работающих агентов,
+   поэтому в сообщении стоит их список — он собирается перед самым вопросом *@
+<MudMessageBox @ref="_updateBox" Title="@L["settings.update.confirm"]" Message="@_updateMessage"
+               YesText="@L["settings.update.run"]" CancelText="@L["common.cancel"]" />
 
 @* код локального сервера в организации — только для чтения (todo41, замечание 2) *@
 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Class="mb-3">
@@ -193,6 +197,82 @@ else
                                  data-settings-runmode-mark="1">@L["settings.runMode.markOnly"]</MudChip>
                     }
                 </MudStack>
+                @* --- ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208) ---
+                   Кнопка стоит РЯДОМ С ВЕРСИЕЙ намеренно: вопрос «а не устарел ли я» человек
+                   задаёт себе именно тогда, когда смотрит на номер версии. Проверка ходит
+                   в сеть, поэтому она всегда явная — открытие настроек в репозиторий не лезет *@
+                <MudDivider />
+                <MudText Typo="Typo.subtitle2" data-settings-update="1">@L["settings.update"]</MudText>
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" data-update-check="1"
+                               Disabled="@_updateBusy" OnClick="CheckUpdateAsync">
+                        @(_updateBusy ? L["settings.update.checking"] : L["settings.update.check"])
+                    </MudButton>
+                    @* «Обновить» СВЕТИТСЯ ТОЛЬКО КОГДА ЕСТЬ ЧТО СТАВИТЬ (задание): кнопка,
+                       которая всегда доступна и всегда отвечает «обновлений нет», —
+                       это ещё один способ ничего не сказать *@
+                    @if (_update is { Available: true })
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
+                                   data-update-run="1" Disabled="@_updateBusy" OnClick="RunUpdateAsync">
+                            @L["settings.update.run"]
+                        </MudButton>
+                    }
+                    @if (_settings.Update.ReleasesUrl.Length > 0)
+                    {
+                        <MudLink Href="@_settings.Update.ReleasesUrl" Target="_blank"
+                                 data-update-releases="1">@L["settings.update.releases"]</MudLink>
+                    }
+                </MudStack>
+                @if (_update is { } found)
+                {
+                    <MudText Typo="Typo.caption"
+                             Color="@(found.Error.Length > 0 ? Color.Warning : found.Available ? Color.Primary : Color.Default)"
+                             data-update-state="@(found.Error.Length > 0 ? "error" : found.Available ? "found" : "none")">
+                        @(found.Error.Length > 0
+                            ? found.Error
+                            : found.Available
+                                ? L["settings.update.found", found.Version] + " (" + found.AssetName + ")"
+                                : L["settings.update.none"])
+                    </MudText>
+                }
+                @* ЧТО ОСТАНОВИТ ОБНОВЛЕНИЕ: список занятых агентов показывается ДО согласия,
+                   а не после — перезапуск снимет их все, и узнать об этом потом поздно *@
+                @if (_updateAgents.Count > 0)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Warning" data-update-agents="1">
+                        @L["settings.update.agents"] @string.Join("; ", _updateAgents)
+                    </MudText>
+                }
+                <MudSwitch T="bool" @bind-Value="_settings.Update.AutoCheck" Color="Color.Primary"
+                           Label="@L["settings.update.autoCheck"]" Disabled="@(!_editingMain)"
+                           data-update-autocheck="1" />
+                <MudSwitch T="bool" @bind-Value="_settings.Update.AutoUpdate" Color="Color.Primary"
+                           Label="@L["settings.update.autoUpdate"]" Disabled="@(!_editingMain)"
+                           data-update-autoupdate="1" />
+                @* ВРЕМЯ СУТОЧНОЙ ПРОВЕРКИ нужно только СЛУЖБЕ: консольный запуск проверяется
+                   при старте, и поле, которое ни на что не влияет, только сбивает с толку *@
+                @if (_settings.Update.IsService)
+                {
+                    <MudTextField T="string" @bind-Value="_settings.Update.Time"
+                                  Label="@L["settings.update.time"]" Style="max-width: 160px;"
+                                  ReadOnly="@(!_editingMain)" data-update-time="1" />
+                }
+                <MudTextField T="string" @bind-Value="_settings.Update.Url"
+                              Label="@L["settings.update.url"]" ReadOnly="@(!_editingMain)"
+                              Placeholder="@AI2P.Core.AppUpdate.DefaultRepoUrl"
+                              data-update-url="1" />
+                @* ССЫЛКА НА РАСПИСАНИЕ (задание): флажки заводят записи, а правят их там же,
+                   где все остальные расписания, — время суточной проверки человек меняет
+                   в самой записи *@
+                @if (ScheduleCodes.Length > 0)
+                {
+                    <MudLink Typo="Typo.caption" data-update-schedule="1"
+                             OnClick="@(() => State.OpenView(UiState.ViewSchedule))">
+                        @L["settings.update.schedule", ScheduleCodes]
+                    </MudLink>
+                }
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["settings.update.hint"]</MudText>
             </MudStack>
         </MudTabPanel>
 
@@ -833,6 +913,7 @@ else
                                 <th>@L["common.active"]</th>
                                 <th>@L["models.customShort"]</th>
                                 <th>@L["models.lora"]</th>
+                                <th>@L["models.prompter"]</th>
                                 @if (State.IsCluster)
                                 {
                                     <th>@L["task.server"]</th>
@@ -867,6 +948,7 @@ else
                                             <td>@ActiveCell(row.Model)</td>
                                             <td>@CustomIcon(row.Model.IsCustom)</td>
                                             <td>@LoraCell(row.Model)</td>
+                                            <td>@PrompterCell(row.Model)</td>
                                             @if (State.IsCluster)
                                             {
                                                 <td style="white-space: nowrap;">@ServerCell(row.Model)</td>
@@ -898,6 +980,11 @@ else
                                    на телефоне это одна галка, а вопрос «на чём вообще можно
                                    обучить персонажа» задают раньше, чем смотрят навыки *@
                                 <th>@L["models.lora"]</th>
+                                @* «Суфлёр» (T-286-S0) — нужна ли этой модели вторая, текстовая,
+                                   которая готовит для неё управляющий json. Колонка такая же
+                                   узкая и стоит рядом: вопросы «чем обучить» и «чем управлять»
+                                   задают об одной и той же медиа-модели *@
+                                <th>@L["models.prompter"]</th>
                                 @if (!ModelsBrief)
                                 {
                                     <th>@L["models.skills"]</th>
@@ -921,6 +1008,7 @@ else
                                     <td>@ActiveCell(model)</td>
                                     <td>@CustomIcon(model.IsCustom)</td>
                                     <td>@LoraCell(model)</td>
+                                    <td>@PrompterCell(model)</td>
                                     @* навыки «код - оценка» через запятую; не помещается —
                                        переносится ТОЛЬКО после запятой (T-238): каждый навык
                                        рисуется своим неразрывным куском (.ai2p-skill-chunk),
@@ -1296,10 +1384,25 @@ else
                 <MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75; max-width: 720px;">
                     @L["exp.general.hint"]
                 </MudText>
+                @* РЕВИЗИЯ (T-269-S0): сначала — что в общем опыте выглядит проектным
+                   и переносится пачкой в выбранный проект, и только потом весь список.
+                   Общее правило получает КАЖДАЯ задача организации, поэтому чужая запись
+                   здесь стоит дороже, чем где-либо ещё *@
+                <GeneralExperienceAudit CanEdit="@State.CanEdit" Moved="OnGeneralExperienceMoved" />
                 <div style="max-width: 1100px;">
-                    <ExperienceTab General="true" CanEdit="@State.CanEdit" />
+                    @* @key перерисовывает вкладку после переноса пачкой: список общего
+                       опыта читается при создании компонента *@
+                    <ExperienceTab General="true" @key="_generalExpVersion" CanEdit="@State.CanEdit" />
                 </div>
             </div>
+        </MudTabPanel>
+
+        @* --- НАБОРЫ ОПЫТА (T-270-S0): «библиотека стилей работы» — пачка записей опыта,
+             которая ставится и снимается ЦЕЛИКОМ и возится между установками. Стоит рядом
+             с «Общим опытом» намеренно: набор кладёт записи в ТУ ЖЕ таблицу, просто разом
+             и с пометкой владельца pack:<код>, по которой его потом и снимают --- *@
+        <MudTabPanel Text="@L["settings.tab.packs"]">
+            <PacksTab CanEdit="@State.CanAdmin" />
         </MudTabPanel>
 
         @* --- УВЕДОМЛЕНИЯ (T-272): список правил организации плюс почтовый сервер,
@@ -1364,6 +1467,38 @@ else
     /// <summary>Переспрос снятия плагина (T-114-S0).</summary>
     private MudMessageBox _pluginRemoveBox = default!;
     private SettingsDto? _settings;
+
+    /// <summary>Счётчик перерисовки вкладки «Общий опыт» (T-269-S0): ревизия перенесла
+    /// записи пачкой — список опыта надо перечитать, а читается он при создании компонента,
+    /// поэтому меняется его @key.</summary>
+    private int _generalExpVersion;
+
+    private void OnGeneralExperienceMoved() => _generalExpVersion++;
+
+    // --- ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208) ---
+
+    /// <summary>Ответ последней проверки; null — в этот заход не проверяли.</summary>
+    private UpdateCheckDto? _update;
+
+    /// <summary>Занятые агенты, которых остановит перезапуск (спрашиваются перед обновлением).</summary>
+    private List<string> _updateAgents = [];
+
+    /// <summary>Идёт проверка или скачивание: обе кнопки на это время выключены.</summary>
+    private bool _updateBusy;
+
+    /// <summary>Снимок полей автообновления на вход в правку — их возвращает «отменить».</summary>
+    private (bool AutoCheck, bool AutoUpdate, string Time, string Url)? _updateBackup;
+
+    /// <summary>Переспрос перед обновлением (T-208) и его текст со списком занятых агентов.</summary>
+    private MudMessageBox _updateBox = default!;
+    private string _updateMessage = "";
+
+    /// <summary>Коды записей расписания, заведённых флажками; пусто — записей нет.</summary>
+    private string ScheduleCodes => string.Join(", ", new[]
+    {
+        _settings?.Update.CheckScheduleCode ?? "",
+        _settings?.Update.UpdateScheduleCode ?? "",
+    }.Where(code => code.Length > 0));
 
     /// <summary>
     /// РЕЖИМ РЕДАКТИРОВАНИЯ вкладки «основное» (T-123-S0) — та же логика, что у формы
@@ -2244,7 +2379,9 @@ else
 
     /// <summary>Колонок в представлении «навыки» — на них растягивается строка категории.
     /// С T-13-S1 колонок на одну больше: добавлена «LoRA».</summary>
-    private int SkillViewColumns => State.IsCluster ? 8 : 7;
+    @* колонок в представлении «навыки»: имя, оценка, размещение, активна, кастомная, LoRA,
+       суфлёр (T-286-S0), [сервер], действия *@
+    private int SkillViewColumns => State.IsCluster ? 9 : 8;
 
     private void OnModelsViewChanged(string view)
     {
@@ -2305,6 +2442,21 @@ else
                 <MudIcon Icon="@(model.Lora.Supported ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Remove)"
                          Color="@(model.Lora.Supported ? Color.Success : Color.Default)"
                          Style="@(model.Lora.Supported ? "" : "opacity:.45;")" Size="Size.Small" />
+            </span>
+        </MudTooltip>
+    };
+
+    @* Колонка «Суфлёр» (T-286-S0): нужна ли модели ВТОРАЯ, текстовая, которая по описанию
+       задачи готовит управляющий json. Признак — из той же настройки профайла, что и LoRA,
+       поэтому правка профайла видна сразу. Прочерк здесь означает обычный случай («суфлёр
+       не нужен»), а не незаполненную настройку: работа без суфлёра — путь всех медиа-моделей *@
+    private RenderFragment PrompterCell(AiModel model) => __builder =>
+    {
+        <MudTooltip Text="@L[model.Prompter.Required ? "models.prompter.required" : "models.prompter.none"]">
+            <span data-model-prompter="@(model.Prompter.Required ? "1" : "0")">
+                <MudIcon Icon="@(model.Prompter.Required ? Icons.Material.Filled.RecordVoiceOver : Icons.Material.Filled.Remove)"
+                         Color="@(model.Prompter.Required ? Color.Info : Color.Default)"
+                         Style="@(model.Prompter.Required ? "" : "opacity:.45;")" Size="Size.Small" />
             </span>
         </MudTooltip>
     };
@@ -2750,6 +2902,7 @@ else
         _mainBackup = (s.Language, s.OpenBrowserOnStart, s.TabTitleMode, s.ScheduleCellMode,
             s.LogLevel, s.LoraImage.MaxWidth, s.LoraImage.MaxHeight, s.LoraImage.MaxKb,
             s.LoraImage.Format, s.LoraImage.PadColor);
+        _updateBackup = (s.Update.AutoCheck, s.Update.AutoUpdate, s.Update.Time, s.Update.Url);
         _editingMain = true;
     }
 
@@ -2769,7 +2922,17 @@ else
             s.LoraImage.Format = b.Format;
             s.LoraImage.PadColor = b.PadColor;
         }
+        // автообновление (T-208) запоминается отдельным снимком: у него свои четыре поля,
+        // и дописывать их в общий кортеж значило бы править десять строк ради двух флажков
+        if (_settings is { } cur && _updateBackup is { } up)
+        {
+            cur.Update.AutoCheck = up.AutoCheck;
+            cur.Update.AutoUpdate = up.AutoUpdate;
+            cur.Update.Time = up.Time;
+            cur.Update.Url = up.Url;
+        }
         _mainBackup = null;
+        _updateBackup = null;
         _editingMain = false;
     }
 
@@ -2780,7 +2943,62 @@ else
         if (await SaveAsync())
         {
             _mainBackup = null;
+            _updateBackup = null;
             _editingMain = false;
+            // флажки автообновления заводят и удаляют записи расписания (T-208) — их коды
+            // приходят с сервера, поэтому после записи настройки перечитываются
+            _settings = await Api.GetSettingsAsync();
+        }
+    }
+
+    /// <summary>
+    /// «Проверить обновления» (T-208): один поход в репозиторий выпусков. Отказ сети —
+    /// это ПОЛЕ ОТВЕТА, а не исключение: строка под кнопкой, а не красная плашка.
+    /// </summary>
+    private async Task CheckUpdateAsync()
+    {
+        _updateBusy = true;
+        _updateAgents = [];
+        try
+        {
+            _update = await Api.CheckUpdateAsync();
+        }
+        finally
+        {
+            _updateBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// «Обновить» (T-208): сначала спрашиваем, кого остановит перезапуск, показываем
+    /// список и переспрашиваем — и только потом качаем пакет. Сервер после ответа
+    /// заканчивает работу сам, поэтому последнее, что успевает сделать страница, —
+    /// сказать человеку, что произошло.
+    /// </summary>
+    private async Task RunUpdateAsync()
+    {
+        if (_update is not { Available: true })
+        {
+            return;
+        }
+        _updateBusy = true;
+        try
+        {
+            _updateAgents = (await Api.UpdateAgentsAsync()).Agents;
+            _updateMessage = _updateAgents.Count > 0
+                ? L["settings.update.agents"] + " " + string.Join("; ", _updateAgents)
+                : L["settings.update.found", _update.Version];
+            var yes = await _updateBox.ShowAsync();
+            if (yes != true)
+            {
+                return;
+            }
+            var started = await Api.RunUpdateAsync();
+            Snackbar.Add(L["settings.update.started", started.Version], Severity.Info);
+        }
+        finally
+        {
+            _updateBusy = false;
         }
     }
 

@@ -15,10 +15,10 @@
 
 | 文件 | 里面是什么 | 何时选它 |
 |---|---|---|
-| `AI2P_full_v_1_NN_win64.exe` | 程序**连同运行时** | 常规情况：不需要额外补装任何东西 |
-| `AI2P_v_1_NN_win64.exe` | 只有程序 | 如果计算机上已经装有 **ASP.NET Core 8.x** 运行时 |
+| `AI2P_v_1_NN_full_windows_x64.exe` | 程序**连同运行时** | 常规情况：不需要额外补装任何东西 |
+| `AI2P_v_1_NN_windows_x64.exe` | 只有程序 | 如果计算机上已经装有 **ASP.NET Core 8.x** 运行时 |
 
-Linux 和 macOS 上是同样两个文件，只是扩展名为 `.run`（`AI2P_full_v_1_NN_Linux.run`）。
+Linux 和 macOS 上是同样两个文件，只是扩展名为 `.run`（`AI2P_v_1_NN_full_linux_x64.run`）。
 `NN` 是版本号；请取最大的那个。
 
 > 拿不准就选 **`full`**。它体积更大，但除了它自己什么都不需要。
@@ -33,8 +33,8 @@ Linux 和 macOS 上是同样两个文件，只是扩展名为 `.run`（`AI2P_ful
 ### Linux
 
 ```sh
-chmod +x AI2P_full_v_1_NN_Linux.run
-./AI2P_full_v_1_NN_Linux.run
+chmod +x AI2P_v_1_NN_full_linux_x64.run
+./AI2P_v_1_NN_full_linux_x64.run
 ```
 
 安装到 `~/ai/AI2P`。不需要 `root` 权限：服务器以普通用户身份运行。
@@ -42,8 +42,8 @@ chmod +x AI2P_full_v_1_NN_Linux.run
 ### macOS
 
 ```sh
-chmod +x AI2P_full_v_1_NN_macos.run
-./AI2P_full_v_1_NN_macos.run
+chmod +x AI2P_v_1_NN_full_macos_arm64.run
+./AI2P_v_1_NN_full_macos_arm64.run
 ```
 
 安装到 `~/ai/AI2P`。不需要 `root` 权限：服务器以普通用户身份运行。  

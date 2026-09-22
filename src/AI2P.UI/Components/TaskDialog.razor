@@ -64,6 +64,36 @@
                             <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
                         }
                     </MudSelect>
+                    @* СУФЛЁР ЗАДАЧИ (T-292-S0): исполнитель, который по описанию задачи
+                       готовит управляющий json для медиа-модели основного исполнителя.
+                       Пусто — берётся суфлёр, названный у самого исполнителя; нет и там —
+                       запуск такой задачи останавливается ошибкой.
+                       Поля видны, только если суфлёр нужен модели исполнителя (T-335-S0) *@
+                    @if (PrompterNeeded)
+                    {
+                    <MudSelect T="string" @bind-Value="_prompterExecutorId" Label="@L["task.prompter"]"
+                               Clearable="true" HelperText="@L["task.prompter.hint"]"
+                               data-task-prompter="1"
+                               ToStringFunc="@ExecutorNick">
+                        @foreach (var executor in AvailableExecutors.Where(e => e.Id != _executorId))
+                        {
+                            <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+                        }
+                    </MudSelect>
+                    @* «могут заменить суфлёра» (T-292-S0): назначенный суфлёр занят — json
+                       готовит первый свободный отсюда; заняты все — задача ждёт на паузе *@
+                    <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_prompterAltExecutorIds"
+                               Label="@L["task.prompterAlt"]" Clearable="true"
+                               HelperText="@L["task.prompterAlt.hint"]"
+                               MultiSelectionTextFunc="@AltExecutorNames"
+                               data-task-prompter-alt="1">
+                        @foreach (var executor in AvailableExecutors.Where(e =>
+                            e.Id != _executorId && e.Id != _prompterExecutorId))
+                        {
+                            <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+                        }
+                    </MudSelect>
+                    }
                     @* ОТВЕТСТВЕННЫЙ переехал в «Основное» (T-23-S0): это тот, кто отвечает
                        за результат, — вопрос того же ряда, что исполнитель, и прятать его
                        в свёрнутый раздел незачем. У новой задачи подставляется умолчание
@@ -155,6 +185,71 @@
                                 <MudSelectItem T="string" Value="@("auto")">@L["task.launch.auto"]</MudSelectItem>
                                 <MudSelectItem T="string" Value="@("schedule")">@L["task.launch.schedule"]</MudSelectItem>
                             </MudSelect>
+                            @* ТИП ЗАДАЧИ (T-298-S0): линейная / условие / «цикл до» / «цикл после».
+                               Хранится ключами launch_json (TaskFlow), по выбранному типу
+                               показываются ровно его поля; у линейной — ничего нового.
+                               Ветви условия выбираются ТОЛЬКО из прямых потомков задачи *@
+                            <MudStack Spacing="2" data-task-flow="@_flow.Type">
+                                <MudSelect T="string" Value="@_flow.Type" ValueChanged="OnFlowTypeChanged"
+                                           Label="@L["task.flow"]" HelperText="@L["task.flow.hint"]"
+                                           data-task-flow-type="1">
+                                    @foreach (var type in TaskFlow.Types)
+                                    {
+                                        <MudSelectItem T="string" Value="@type">@L["task.flow." + type]</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                @if (_flow.Type == TaskFlow.If)
+                                {
+                                    @if (_flowChildren.Count == 0)
+                                    {
+                                        <MudText Typo="Typo.caption" data-task-flow-nochildren="1">@L["task.flow.if.noChildren"]</MudText>
+                                    }
+                                    @foreach (var yes in new[] { true, false })
+                                    {
+                                        var isTrue = yes;
+                                        var branch = isTrue ? "true" : "false";
+                                        var chosen = isTrue ? _flow.IfTrueTaskId : _flow.IfFalseTaskId;
+                                        var create = isTrue ? _flow.IfTrueCreateTasks : _flow.IfFalseCreateTasks;
+                                        var stop = isTrue ? _flow.IfTrueStopHierarchy : _flow.IfFalseStopHierarchy;
+                                        <MudStack Spacing="1" Class="pl-4" data-task-flow-branch="@branch">
+                                            <MudSelect T="string" Value="@chosen" Clearable="true"
+                                                       ValueChanged="@(v => SetBranchTask(isTrue, v))"
+                                                       Label="@L[isTrue ? "task.flow.if.true" : "task.flow.if.false"]"
+                                                       ToStringFunc="@FlowChildName"
+                                                       data-task-flow-branch-task="@branch">
+                                                @foreach (var child in _flowChildren)
+                                                {
+                                                    <MudSelectItem T="string" Value="@child.Id">@child.DisplayId @child.Title</MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                            @if (chosen is not { Length: > 0 })
+                                            {
+                                                <MudCheckBox T="bool" Value="@create"
+                                                             ValueChanged="@(v => SetBranchCreate(isTrue, v))"
+                                                             Label="@L["task.flow.if.create"]"
+                                                             data-task-flow-branch-create="@branch" />
+                                                @if (!create)
+                                                {
+                                                    <MudCheckBox T="bool" Value="@stop"
+                                                                 ValueChanged="@(v => SetBranchStop(isTrue, v))"
+                                                                 Label="@L["task.flow.if.stop"]"
+                                                                 data-task-flow-branch-stop="@branch" />
+                                                }
+                                            }
+                                        </MudStack>
+                                    }
+                                }
+                                else if (TaskFlow.IsLoop(_flow.Type))
+                                {
+                                    <MudNumericField T="int?" @bind-Value="_flow.RecheckLimit" Min="1" Max="100"
+                                                     Label="@L["task.flow.loop.limit"]"
+                                                     HelperText="@L["task.flow.loop.limit.hint"]"
+                                                     data-task-flow-limit="1" />
+                                    <MudCheckBox T="bool" @bind-Value="_flow.LoopStopHierarchy"
+                                                 Label="@L["task.flow.loop.stop"]"
+                                                 data-task-flow-loop-stop="1" />
+                                }
+                            </MudStack>
                             @* блокирующие задачи (ТЗ v1.35): без их завершения автозапуск
                                не срабатывает; у шаблона список указывает на узлы шаблонов
                                и при копировании заменяется на созданные из них задачи.
@@ -340,7 +435,94 @@
     private IReadOnlyCollection<string> _skillIds = [];
     /// <summary>«Могут заменить исполнителя» (T-221) — запасные на случай занятого основного.</summary>
     private IReadOnlyCollection<string> _altExecutorIds = [];
+    /// <summary>Суфлёр задачи и те, кто могут его заменить (T-292-S0).</summary>
+    private string? _prompterExecutorId;
+    private IReadOnlyCollection<string> _prompterAltExecutorIds = [];
     private IReadOnlyCollection<string> _blockerIds = [];
+
+    /// <summary>Тип задачи и его параметры (T-298-S0): правятся здесь, в launch_json уходят
+    /// при сохранении (<see cref="TaskFlow.Write"/>), прочие ключи launch_json не трогаются.</summary>
+    private TaskFlowDto _flow = new();
+
+    /// <summary>ПРЯМЫЕ потомки задачи (T-298-S0) — единственные кандидаты в задачи ветвей
+    /// условия. У новой задачи потомков нет: ветви заводятся правкой.</summary>
+    private List<TaskItem> _flowChildren = [];
+
+    /// <summary>Подпись выбранной задачи ветви — код и заголовок вместо id.</summary>
+    private string FlowChildName(string? id) =>
+        id is null ? "" : _flowChildren.FirstOrDefault(c => c.Id == id) is { } child
+            ? $"{child.DisplayId} {child.Title}" : id;
+
+    /// <summary>Смена типа: лимит цикла подставляется из настроек проекта (T-298-S0), если
+    /// его ещё нет, — человек видит ровно то, с чем задача пойдёт.</summary>
+    private void OnFlowTypeChanged(string type)
+    {
+        _flow.Type = TaskFlow.Normalize(type);
+        if (TaskFlow.IsLoop(_flow.Type) && _flow.RecheckLimit is null)
+        {
+            _flow.RecheckLimit = ProjectSettings.RecheckLimit(_task.ProjectId is { Length: > 0 }
+                ? State.Projects.FirstOrDefault(p => p.Id == _task.ProjectId)?.SettingsJson
+                : null);
+        }
+    }
+
+    private void SetBranchTask(bool yes, string? id)
+    {
+        if (yes)
+        {
+            _flow.IfTrueTaskId = id;
+        }
+        else
+        {
+            _flow.IfFalseTaskId = id;
+        }
+    }
+
+    private void SetBranchCreate(bool yes, bool on)
+    {
+        if (yes)
+        {
+            _flow.IfTrueCreateTasks = on;
+        }
+        else
+        {
+            _flow.IfFalseCreateTasks = on;
+        }
+    }
+
+    private void SetBranchStop(bool yes, bool on)
+    {
+        if (yes)
+        {
+            _flow.IfTrueStopHierarchy = on;
+        }
+        else
+        {
+            _flow.IfFalseStopHierarchy = on;
+        }
+    }
+
+    /// <summary>Прямые потомки задачи для ветвей условия (T-298-S0): задачи её проекта
+    /// (у узла шаблона — узлы шаблонов) с этим родителем.</summary>
+    private async Task LoadFlowChildrenAsync()
+    {
+        if (_task.Id.Length == 0)
+        {
+            return;
+        }
+        try
+        {
+            var all = _task.IsTemplate
+                ? await Api.GetTasksAsync(templatesOnly: true)
+                : await Api.GetTasksAsync(projectId: _task.ProjectId);
+            _flowChildren = all.Where(t => t.ParentId == _task.Id)
+                .OrderBy(t => t.DisplayId, StringComparer.Ordinal).ToList();
+        }
+        catch (ApiException)
+        {
+            // без списка форма работает: ветви останутся без задачи
+        }
+    }
 
     /// <summary>
     /// «Время ↔ качество» (T-23-S0) отдельным полем, а не прямо в <c>_task</c>: у задачи оно
@@ -543,7 +725,12 @@
     /// проекту, иначе команда по умолчанию проекта (п. 2.7); не годится и она — пусто.</summary>
     private string? TeamForProject(string? teamId, string? projectId)
     {
-        if (TeamFits(teamId, projectId))
+        // у задачи БЕЗ проекта подставляется только общая команда (T-335-S0): TeamFits без
+        // проекта пропускает любую, и новый шаблон вне проекта цеплял текущую команду
+        // другого проекта
+        if (TeamFits(teamId, projectId)
+            && (projectId is { Length: > 0 }
+                || State.Teams.FirstOrDefault(t => t.Id == teamId)?.ProjectId is not { Length: > 0 }))
         {
             return teamId;
         }
@@ -589,6 +776,7 @@
         await ReloadBlockersAsync();
         await ResolveChosenBlockersAsync();
         _blockersLoaded = true;
+        await LoadFlowChildrenAsync();
         try
         {
             // тэги организации (T-222): предлагаются в списке выбора; свои тэги задачи
@@ -642,6 +830,12 @@
             else
             {
                 _executorId = picked.ExecutorId;
+                // СУФЛЁР подбирается заодно (T-292-S0): медиа-модель, которой нужен
+                // управляющий json, без него не запустится вовсе
+                if (picked.PrompterExecutorId is { Length: > 0 } prompter)
+                {
+                    _prompterExecutorId = prompter;
+                }
                 Snackbar.Add($"{L["task.pick.found"]}: {picked.Nick} ({picked.Reason})", Severity.Success);
             }
         }
@@ -695,6 +889,17 @@
             .Any(id => State.Executors.FirstOrDefault(e => e.Id == id) is { } e
                        && e.Kind != ExecutorKind.Human);
 
+    /// <summary>
+    /// Нужен ли задаче СУФЛЁР (T-335-S0): хотя бы один из выбранных исполнителей (основной
+    /// или заменяющий) — ИИ, чья рабочая модель медийная и просит суфлёра в профайле; то же
+    /// условие, что у поля суфлёра в форме исполнителя. Иначе поля суфлёра в форме не видны.
+    /// </summary>
+    private bool PrompterNeeded =>
+        _altExecutorIds.Concat(_executorId is null ? [] : new[] { _executorId })
+            .Any(id => State.Executors.FirstOrDefault(e => e.Id == id) is { Kind: ExecutorKind.Ai } e
+                       && State.Models.FirstOrDefault(m => m.Id == e.ModelId)
+                           is { IsMedia: true, Prompter.Required: true });
+
     /// <summary>Ник по id для текста поля «исполнитель» (багфикс todo34_3: MudSelect без
     /// ToStringFunc показывал GUID при программной установке значения).</summary>
     private string ExecutorNick(string? id) =>
@@ -725,6 +930,16 @@
             // команда, чужая проекту задачи, в новую задачу не подставляется (T-63-S0):
             // текущая команда остаётся от прежнего проекта, а команда узла общего шаблона
             // и вовсе принадлежит другому проекту — вместо чужой берётся команда проекта
+            // без родителя и пресета формы команда ПРОЕКТА важнее текущей (T-335-S0): форма
+            // шаблона вкладки проекта пресета команды не передаёт, и в узел шла текущая
+            if (Parent is null && PresetTeamId is null)
+            {
+                var byProject = TeamForProject(null, _task.ProjectId);
+                if (byProject is not null)
+                {
+                    _task.TeamId = byProject;
+                }
+            }
             _task.TeamId = TeamForProject(_task.TeamId, _task.ProjectId);
             // ответственный по умолчанию проекта (T-5-S0): подставляется в поле новой задачи,
             // и человек волен тут же его снять — это умолчание, а не обязательство.
@@ -789,11 +1004,14 @@
             _acceptance = Source.Acceptance;
             _executorId = src.ExecutorIds.FirstOrDefault();
             _altExecutorIds = src.AltExecutorIds.ToArray();   // могут заменить исполнителя (T-221)
+            _prompterExecutorId = src.PrompterExecutorId;     // суфлёр задачи (T-292-S0)
+            _prompterAltExecutorIds = src.PrompterAltExecutorIds.ToArray();
             _skillIds = src.SkillIds.ToArray();
             _blockerIds = src.BlockerIds.ToArray();
             _tags = src.Tags.ToArray();   // тэги задачи (T-222)
             _dueDate = src.DueDate?.ToLocalTime();
             _launchMode = ReadLaunchMode(src.LaunchJson);
+            _flow = TaskFlow.Read(src.LaunchJson);   // тип задачи (T-298-S0)
             // «время ↔ качество» (T-23-S0): у задачи поле может быть не заполнено (её завели
             // мимо формы) — тогда показываем то, с чем она и так работает, умолчание проекта
             _timeQuality = src.TimeQuality ?? DefaultTimeQualityOf(src.ProjectId);
@@ -834,10 +1052,26 @@
         _task.DueDate = _dueDate?.ToUniversalTime();
         // режим меняется с сохранением прочих полей launch_json (флаги autoSplit и др., ТЗ v1.26)
         _task.LaunchJson = WithLaunchMode(_task.LaunchJson, _launchMode);
+        // тип задачи и его параметры (T-298-S0); ветви условия — только из прямых потомков,
+        // проверку повторяет хранилище
+        if (_flow.IfTrueTaskId is { } trueId && _flowChildren.All(c => c.Id != trueId))
+        {
+            _flow.IfTrueTaskId = null;
+        }
+        if (_flow.IfFalseTaskId is { } falseId && _flowChildren.All(c => c.Id != falseId))
+        {
+            _flow.IfFalseTaskId = null;
+        }
+        _task.LaunchJson = TaskFlow.Write(_task.LaunchJson, _flow);
         _task.ExecutorIds = _executorId is null ? [] : [_executorId];
         // могут заменить исполнителя (T-221): основного из списка выбрасываем — он мог
         // попасть туда до того, как его же назначили исполнителем
         _task.AltExecutorIds = _altExecutorIds.Where(id => id != _executorId).ToList();
+        // суфлёр задачи (T-292-S0): основным исполнителем он быть не может — пока тот
+        // считает генерацию, он занят, и ждать пришлось бы самого себя
+        _task.PrompterExecutorId = _prompterExecutorId == _executorId ? null : _prompterExecutorId;
+        _task.PrompterAltExecutorIds = _prompterAltExecutorIds
+            .Where(id => id != _executorId && id != _task.PrompterExecutorId).ToList();
         _task.SkillIds = _skillIds.ToList();
         _task.BlockerIds = _blockerIds.ToList();
         // ссылка импорта (T-246): пустое поле — намерение очистить, поэтому уходит null,

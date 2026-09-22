@@ -12,7 +12,7 @@ se pode perder.
 
 | Forma | O que é | Quando é cômodo |
 |---|---|---|
-| **Pacote de instalação** | um único arquivo `AI2P_v_1_NN_…` (ou `AI2P_full_v_1_NN_…`, com o runtime dentro), instalado com um duplo clique | o caso comum no Windows |
+| **Pacote de instalação** | um único arquivo `AI2P_v_1_NN_…` (ou `AI2P_v_1_NN_full_…`, com o runtime dentro), instalado com um duplo clique | o caso comum no Windows |
 | **Script de instalação** | `install.cmd` / `install.sh` do diretório da distribuição | quando a distribuição já foi baixada e o diretório é escolhido à mão |
 | **Só a distribuição** | o diretório descompactado, executa-se `AI2P.Server.exe` | testes, instalação portátil em um pendrive |
 
@@ -125,6 +125,32 @@ AI2P_HOME= ./install.sh ~/ai/AI2P
 O mesmo remédio serve para o `makeAsServise.sh` dessas mesmas versões.
 
 ---
+
+### Atualização a partir do próprio programa
+
+«Configurações → Geral», ao lado do número da versão, tem o botão **«Verificar atualizações»**. Ele
+consulta o repositório de versões (por padrão `https://github.com/mmf007/ai2p`, o endereço é editado
+ali mesmo) e procura o arquivo **para esta instalação**: o mesmo sistema, a mesma arquitetura e o
+mesmo modo de instalação — versão completa (com o runtime dentro) ou comum. O modo de instalação é
+lido do `version.json` que fica junto ao programa.
+
+Se saiu uma versão mais nova, acende o botão **«Atualizar»**. Antes de instalar, o programa pergunta
+quem está ocupado: a atualização **reinicia o servidor** e os agentes em execução de todas as
+organizações abertas serão parados — a pergunta mostra a lista deles. Depois o pacote é baixado, o
+programa encerra e um script à parte conclui a instalação: espera o fim do processo, instala o pacote
+em silêncio e levanta o servidor de volta (o serviço, com `net start` / `systemctl`; a execução em
+console, iniciando o programa de novo). A página no navegador precisará ser recarregada.
+
+Duas caixas ao lado:
+
+* **verificação automática** — apenas ver se saiu uma versão nova (a resposta vai para o registro);
+* **atualização automática** — verificar e instalar em seguida.
+
+Quando o programa é executado em **console**, a verificação automática acontece ao iniciar. Quando
+ele trabalha como **serviço do sistema**, não há início por semanas — então a caixa cria uma entrada
+na **agenda** (uma vez por dia, às 2:00 da hora local por padrão), e as configurações mostram o
+código dela: a hora é alterada na própria entrada, como em qualquer agenda. Desmarcar a caixa apaga
+a entrada.
 
 ## 4. Serviço do sistema operacional
 

@@ -40,6 +40,7 @@ Tres reglas sobre la referencia que ahorran tiempo:
 | **accesorio** | un objeto en el fotograma |
 | **estilo** | la manera de dibujar, las restricciones del acabado |
 | **fotograma de referencia** | una imagen modelo; normalmente hijo de un personaje o de una localización |
+| **grabación de referencia** | una muestra de voz o de sonido: el conector pasa su archivo al modelo igual que un fotograma de referencia |
 | **conjunto de datos** | carpeta de fotogramas con descripciones para entrenar un adaptador; los fotogramas son sus hijos |
 | **adaptador LoRA** | un añadido entrenado a los pesos del modelo ([Editor de LoRA](LoRAEditor.md)) |
 | **archivo** | un archivo al que se refieren las tareas |

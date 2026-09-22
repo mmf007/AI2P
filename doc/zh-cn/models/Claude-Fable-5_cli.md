@@ -37,6 +37,10 @@
 | 读取其他作业 | 用 `get_task_by_code`、`get_task_by_url`、`get_task_chat` 工具 | 靠回复中的 `AI2P_GET_TASK` 标记 |
 | 作业的外部文件（附件图片） | 用 `fetch_file` 工具 | 靠回复中的 `AI2P_GET_FILE` 标记 |
 | 在层级中移动任务 | 用 `move_task` 工具 | 靠回复中的 `AI2P_MOVE_TASK` 标记 |
+| “条件”任务的判定 | 用 `set_condition_result` 工具 | 靠回复中的 `AI2P_CONDITION` 标记或 `ai2p condition` 命令 |
+| 循环条件检查结果 | 用 `set_loop_result` 工具 | 靠回复中的 `AI2P_LOOP` 标记或 `ai2p loop` 命令 |
+| 从模板节点创建分支任务 | 用 `create_tasks_from_template` 工具 | 靠回复中的 `AI2P_FROM_TEMPLATE` 标记或 `ai2p from-template` 命令 |
+| 结束层级执行 | 用 `stop_hierarchy` 工具 | 靠回复中的 `AI2P_STOP_HIERARCHY` 标记或 `ai2p stop-hierarchy` 命令 |
 
 一个重要的推论：在 CLI 接入方式下，AI2P 的工具**不会**提供给代理 — 它用的是自己的工具。
 AI2P 的安全规则（技术规格第 12 章）不适用于它在项目目录内的动作，因此项目目录要有意识地

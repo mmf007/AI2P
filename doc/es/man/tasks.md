@@ -95,6 +95,45 @@ Dos cosas que conviene saber del formulario:
   la que se está editando; una bloqueante ya elegida se mantiene siempre como opción, porque si
   no, no habría con qué quitarla.
 
+### Tipo de tarea: lineal, condición, bucle
+
+La sección **Avanzado** tiene el campo **Tipo de tarea**. Cada tarea y cada nodo de plantilla
+tiene uno de cuatro tipos:
+
+* **Lineal**: una tarea normal, como siempre. Es el tipo por defecto, y lo reciben todas las
+  tareas y plantillas creadas antes de que apareciera el campo.
+* **Condición**: según el resultado de la tarea se ejecuta una de dos ramas. Para cada rama se
+  indica la **tarea si «Sí»** y la **tarea si «No»**; solo se puede elegir una **subtarea directa**
+  de esta tarea (por eso una tarea recién creada tiene la lista vacía: cree antes las subtareas).
+  Si la rama no tiene tarea, tiene la casilla **Crear tareas** y, cuando está desmarcada, la
+  casilla **Terminar la ejecución de la jerarquía**.
+* **Bucle (comprobar antes)**: la condición se comprueba antes de cada vuelta de subtareas.
+* **Bucle (comprobar después)**: la condición se comprueba después de cada vuelta de subtareas.
+
+Los dos bucles tienen un **límite del bucle** —cuántas vueltas se permiten (una tarea nueva lo
+toma del ajuste del proyecto «Rondas de nueva comprobación»; una copia de plantilla, del
+nodo de la plantilla)— y la casilla **Detener la ejecución de toda la jerarquía al superar el
+límite**.
+
+Los campos aparecen solo para su tipo: una tarea lineal no muestra nada nuevo en el formulario.
+Al crear una tarea desde una plantilla, el tipo y todos sus parámetros pasan a la copia, y los
+enlaces de las ramas de la condición se apuntan a las tareas creadas a partir de los nodos.
+
+**Qué hace el agente.** Las condiciones y los bucles los evalúa el ejecutor según la
+descripción de la tarea y el chat: AI2P no los analiza. Una tarea «Condición» o de bucle
+recibe en su encargo un bloque aparte: qué devolver y con qué acción. La decisión de una
+condición es estrictamente `true` («Sí») o `false` («No») con `set_condition_result`; el
+resultado de la comprobación de un bucle es `true` (otra vuelta) o `false` (salir) con
+`set_loop_result`. No hay tercer resultado: «sí», «1» o nada es un error de la acción, y
+entonces la ejecución de la jerarquía se detiene; el sistema nunca elige la rama por el
+agente. La rama no elegida, las vueltas y el límite del bucle los lleva la propia cola de la
+jerarquía. Si la rama elegida no tiene tarea y está marcado «Crear tareas», el agente las crea
+antes de entregar, con `create_task` o `create_tasks_from_template` (desde un nodo de
+plantilla); y si decide que no se puede seguir en absoluto, finaliza la ejecución de la
+jerarquía con `stop_hierarchy`. Un agente CLI hace lo mismo con los comandos
+`ai2p condition`, `ai2p loop`, `ai2p from-template`, `ai2p stop-hierarchy` o con los
+marcadores `AI2P_CONDITION`, `AI2P_LOOP`, `AI2P_FROM_TEMPLATE`, `AI2P_STOP_HIERARCHY`. Cómo se recorren la condición y los bucles al lanzar la jerarquía se explica en el capítulo [Algoritmo de ejecución de tareas](TaskDo.md).
+
 ### La descripción es el prompt
 
 El campo de la descripción (y el de los criterios de aceptación, y el del chat, y el de la
@@ -200,6 +239,8 @@ preguntar qué hay que detener exactamente: todo junto con las tareas hijas, o s
 la cola. Sin esa reconfirmación, la propia cola habría vuelto a levantar en la siguiente pasada
 el encargo retirado.
 
+El orden de la pasada paso a paso, y las condiciones y los bucles en la cola, se explican en el capítulo [Algoritmo de ejecución de tareas](TaskDo.md).
+
 **«Desactivar el arranque automático de subtareas»** es un botón que está ahí mismo. La marca se
 aplica a la tarea **y a todo su subárbol** y cierra los tres arranques automáticos (el de las
 hijas, el de las que esperaban a una bloqueante y el de la cola de división automática). No
@@ -239,6 +280,25 @@ la siguiente.
 
 La primera llamada marca la tarea como dividida, así que ya no se volverá a dividir.
 
+### Diagrama: condición y ciclos
+
+En el diagrama de subtareas (la tercera vista de la pestaña) las tareas de tipo «Condición» y
+«Ciclo» se reconocen por la forma, y su avance por el color. Solo se dibuja lo que el sistema
+sabe con certeza: el tipo de tarea, las ramas indicadas en ella, la transición realizada y el
+número de vueltas. Nada se adivina por el texto de la descripción.
+
+* **Condición** — un triángulo encima del rectángulo de la tarea y otro debajo. Del superior
+  sale la flecha de la rama «Sí», del inferior la de «No». Mientras la transición no se ha
+  hecho, ambas flechas son **amarillas**; después, la de la rama recorrida es **verde** y la
+  otra **gris**. Si una rama no tiene tarea y está marcado «terminar la ejecución», su flecha
+  lleva a una señal redonda **STOP** rojo oscuro, con el color según las mismas reglas.
+* **Ciclo antes** — el marco de la tarea se repite dos veces abajo y a la derecha; **ciclo
+  después** — arriba y a la izquierda. El óvalo abajo a la derecha muestra vueltas hechas /
+  límite de vueltas (el de la tarea o, si no lo tiene, el del proyecto). Si la ejecución de
+  toda la jerarquía se detuvo en el ciclo, a su derecha aparece la señal **STOP** con una
+  flecha roja.
+* Una tarea **lineal** se ve como antes.
+
 ---
 
 ## Una tarea en otro servidor
@@ -270,6 +330,7 @@ en [Varios servidores](servers.md).
 
 ## Y después
 
+* [Algoritmo de ejecución de tareas](TaskDo.md): el orden del lanzamiento de toda la jerarquía.
 * [Proyectos](progects.md): la carpeta, los objetos, la experiencia y los ajustes que influyen en
   las tareas.
 * [Plantillas](templates.md): para no teclear dos veces el mismo árbol de tareas.

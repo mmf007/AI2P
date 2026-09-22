@@ -180,6 +180,16 @@ public abstract class AiConnectorBase : IAgentConnector
 
     public abstract string Kind { get; }
 
+    /// <summary>
+    /// ЗАДАНИЕ СУФЛЁРА ЗАВЕРШИЛОСЬ НОРМАЛЬНО (T-292-S0): текст ответа надо разобрать в
+    /// управляющий json и запустить основного исполнителя. Подставляется оркестратором через
+    /// <see cref="ConnectorRegistry.OnPrompterFinished"/>; null — суфлёров в этой сборке нет
+    /// (тесты, старая обвязка), и задание суфлёра просто закрывается.
+    /// <para>Делегат, а не вызов оркестратора напрямую: коннекторы собираются РАНЬШЕ него и
+    /// про него ничего не знают — обратная ссылка сделала бы связь круговой.</para>
+    /// </summary>
+    public Func<Job, TaskItem, string, Task>? PrompterFinished { get; set; }
+
     /// <summary>Поддерживает ли коннектор вопросы агента (инструмент ask_question, ТЗ v1.17).</summary>
     protected virtual bool SupportsQuestions => false;
 
@@ -641,7 +651,26 @@ public abstract class AiConnectorBase : IAgentConnector
             // результат — артефакт задачи; задача уходит на проверку человеку (этап 2);
             // токены и валюта пишутся в задание для биллинга (ТЗ v1.15, todo18); валюта ИИ — USD
             var resultPath = _files.WriteTaskArtifact(slug, task.DisplayId, $"{job.DisplayId}-result.md", result.Text);
-            if (task.IsTemplate)
+            if (job.Role == JobRoles.Prompter)
+            {
+                // ЗАДАНИЕ СУФЛЁРА (T-292-S0) — это ПОДГОТОВКА к работе, а не работа: его
+                // результат не уходит человеку на проверку и задачу не завершает. Задание
+                // закрывается, исполнитель-суфлёр освобождается, а дальше оркестратор
+                // вынимает из ответа управляющий json, кладёт его в артефакты задачи и
+                // запускает основного исполнителя — см. JobOrchestrator.PrompterFinishedAsync.
+                // Остальные исходы задания суфлёра прежние и правки не требуют: ошибка уже
+                // ставит задаче «ошибку», а вопрос человеку — «паузу», чего задание и ждёт
+                _jobs.SetState(job.Id, JobState.Done, actorId: job.ExecutorId, resultPath, cost,
+                    inputTokens, outputTokens, "USD");
+                Logger.Information("Задание {JobDisplayId}: суфлёр задачи {TaskDisplayId} отработал — "
+                                   + "разбираю управляющий json (T-292-S0)",
+                    job.DisplayId, task.DisplayId);
+                if (PrompterFinished is { } finished)
+                {
+                    await finished(job, task, result.Text);
+                }
+            }
+            else if (task.IsTemplate)
             {
                 _jobs.SetState(job.Id, JobState.Done, actorId: job.ExecutorId, resultPath, cost,
                     inputTokens, outputTokens, "USD");

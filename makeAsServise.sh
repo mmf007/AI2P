@@ -43,14 +43,26 @@ done
 
 # ТЕКСТЫ СООБЩЕНИЙ ЛЕЖАТ СНАРУЖИ (T-65-S0); каталога рядом может не оказаться —
 # тогда L отдаёт сам ключ, и скрипт всё равно работает
+# годность загрузчика — по функциям, а не по наличию файла (T-319)
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 AI2P_LOC_DIR="$SELF_DIR/i18n"
+LOC_FILE=0
 if [ -f "$AI2P_LOC_DIR/loc.sh" ]; then
+    LOC_FILE=1
     . "$AI2P_LOC_DIR/loc.sh"
+fi
+if command -v ai2p_set_lang >/dev/null 2>&1; then
     ai2p_set_lang "$LANG_OPT"
-else
-    L() { printf '%s\n' "$1"; }
+elif [ "$LOC_FILE" -eq 1 ]; then
+    printf 'AI2P: %s/loc.sh defines no messages (empty or truncated file) - texts are printed as keys\n' "$AI2P_LOC_DIR" >&2
+fi
+if ! command -v ai2p_text >/dev/null 2>&1; then
     ai2p_text() { printf '%s' "$1"; }
+fi
+if ! command -v L >/dev/null 2>&1; then
+    L() { ai2p_text "$@"; printf '\n'; }
+fi
+if ! command -v ai2p_help >/dev/null 2>&1; then
     ai2p_help() { printf 'No i18n folder next to makeAsServise.sh\n'; }
 fi
 

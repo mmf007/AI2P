@@ -54,8 +54,8 @@ public sealed class Todo34Tests : IDisposable
     [Fact]
     public void BlockersDone_Requires_All_Blockers_Done()
     {
-        // с версии 1.88 (T-6-S1) «завершена» для блокирующей — это только «готово»:
-        // отменённая блокирующая ждущую задачу не отпускает, а держит её навсегда
+        // «завершена» для блокирующей — «готово» ИЛИ «отменена» (T-299-S0; в 1.88–1.137 по
+        // T-6-S1 отменённая держала ждущую задачу навсегда)
         var a = NewTask("A");
         var b = NewTask("B");
         var c = NewTask("C", blockers: [a.Id, b.Id]);
@@ -66,12 +66,12 @@ public sealed class Todo34Tests : IDisposable
         Assert.True(_f.Tasks.BlockersDone(c));
         Assert.Contains(_f.Tasks.ListBlockedBy(a.Id), t => t.Id == c.Id);
 
-        // а отменённая — отдельный исход (BlockersState.Cancelled)
+        // отменённая тоже отпускает (T-299-S0)
         var d = NewTask("D");
         var e = NewTask("E", blockers: [d.Id]);
         _f.Tasks.ChangeStatus(d.Id, TaskStatuses.Cancelled, null);
-        Assert.False(_f.Tasks.BlockersDone(e));
-        Assert.True(_f.Tasks.BlockersCancelled(e));
+        Assert.True(_f.Tasks.BlockersDone(e));
+        Assert.False(_f.Tasks.BlockersCancelled(e));
     }
 
     [Fact]

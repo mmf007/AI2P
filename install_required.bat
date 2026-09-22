@@ -177,7 +177,7 @@ echo.
 
 rem ---------- 5. Inno Setup 6 (installer packages, T-285) ----------
 rem MakePackage.ps1 turns a release folder into a single .exe installer
-rem (AI2P_v_1_NN_win64.exe / AI2P_full_v_1_NN_win64.exe) with ISCC.exe.
+rem (AI2P_v_1_NN_windows_x64.exe / AI2P_v_1_NN_full_windows_x64.exe) with ISCC.exe.
 rem Note: no parentheses around the echo of the path - the default install
 rem path contains "(x86)" and would close a cmd block early.
 set "ISCC="

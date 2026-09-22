@@ -32,15 +32,35 @@ while [ "$#" -gt 0 ]; do
 done
 
 # ТЕКСТЫ СООБЩЕНИЙ ЛЕЖАТ СНАРУЖИ (T-65-S0); каталога рядом может не оказаться —
-# тогда L отдаёт сам ключ, и скрипт всё равно работает
+# тогда L отдаёт сам ключ, и скрипт всё равно работает.
+#
+# ГОДНОСТЬ ЗАГРУЗЧИКА ПРОВЕРЯЕТСЯ ПО ФУНКЦИЯМ, А НЕ ПО НАЛИЧИЮ ФАЙЛА (T-319). Проверка
+# «-f» говорит только о том, что файл есть: пустой или обрезанный при копировании loc.sh
+# её проходит, но НЕ ЗАДАЁТ НИ ОДНОЙ функции — а ветка «else» при этом не выполняется,
+# и запасных определений не появляется тоже. Тогда каждая строка вывода превращается
+# в «./MakePackage.sh: 250: L: not found» (жалоба T-319: пять таких строк в конце —
+# это последние пять вызовов L, остальные такие же строки прошли выше по выводу).
+# Поэтому: сначала пробуем загрузить каталог, потом СПРАШИВАЕМ, что из него получилось,
+# и доопределяем недостающее. Без словаря скрипт обязан работать, а не сыпать ошибками
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 AI2P_LOC_DIR="$SELF_DIR/i18n"
+LOC_FILE=0
 if [ -f "$AI2P_LOC_DIR/loc.sh" ]; then
+    LOC_FILE=1
     . "$AI2P_LOC_DIR/loc.sh"
+fi
+if command -v ai2p_set_lang >/dev/null 2>&1; then
     ai2p_set_lang "$LANG_OPT"
-else
-    L() { printf '%s\n' "$1"; }
+elif [ "$LOC_FILE" -eq 1 ]; then
+    printf 'AI2P: %s/loc.sh defines no messages (empty or truncated file) - texts are printed as keys\n' "$AI2P_LOC_DIR" >&2
+fi
+if ! command -v ai2p_text >/dev/null 2>&1; then
     ai2p_text() { printf '%s' "$1"; }
+fi
+if ! command -v L >/dev/null 2>&1; then
+    L() { ai2p_text "$@"; printf '\n'; }
+fi
+if ! command -v ai2p_help >/dev/null 2>&1; then
     ai2p_help() { printf 'No i18n folder next to MakePackage.sh\n'; }
 fi
 
@@ -79,37 +99,50 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# ---------- 2. под какую систему собрана выкладка ----------
-# у полной выкладки система записана рантаймом (linux-x64, osx-arm64, win-x64),
-# у обычной рантайма нет вовсе — тогда её выдаёт каталог ОС (builds/<ОС>/release)
-OS_TAG=""
+# ---------- 2. под какую систему и архитектуру собрана выкладка ----------
+# у полной выкладки и система, и архитектура записаны рантаймом (linux-arm64, osx-arm64,
+# win-x64), у обычной рантайма нет вовсе — тогда систему выдаёт каталог ОС
+# (builds/<ОС>/release), а архитектуру берём у ТЕКУЩЕГО КОМПИЛЯТОРА: выкладка без RID
+# собирается под ту машину, на которой её собирали
+OS_NAME=""
+ARCH_TAG=""
 case "$RUNTIME" in
-    linux-arm64) OS_TAG="Linux_arm64" ;;
-    linux-arm)   OS_TAG="Linux_arm" ;;
-    linux-*)     OS_TAG="Linux" ;;
-    osx-*)       OS_TAG="MacOs" ;;
-    win-*)       OS_TAG="win64" ;;
+    linux-*) OS_NAME="linux" ;;
+    osx-*)   OS_NAME="macos" ;;
+    win-*)   OS_NAME="windows" ;;
 esac
-if [ -z "$OS_TAG" ]; then
+# архитектура RID — это его последняя часть: linux-x64 -> x64, osx-arm64 -> arm64
+if [ -n "$RUNTIME" ]; then ARCH_TAG="${RUNTIME##*-}"; fi
+if [ -z "$OS_NAME" ]; then
     case "$(basename "$(dirname "$SRC_DIR")")" in
-        linux)   OS_TAG="Linux" ;;
-        macos)   OS_TAG="MacOs" ;;
-        windows) OS_TAG="win64" ;;
-        *)       case "$(uname -s)" in Darwin) OS_TAG="MacOs" ;; *) OS_TAG="Linux" ;; esac ;;
+        linux)   OS_NAME="linux" ;;
+        macos)   OS_NAME="macos" ;;
+        windows) OS_NAME="windows" ;;
+        *)       case "$(uname -s)" in Darwin) OS_NAME="macos" ;; *) OS_NAME="linux" ;; esac ;;
     esac
 fi
-case "$OS_TAG" in
-    win*)
-        L scr.pkg.35
-        L scr.pkg.36
-        exit 1 ;;
-esac
+if [ -z "$ARCH_TAG" ]; then
+    # x64, arm64, x86, arm — как их называет .NET, а не uname
+    case "$(uname -m)" in
+        x86_64|amd64)   ARCH_TAG="x64" ;;
+        aarch64|arm64)  ARCH_TAG="arm64" ;;
+        armv*|arm)      ARCH_TAG="arm" ;;
+        i386|i686|x86)  ARCH_TAG="x86" ;;
+        *)              ARCH_TAG="$(uname -m)" ;;
+    esac
+fi
+if [ "$OS_NAME" = "windows" ]; then
+    L scr.pkg.35
+    L scr.pkg.36
+    exit 1
+fi
 
 # ---------- 3. имя пакета и каталог результата ----------
-# AI2P_full_v_1_98_Linux.run — полная выкладка; AI2P_v_1_98_Linux.run — обычная.
-# «1_98» — это версия с точкой, заменённой на подчёркивание: вторая часть и есть билд NN
-if [ "$SELF_CONTAINED" = "true" ]; then PREFIX="AI2P_full_v_"; else PREFIX="AI2P_v_"; fi
-BASENAME="$PREFIX$(echo "$VERSION" | tr '.' '_')_$OS_TAG"
+# AI2P_v_1_133_full_linux_x64.run — полная выкладка; AI2P_v_1_133_linux_x64.run — обычная.
+# «1_133» — это версия с точкой, заменённой на подчёркивание: вторая часть и есть билд NN;
+# «full» стоит ПОСЛЕ номера версии, дальше система и архитектура (T-234-S0)
+if [ "$SELF_CONTAINED" = "true" ]; then FULL_TAG="_full"; else FULL_TAG=""; fi
+BASENAME="AI2P_v_$(echo "$VERSION" | tr '.' '_')${FULL_TAG}_${OS_NAME}_${ARCH_TAG}"
 
 if [ -z "$OUT_DIR" ]; then OUT_DIR="$SRC_DIR/../../packages"; fi
 case "$OUT_DIR" in
@@ -187,8 +220,13 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SELF_DIR/i18n/loc.sh" ]; then
     AI2P_LOC_DIR="$SELF_DIR/i18n"
     . "$SELF_DIR/i18n/loc.sh"
+fi
+# T-319: годность загрузчика — по функциям, а не по наличию файла (пустой loc.sh
+# проходит «-f», но не задаёт ничего, и тогда «ai2p_text: not found»)
+if command -v ai2p_set_lang >/dev/null 2>&1; then
     ai2p_set_lang ""
-else
+fi
+if ! command -v ai2p_text >/dev/null 2>&1; then
     ai2p_text() { printf 'AI2P installation folder [%s]:' "$2"; }
 fi
 if [ -n "$HOME" ]; then DEFAULT_TARGET="$HOME/ai/AI2P"; else DEFAULT_TARGET="$(pwd)/AI2P"; fi

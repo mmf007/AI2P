@@ -120,6 +120,14 @@ public sealed class TaskToolset
     public bool CanExperience =>
         _experience is not null && (_current.TemplateId is not null || _current.ProjectId is not null);
 
+    /// <summary>
+    /// ПОИСК по опыту (search_experience, T-268-S0) публикуется, как только опыт вообще
+    /// подключён: условие «есть куда писать» здесь не годится. Общие правила работы
+    /// организации получает КАЖДАЯ задача, в том числе заведённая вне проекта и вне
+    /// шаблона, — а значит ей есть что искать, даже если писать ей некуда.
+    /// </summary>
+    public bool CanSearchExperience => _experience is not null;
+
     /// <summary>Инструменты шаблонов (T-144) публикуются задачам проекта: узлы шаблонов
     /// перечисляются, создаются и правятся в пределах проекта текущей задачи. Сама запись
     /// шаблона возможна только на дирижёре организации (ТЗ гл. 6) — отказ приходит от
@@ -169,6 +177,20 @@ public sealed class TaskToolset
     /// в журнал работ, а безымянной такая запись быть не должна. Ожидание идёт следом
     /// за перезапуском и в одиночку смысла не имеет.</summary>
     public bool CanRecheck => _actorExecutorId is not null;
+
+    /// <summary>Тип текущей задачи (T-298-S0): «Условие» — агенту публикуется
+    /// set_condition_result, цикл — set_loop_result (T-300-S0). У линейной задачи решать
+    /// нечего, и инструмент, отвечающий только отказом, агенту не показывается.</summary>
+    public string FlowType => TaskFlow.Read(_current.LaunchJson).Type;
+
+    /// <summary>Задачи ветви из узла шаблона (create_tasks_from_template, T-300-S0) — по тем
+    /// же условиям, что create_task и шаблоны проекта: подбор исполнителя и проект.</summary>
+    public bool CanFromTemplate => CanCreate && CanTemplates;
+
+    /// <summary>Остановка выполнения иерархии (stop_hierarchy, T-300-S0) — по тому же
+    /// условию, что смена состояния: меняет очередь чужой задачи-корня, и запись об этом
+    /// безымянной быть не должна.</summary>
+    public bool CanStopHierarchy => _actorExecutorId is not null;
 
     /// <summary>Опубликованные агенту инструменты (todo23). Текстов здесь НЕТ (todo24):
     /// промпты (описания) подставляются из справочника действий (Настройки → Действия);
@@ -281,11 +303,77 @@ public sealed class TaskToolset
             {
               "type": "object",
               "properties": {
-                "id":    { "type": "string" },
-                "text":  { "type": "string" },
-                "skill": { "type": "string" }
+                "id":         { "type": "string" },
+                "text":       { "type": "string" },
+                "skill":      { "type": "string" },
+                "tags":       { "type": "array", "items": { "type": "string" } },
+                "alwaysLoad": { "type": "boolean" },
+                "active":     { "type": "boolean" }
               },
               "required": ["id", "text"]
+            }
+            """),
+        new("set_experience_active", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "id":     { "type": "string" },
+                "active": { "type": "boolean" }
+              },
+              "required": ["id", "active"]
+            }
+            """),
+        new("list_experience", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "scope":           { "type": "string", "enum": ["project", "template", "general"] },
+                "template":        { "type": "string" },
+                "skill":           { "type": "string" },
+                "tag":             { "type": "string" },
+                "includeInactive": { "type": "boolean" },
+                "limit":           { "type": "integer" },
+                "offset":          { "type": "integer" }
+              }
+            }
+            """),
+        new("experience_usage", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "id":     { "type": "string" },
+                "scope":  { "type": "string", "enum": ["project", "template", "general"] },
+                "limit":  { "type": "integer" },
+                "offset": { "type": "integer" }
+              }
+            }
+            """),
+        new("move_experience", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "id":       { "type": "string" },
+                "scope":    { "type": "string", "enum": ["project", "template", "general"] },
+                "template": { "type": "string" }
+              },
+              "required": ["id", "scope"]
+            }
+            """),
+        new("search_experience", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "query":           { "type": "string" },
+                "scope":           { "type": "string", "enum": ["project", "template", "general", "all"] },
+                "limit":           { "type": "integer" },
+                "includeInactive": { "type": "boolean" }
+              },
+              "required": ["query"]
             }
             """),
         new("list_templates", "",
@@ -337,6 +425,25 @@ public sealed class TaskToolset
             """),
         new("wait_task_reply", "",
             """{ "type": "object", "properties": { "minutes": { "type": "integer" } } }"""),
+        // ветвление и циклы (T-300-S0): решение условия, исход проверки цикла, задачи ветви
+        // из узла шаблона, остановка выполнения иерархии
+        new("set_condition_result", "",
+            """{ "type": "object", "properties": { "value": { "type": "boolean" } }, "required": ["value"] }"""),
+        new("set_loop_result", "",
+            """{ "type": "object", "properties": { "continue": { "type": "boolean" } }, "required": ["continue"] }"""),
+        new("create_tasks_from_template", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "template": { "type": "string" },
+                "parent":   { "type": "string" }
+              },
+              "required": ["template"]
+            }
+            """),
+        new("stop_hierarchy", "",
+            """{ "type": "object", "properties": { "reason": { "type": "string" } } }"""),
     ];
 
     /// <summary>Имена инструментов заданий — для диспетчеризации в AgentToolset.</summary>
@@ -365,6 +472,11 @@ public sealed class TaskToolset
                 "update_task" => UpdateTask(args),
                 "create_experience" => CreateExperience(args),
                 "update_experience" => UpdateExperience(args),
+                "move_experience" => MoveExperience(args),
+                "search_experience" => SearchExperience(args),
+                "set_experience_active" => SetExperienceActive(args),
+                "list_experience" => ListExperience(args),
+                "experience_usage" => ExperienceUsage(args),
                 "list_templates" => ListTemplates(),
                 "create_template" => CreateTemplate(args),
                 "update_template" => UpdateTemplate(args),
@@ -373,6 +485,10 @@ public sealed class TaskToolset
                 "send_chat_message" => SendChatMessage(RequiredString(args, "text", Language)),
                 "send_task_message" => SendTaskMessage(args),
                 "wait_task_reply" => await WaitTaskReplyAsync(args, ct),
+                "set_condition_result" => SetFlowDecision(args, "value", loop: false),
+                "set_loop_result" => SetFlowDecision(args, "continue", loop: true),
+                "create_tasks_from_template" => CreateTasksFromTemplate(args),
+                "stop_hierarchy" => StopHierarchy(args),
                 _ => Loc.In(Language, "prompt.tasks.1", name),
             };
             CallLog.Add($"{name}({args.GetRawText()}) → {Preview(result)}");
@@ -1467,6 +1583,10 @@ public sealed class TaskToolset
         if (picked.ExecutorId is not null)
         {
             subtask.ExecutorIds = [picked.ExecutorId];
+            // СУФЛЁР подбирается вместе с исполнителем (T-292-S0): медиа-модель, которой
+            // нужен управляющий json, без него не запустится вовсе — подзадача встала бы
+            // ошибкой при первом же старте
+            subtask.PrompterExecutorId = picked.PrompterExecutorId;
         }
 
         // очередь иерархического запуска узнаёт о подзадаче ПОСЛЕ того, как та дописана
@@ -1706,6 +1826,157 @@ public sealed class TaskToolset
             .ToList();
     }
 
+    // ---------- ветвление и циклы (T-300-S0, ветка T-297-S0) ----------
+    // Условия вычисляет АГЕНТ, AI2P их не анализирует: агент сообщает решение действием,
+    // оно ложится ключом flowDecision в launch_json СВОЕЙ задачи (TaskService.SetFlowDecision),
+    // а очередь иерархии (JobOrchestrator, T-299-S0) читает его, когда задание сдано.
+    // Отмену непройденной ветки, паузу «ждёт окончания цикла», перезапуск анализатора и
+    // остановку по флажкам задачи делает ДВИЖОК — агенту на них действий намеренно нет.
+
+    /// <summary>
+    /// set_condition_result / set_loop_result (T-300-S0): решение задачи «Условие»
+    /// (value: true — ветка «Да», false — «Нет») либо исход проверки условий цикла
+    /// (continue: true — на круг, false — выход). Только про СВОЮ задачу и только нужного типа.
+    /// Третьего исхода нет: значение принимается булевым JSON либо строкой «true»/«false»
+    /// (так его передаёт клиент командной строки), всё прочее — «да», «1», «скорее нет»,
+    /// пропуск — ОШИБКА, а не молчаливый выбор ветки. Повторный вызов переписывает решение.
+    /// </summary>
+    private string SetFlowDecision(JsonElement args, string property, bool loop)
+    {
+        var task = _tasks.Get(_current.Id) ?? _current;
+        var type = TaskFlow.Read(task.LaunchJson).Type;
+        if (loop ? !TaskFlow.IsLoop(type) : type != TaskFlow.If)
+        {
+            return Loc.In(Language, loop ? "prompt.tasks.173" : "prompt.tasks.172", task.DisplayId, type);
+        }
+        if (!TryStrictBool(args, property, out var decision, out var raw))
+        {
+            return Loc.In(Language, "prompt.tasks.174", property, raw);
+        }
+        _tasks.SetFlowDecision(task.Id, decision);
+        var key = loop
+            ? decision ? "prompt.tasks.177" : "prompt.tasks.178"
+            : decision ? "prompt.tasks.175" : "prompt.tasks.176";
+        return Loc.In(Language, key, task.DisplayId);
+    }
+
+    /// <summary>Строгое булево значение аргумента: true/false JSON либо строка «true»/«false»
+    /// без учёта регистра. raw — что пришло на самом деле (для текста ошибки).</summary>
+    private static bool TryStrictBool(JsonElement args, string property, out bool value, out string raw)
+    {
+        value = false;
+        raw = "—";
+        if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(property, out var v))
+        {
+            return false;
+        }
+        raw = v.GetRawText();
+        switch (v.ValueKind)
+        {
+            case JsonValueKind.True:
+                value = true;
+                return true;
+            case JsonValueKind.False:
+                return true;
+            case JsonValueKind.String:
+                var text = (v.GetString() ?? "").Trim();
+                if (text.Equals("true", StringComparison.OrdinalIgnoreCase))
+                {
+                    value = true;
+                    return true;
+                }
+                return text.Equals("false", StringComparison.OrdinalIgnoreCase);
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// create_tasks_from_template (T-300-S0): развернуть узел шаблона проекта подзадачей
+    /// (<see cref="TaskService.InstantiateTemplate"/> с parentId, как кнопка «из шаблона»
+    /// в карточке, T-201). Нужно ветке условия без задачи с флажком «создавать задачи»:
+    /// типовую работу ветки удобнее держать шаблоном, чем пересказывать create_task по
+    /// подзадаче. Родитель — своя задача либо задача из своего поддерева: чужое дерево
+    /// агент так не растит (в чужой очереди новые задачи пошли бы в работу без спроса).
+    /// </summary>
+    private string CreateTasksFromTemplate(JsonElement args)
+    {
+        if (!CanFromTemplate)
+        {
+            return Loc.In(Language, "prompt.tasks.179");
+        }
+        var code = RequiredString(args, "template", Language).Trim();
+        var templates = ProjectTemplates();
+        var node = templates.FirstOrDefault(t => t.DisplayId.Equals(code, StringComparison.OrdinalIgnoreCase))
+                   ?? templates.FirstOrDefault(t => t.Title.Equals(code, StringComparison.OrdinalIgnoreCase));
+        if (node is null)
+        {
+            return Loc.In(Language, "prompt.tasks.180", code);
+        }
+        var parent = _tasks.Get(_current.Id) ?? _current;
+        var parentCode = (OptionalString(args, "parent") ?? "").Trim();
+        if (parentCode.Length > 0 && !parentCode.Equals(parent.DisplayId, StringComparison.OrdinalIgnoreCase))
+        {
+            var found = ProjectTasks()
+                .FirstOrDefault(t => t.DisplayId.Equals(parentCode, StringComparison.OrdinalIgnoreCase));
+            if (found is null)
+            {
+                return Loc.In(Language, "prompt.tasks.186", parentCode);
+            }
+            if (!IsInOwnSubtree(found))
+            {
+                return Loc.In(Language, "prompt.tasks.181", found.DisplayId, _current.DisplayId);
+            }
+            parent = found;
+        }
+        var head = _tasks.InstantiateTemplate(node.Id, baseDate: null, _actorExecutorId, PickMode.AiFirst,
+            _picker, parent.Id);
+        return Loc.In(Language, "prompt.tasks.182", head.DisplayId, head.Title, node.DisplayId, parent.DisplayId);
+    }
+
+    /// <summary>Задача лежит в поддереве текущей (сама текущая сюда не входит).</summary>
+    private bool IsInOwnSubtree(TaskItem task)
+    {
+        var parentId = task.ParentId;
+        for (var depth = 0; parentId is not null && depth < 64; depth++)
+        {
+            if (string.Equals(parentId, _current.Id, StringComparison.Ordinal))
+            {
+                return true;
+            }
+            parentId = _tasks.Get(parentId)?.ParentId;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// stop_hierarchy (T-300-S0): ЗАВЕРШИТЬ ВЫПОЛНЕНИЕ ИЕРАРХИИ, в которой идёт своя задача, —
+    /// снять пометку открытой очереди у её корня (с галочками переспроса, как это делает сам
+    /// движок, T-6-S1). Уже запущенные задания не снимаются: их останавливает человек кнопкой
+    /// (T-263); не запустится только то, что очередь ещё не взяла. Флажки «завершить
+    /// выполнение» у ветки условия и у цикла движок исполняет сам — действие для случая,
+    /// когда агент по описанию задачи и чату решил, что дальше идти нельзя.
+    /// </summary>
+    private string StopHierarchy(JsonElement args)
+    {
+        if (!CanStopHierarchy)
+        {
+            return Loc.In(Language, "prompt.tasks.185");
+        }
+        var task = _tasks.Get(_current.Id) ?? _current;
+        var root = _tasks.HierarchyRootOf(task);
+        if (root is null)
+        {
+            return Loc.In(Language, "prompt.tasks.183", task.DisplayId);
+        }
+        _tasks.SetHierarchyRun(root.Id, false);
+        _tasks.SetLaunchFlag(root.Id, TaskService.HierarchyErrorsFlag, false);
+        _tasks.SetLaunchFlag(root.Id, TaskService.HierarchyNeedsFixFlag, false);
+        var reason = (OptionalString(args, "reason") ?? "").Trim();
+        return Loc.In(Language, "prompt.tasks.184", root.DisplayId, root.Title,
+            reason.Length == 0 ? "—" : reason);
+    }
+
     /// <summary>
     /// То же про перенос задачи для агента БЕЗ инструментов AI2P (CLI-агент, T-2-S0):
     /// перенос делается маркером в ответе, как подзадачи и опыт.
@@ -1846,13 +2117,29 @@ public sealed class TaskToolset
         {
             scope = node.Length > 0 || _current.TemplateId is not null ? ScopeTemplate : ScopeProject;
         }
+        if (scope is not (ScopeGeneral or ScopeProject or ScopeTemplate))
+        {
+            return Loc.In(Language, "prompt.tasks.61", scope, ScopeProject, ScopeTemplate, ScopeGeneral);
+        }
+        // ДЕДУПЛИКАЦИЯ ПРИ ЗАПИСИ (T-268-S0, §4.9 проекта опыта): сначала ищем похожую запись
+        // ТОЙ ЖЕ ОБЛАСТИ. Сильное совпадение — новую не заводим вовсе и предлагаем поправить
+        // найденную; слабое — заводим, но помечаем тэгом «похоже на …» для ревизии человеком.
+        // Порог сильного совпадения СТРОГИЙ намеренно: сравнение без эмбеддингов чисто
+        // лексическое, и ложный отказ завести запись хуже дубля
+        var similar = _experience!.FindSimilar(text, scope,
+            scope == ScopeGeneral ? null : _current.ProjectId);
+        if (similar is { } found && found.Ratio >= ExperienceService.DuplicateRatio)
+        {
+            return Loc.In(Language, "prompt.tasks.159", found.Record.Id, found.Record.Text);
+        }
         // общие правила работы (T-11-S0) ни к проекту, ни к шаблону не привязаны —
         // их пишет и задача, заведённая вне проекта
         if (scope == ScopeGeneral)
         {
-            var generalRecord = _experience!.CreateGeneral(text, _actorExecutorId, skillId,
+            var generalRecord = _experience.CreateGeneral(text, _actorExecutorId, skillId,
                 tags: _current.Tags);
-            return Loc.In(Language, "prompt.tasks.124", generalRecord.Id);
+            return MarkSimilar(generalRecord, similar,
+                Loc.In(Language, "prompt.tasks.124", generalRecord.Id));
         }
         if (scope == ScopeProject)
         {
@@ -1860,13 +2147,10 @@ public sealed class TaskToolset
             {
                 return Loc.In(Language, "prompt.tasks.59");
             }
-            var projectRecord = _experience!.CreateForProject(_current.ProjectId, text,
+            var projectRecord = _experience.CreateForProject(_current.ProjectId, text,
                 _actorExecutorId, skillId, tags: _current.Tags);
-            return Loc.In(Language, "prompt.tasks.60", projectRecord.Id);
-        }
-        if (scope != ScopeTemplate)
-        {
-            return Loc.In(Language, "prompt.tasks.61", scope, ScopeProject, ScopeTemplate, ScopeGeneral);
+            return MarkSimilar(projectRecord, similar,
+                Loc.In(Language, "prompt.tasks.60", projectRecord.Id));
         }
         var templateId = node.Length > 0 ? TemplateIdOf(node) : _current.TemplateId;
         if (templateId is null)
@@ -1875,14 +2159,79 @@ public sealed class TaskToolset
                 ? Loc.In(Language, "prompt.tasks.62", node)
                 : Loc.In(Language, "prompt.tasks.63", ScopeProject);
         }
-        var record = _experience!.Create(templateId, text, _actorExecutorId, skillId,
+        var record = _experience.Create(templateId, text, _actorExecutorId, skillId,
             tags: _current.Tags);
-        return Loc.In(Language, "prompt.tasks.64", CodeOf(templateId), record.Id);
+        return MarkSimilar(record, similar,
+            Loc.In(Language, "prompt.tasks.64", CodeOf(templateId), record.Id));
+    }
+
+    /// <summary>
+    /// Пометить только что заведённую запись тэгом «похоже на …» (T-268-S0), если слабое
+    /// совпадение нашлось. Пометка нужна ЧЕЛОВЕКУ: по ней он находит кандидатов на слияние
+    /// в списке опыта. Тэгом, а не текстом, — обрубок чужой мысли внутри записи читался бы
+    /// как часть урока.
+    /// </summary>
+    private string MarkSimilar(ExperienceRecord created, ExperienceService.SimilarFound? similar,
+        string plainAnswer)
+    {
+        if (similar is null)
+        {
+            return plainAnswer;
+        }
+        var tag = ExperienceService.SimilarTag(similar.Record.Id);
+        _experience!.Update(created.Id, created.Text, _actorExecutorId,
+            tags: created.Tags.Append(tag).ToList());
+        return Loc.In(Language, "prompt.tasks.160", created.Id, similar.Record.Id, tag);
+    }
+
+    /// <summary>
+    /// ПОИСК ПО ЗАПИСЯМ ОПЫТА (search_experience, T-268-S0). До этой версии достать запись,
+    /// не поместившуюся в задание, было нечем вовсе: у агента были только create_experience
+    /// и update_experience, а подсказка про отброшенные записи предлагала «спроси человека».
+    /// <para>Параметры: query — слова запроса; scope — область (project / template / general;
+    /// «all» или пусто — все); limit — сколько строк (1..50, по умолчанию 10);
+    /// includeInactive — искать И по неактивным записям. По умолчанию ищет ТОЛЬКО ПО
+    /// АКТИВНЫМ: неактивную запись агент не получает ни при каком раскладе, и выдавать её
+    /// по умолчанию значило бы вернуть погашенную запись в работу через чёрный ход.</para>
+    /// <para>Поиск лексический: слова, а не смысл. Тэги ТЕКУЩЕЙ ЗАДАЧИ идут в ранг прибавкой
+    /// за совпадение темы — агент их не задаёт.</para>
+    /// </summary>
+    private string SearchExperience(JsonElement args)
+    {
+        if (!CanSearchExperience)
+        {
+            return Loc.In(Language, "prompt.tasks.158");
+        }
+        var query = RequiredString(args, "query", Language).Trim();
+        var scope = (OptionalString(args, "scope") ?? "").Trim().ToLowerInvariant();
+        var limit = OptionalInt(args, "limit") ?? 10;
+        var includeInactive = OptionalBool(args, "includeInactive") ?? false;
+        var hits = _experience!.Search(query, scope is "all" ? null : scope, limit,
+            includeInactive, _current.ProjectId, _current.Tags);
+        if (hits.Count == 0)
+        {
+            return Loc.In(Language, "prompt.tasks.157", query);
+        }
+        return Loc.In(Language, "prompt.tasks.156", hits.Count, query) + "\n"
+               + string.Join("\n", hits.Select(hit => ExperienceLine(hit.Record)));
+    }
+
+    /// <summary>Строка записи опыта в выдаче инструментов (поиск, перечисление, статистика):
+    /// форма одна на все три — агент читает их подряд и сличает между собой.</summary>
+    private string ExperienceLine(ExperienceRecord record)
+    {
+        var skill = record.SkillName.Length > 0 ? $"[{record.SkillName}] " : "";
+        var tags = record.Tags.Count > 0 ? $"{{{string.Join(", ", record.Tags)}}} " : "";
+        var off = record.IsActive ? "" : $"({Loc.In(Language, "prompt.tasks.161")}) ";
+        return $"- (id: {record.Id}) [{ExperienceService.ScopeOf(record)}] {skill}{tags}{off}{record.Text}";
     }
 
     /// <summary>Правка записи опыта (update_experience); id — из блока «Опыт выполнения» или
-    /// «Опыт проекта» промпта. Правятся только записи своего проекта и его шаблонов; навык
-    /// меняется, только если параметр skill передан (иначе остаётся прежним).</summary>
+    /// «Опыт проекта» промпта. Правятся только записи своего проекта и его шаблонов.
+    /// <para>С T-271-S0 правятся не только текст и навык, но и ТЭГИ, пометка «загружать
+    /// всегда» и АКТИВНОСТЬ — шаблону «Анализ опыта» надо расставлять тэги и навыки пачкой.
+    /// НЕ ПЕРЕДАННОЕ ПОЛЕ НЕ МЕНЯЕТСЯ (хранилище различает «пусто» и «не передали»): иначе
+    /// правка текста снимала бы пометки, которые поставил человек.</para></summary>
     private string UpdateExperience(JsonElement args)
     {
         if (!CanExperience)
@@ -1896,13 +2245,262 @@ public sealed class TaskToolset
         {
             return Loc.In(Language, "prompt.tasks.65", id);
         }
+        if (record.IsReadOnly)
+        {
+            return Loc.In(Language, "prompt.tasks.164", id);
+        }
         if (!TryResolveSkill(args, out var skillId, out var skillError))
         {
             return skillError;
         }
         var changeSkill = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("skill", out _);
-        _experience.Update(id, text, _actorExecutorId, skillId, changeSkill);
+        _experience.Update(id, text, _actorExecutorId, skillId, changeSkill,
+            alwaysLoad: OptionalBool(args, "alwaysLoad"),
+            tags: StringList(args, "tags"),
+            isActive: OptionalBool(args, "active"));
         return Loc.In(Language, "prompt.tasks.66", id);
+    }
+
+    /// <summary>
+    /// ПОГАСИТЬ ИЛИ ОЖИВИТЬ ЗАПИСЬ ОПЫТА (set_experience_active, T-271-S0). Отдельным
+    /// действием, а не правкой всей записи: меняется одно поле, и текст, тэги и навык не
+    /// переписываются значениями давно прочитанного списка.
+    /// <para>УДАЛЕНИЯ У АГЕНТА НЕТ И НЕ БУДЕТ: неактивную запись в задания не подставляют,
+    /// а дальше её уносит правило архивации — то есть «погасить» и есть та операция,
+    /// которой шаблон «Анализ опыта» убирает устаревшее.</para>
+    /// <para>ПОСТАВЛЯЕМОЕ ПРАВИЛО ДИСТРИБУТИВА агент не гасит (фиксированные id
+    /// <c>a1e5b5c0-…</c>): это правила, по которым он сам работает, и выключать их —
+    /// решение человека. Человеку такая кнопка оставлена (T-265-S0).</para>
+    /// </summary>
+    private string SetExperienceActive(JsonElement args)
+    {
+        if (!CanExperience)
+        {
+            return Loc.In(Language, "prompt.tasks.58");
+        }
+        var id = RequiredString(args, "id", Language).Trim();
+        var active = OptionalBool(args, "active")
+                     ?? throw new ArgumentException(Loc.In(Language, "prompt.tasks.95", "active"));
+        var record = _experience!.Get(id);
+        if (record is null || !IsMyExperience(record))
+        {
+            return Loc.In(Language, "prompt.tasks.65", id);
+        }
+        if (ExperienceService.IsDistributionRule(id))
+        {
+            return Loc.In(Language, "prompt.tasks.163", id);
+        }
+        if (record.IsReadOnly)
+        {
+            return Loc.In(Language, "prompt.tasks.164", id);
+        }
+        _experience.SetActive(id, active, _actorExecutorId);
+        return Loc.In(Language, active ? "prompt.tasks.165" : "prompt.tasks.166", id);
+    }
+
+    /// <summary>
+    /// ПЕРЕЧИСЛИТЬ ЗАПИСИ ОБЛАСТИ (list_experience, T-271-S0) — чтобы разбирать опыт
+    /// ПАЧКАМИ: поиск отдаёт то, что похоже на запрос, а анализу нужен весь корпус подряд,
+    /// страницами по limit/offset. Область: project (по умолчанию), template (узел текущей
+    /// задачи либо заданный параметром template), general — общие правила организации.
+    /// <para>Отбор по навыку и тэгу — точным совпадением кода и тэга; includeInactive
+    /// добавляет погашенные записи (по умолчанию их нет: анализ разбирает живой опыт,
+    /// а погашенные уже разобраны).</para>
+    /// </summary>
+    private string ListExperience(JsonElement args)
+    {
+        if (!CanSearchExperience)
+        {
+            return Loc.In(Language, "prompt.tasks.158");
+        }
+        var scope = (OptionalString(args, "scope") ?? "").Trim().ToLowerInvariant();
+        if (scope.Length == 0)
+        {
+            scope = _current.ProjectId is not null ? ScopeProject : ScopeGeneral;
+        }
+        if (scope is not (ScopeGeneral or ScopeProject or ScopeTemplate))
+        {
+            return Loc.In(Language, "prompt.tasks.61", scope, ScopeProject, ScopeTemplate, ScopeGeneral);
+        }
+        if (!TryScopeRecords(args, scope, out var all, out var error))
+        {
+            return error;
+        }
+        var skill = (OptionalString(args, "skill") ?? "").Trim();
+        var tag = (OptionalString(args, "tag") ?? "").Trim();
+        var includeInactive = OptionalBool(args, "includeInactive") ?? false;
+        var picked = all
+            .Where(r => includeInactive || r.IsActive)
+            .Where(r => skill.Length == 0
+                        || string.Equals(r.SkillName, skill, StringComparison.OrdinalIgnoreCase))
+            .Where(r => tag.Length == 0
+                        || r.Tags.Any(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        var offset = Math.Max(0, OptionalInt(args, "offset") ?? 0);
+        var limit = Math.Clamp(OptionalInt(args, "limit") ?? 20, 1, 200);
+        var page = picked.Skip(offset).Take(limit).ToList();
+        if (page.Count == 0)
+        {
+            return Loc.In(Language, "prompt.tasks.167", scope, picked.Count);
+        }
+        return Loc.In(Language, "prompt.tasks.168", scope, page.Count,
+                   offset + 1, offset + page.Count, picked.Count) + "\n"
+               + string.Join("\n", page.Select(ExperienceLine));
+    }
+
+    /// <summary>
+    /// СТАТИСТИКА ИСПОЛЬЗОВАНИЯ (experience_usage, T-271-S0): сколько ЗАДАЧ получило запись
+    /// в тексте задания и когда это было в последний раз (след ведёт T-266-S0). Спрашивается
+    /// либо по одной записи (id), либо по целой области (scope) — тогда строки идут от самых
+    /// невостребованных к самым ходовым: первым же экраном видно, что пора гасить.
+    /// </summary>
+    private string ExperienceUsage(JsonElement args)
+    {
+        if (!CanSearchExperience)
+        {
+            return Loc.In(Language, "prompt.tasks.158");
+        }
+        var usage = _experience!.UsageMap();
+        if (OptionalString(args, "id")?.Trim() is { Length: > 0 } id)
+        {
+            var one = _experience.Get(id);
+            return one is null
+                ? Loc.In(Language, "prompt.tasks.65", id)
+                : UsageLine(one, usage);
+        }
+        var scope = (OptionalString(args, "scope") ?? "").Trim().ToLowerInvariant();
+        if (scope.Length == 0)
+        {
+            scope = _current.ProjectId is not null ? ScopeProject : ScopeGeneral;
+        }
+        if (scope is not (ScopeGeneral or ScopeProject or ScopeTemplate))
+        {
+            return Loc.In(Language, "prompt.tasks.61", scope, ScopeProject, ScopeTemplate, ScopeGeneral);
+        }
+        if (!TryScopeRecords(args, scope, out var all, out var error))
+        {
+            return error;
+        }
+        var offset = Math.Max(0, OptionalInt(args, "offset") ?? 0);
+        var limit = Math.Clamp(OptionalInt(args, "limit") ?? 50, 1, 200);
+        var ordered = all
+            .OrderBy(r => usage.TryGetValue(r.Id, out var u) ? u.Count : 0)
+            .ThenBy(r => usage.TryGetValue(r.Id, out var u) ? u.LastUsedAt ?? DateTime.MinValue : DateTime.MinValue)
+            .ToList();
+        var never = all.Count(r => !usage.ContainsKey(r.Id));
+        var page = ordered.Skip(offset).Take(limit).ToList();
+        if (page.Count == 0)
+        {
+            return Loc.In(Language, "prompt.tasks.167", scope, all.Count);
+        }
+        return Loc.In(Language, "prompt.tasks.169", scope, all.Count, never) + "\n"
+               + string.Join("\n", page.Select(r => UsageLine(r, usage)));
+    }
+
+    /// <summary>Строка статистики: сколько задач получило запись и когда в последний раз.</summary>
+    private string UsageLine(ExperienceRecord record,
+        IReadOnlyDictionary<string, ExperienceUsageStat> usage)
+    {
+        var stat = usage.TryGetValue(record.Id, out var found) ? found : null;
+        var last = stat?.LastUsedAt is { } at
+            ? at.ToLocalTime().ToString("yyyy-MM-dd")
+            : Loc.In(Language, "prompt.tasks.170");
+        return Loc.In(Language, "prompt.tasks.171", record.Id, stat?.Count ?? 0, last,
+            record.IsActive ? "" : " (" + Loc.In(Language, "prompt.tasks.161") + ")",
+            Preview(record.Text));
+    }
+
+    /// <summary>Записи выбранной области целиком — общая часть перечисления и статистики.
+    /// Область «template» берёт узел параметра <c>template</c>, а без него — узел текущей
+    /// задачи; поддерево узла НЕ берётся (как и при отборе опыта в задание).</summary>
+    private bool TryScopeRecords(JsonElement args, string scope,
+        out List<ExperienceRecord> records, out string error)
+    {
+        records = [];
+        error = "";
+        if (scope == ScopeGeneral)
+        {
+            records = _experience!.ListGeneral();
+            return true;
+        }
+        if (scope == ScopeProject)
+        {
+            if (_current.ProjectId is null)
+            {
+                error = Loc.In(Language, "prompt.tasks.59");
+                return false;
+            }
+            records = _experience!.ListByProject(_current.ProjectId);
+            return true;
+        }
+        var node = OptionalString(args, "template")?.Trim() ?? "";
+        var templateId = node.Length > 0 ? TemplateIdOf(node) : _current.TemplateId;
+        if (templateId is null)
+        {
+            error = node.Length > 0
+                ? Loc.In(Language, "prompt.tasks.62", node)
+                : Loc.In(Language, "prompt.tasks.63", ScopeProject);
+            return false;
+        }
+        records = _experience!.ListByTemplate(templateId);
+        return true;
+    }
+
+    /// <summary>
+    /// ПЕРЕНЕСТИ ЗАПИСЬ ОПЫТА В ДРУГУЮ ОБЛАСТЬ (move_experience, T-269-S0). Области три и
+    /// разграничены они так: ОБЩЕЕ правило — про то, как мы работаем (верно в любом проекте
+    /// организации), опыт ПРОЕКТА — про этот продукт, опыт УЗЛА ШАБЛОНА — про этот шаг
+    /// процесса. До этой версии исправить ошибку области было нечем: запись оставалось
+    /// удалить и завести заново, потеряв id, историю и авторство.
+    /// <para>Параметры: id — запись (из блоков опыта задания либо из выдачи
+    /// search_experience); scope — куда (project / template / general); template — код или
+    /// заголовок узла шаблона для scope=template (не указан — узел текущей задачи).
+    /// Проект-получатель агент не выбирает: это ВСЕГДА проект текущей задачи — переносить
+    /// записи в чужие проекты агент не должен.</para>
+    /// <para>Перенести чужую (созданную другим сервером) и поставляемую запись нельзя,
+    /// а текст с признаками проектного (код задачи, путь файла, имя проекта) не примут
+    /// в общие правила — подтверждения у агента нет, это решение человека.</para>
+    /// </summary>
+    private string MoveExperience(JsonElement args)
+    {
+        if (!CanExperience)
+        {
+            return Loc.In(Language, "prompt.tasks.58");
+        }
+        var id = RequiredString(args, "id", Language).Trim();
+        var scope = RequiredString(args, "scope", Language).Trim().ToLowerInvariant();
+        if (scope is not (ScopeGeneral or ScopeProject or ScopeTemplate))
+        {
+            return Loc.In(Language, "prompt.tasks.61", scope, ScopeProject, ScopeTemplate, ScopeGeneral);
+        }
+        var record = _experience!.Get(id);
+        if (record is null || !IsMyExperience(record))
+        {
+            return Loc.In(Language, "prompt.tasks.65", id);
+        }
+        string? projectId = null;
+        string? templateId = null;
+        if (scope == ScopeProject)
+        {
+            if (_current.ProjectId is null)
+            {
+                return Loc.In(Language, "prompt.tasks.59");
+            }
+            projectId = _current.ProjectId;
+        }
+        if (scope == ScopeTemplate)
+        {
+            var node = OptionalString(args, "template")?.Trim() ?? "";
+            templateId = node.Length > 0 ? TemplateIdOf(node) : _current.TemplateId;
+            if (templateId is null)
+            {
+                return node.Length > 0
+                    ? Loc.In(Language, "prompt.tasks.62", node)
+                    : Loc.In(Language, "prompt.tasks.63", ScopeProject);
+            }
+        }
+        _experience.Move(id, scope, projectId, templateId, _actorExecutorId);
+        return Loc.In(Language, "prompt.tasks.162", id, scope);
     }
 
     /// <summary>Запись опыта относится к текущему проекту (опыт проекта) или к узлу шаблона
@@ -2233,6 +2831,20 @@ public sealed class TaskToolset
         args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v)
             && v.ValueKind == JsonValueKind.String
             ? v.GetString()
+            : null;
+
+    /// <summary>Необязательное число из аргументов (T-268-S0): не передано или не число — null.</summary>
+    private static int? OptionalInt(JsonElement args, string name) =>
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v)
+            && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var value)
+            ? value
+            : null;
+
+    /// <summary>Необязательный флаг из аргументов (T-268-S0): не передан — null.</summary>
+    private static bool? OptionalBool(JsonElement args, string name) =>
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty(name, out var v)
+            && v.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? v.GetBoolean()
             : null;
 
     private static string Preview(string text)

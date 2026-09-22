@@ -15,6 +15,17 @@
    меняются только колонка «узел» (у проекта и у общих правил её нет) и фильтр. *@
 <MudStack Spacing="2" data-experience-scope="@Scope">
     <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        @* СТРОКА ПОИСКА (T-268-S0) — ПОВЕРХ фильтров по навыкам, тэгам и активности: они
+           отвечают на «покажи всё по теме», а поиск — на «найди вот это». Ищет ТЕМ ЖЕ
+           механизмом, что и агент инструментом search_experience (GET /api/experience/search):
+           лексическое попадание плюс ранг из BM25, свежести и совпадения тэгов — иначе
+           «у агента нашлось, а у меня нет» разбирать было бы нечем *@
+        <MudTextField T="string" @bind-Value="_search" Label="@L["exp.search"]"
+                      Placeholder="@L["exp.search.hint"]" Margin="Margin.Dense" Clearable="true"
+                      data-exp-search="1" Style="max-width: 320px;"
+                      Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Search"
+                      OnAdornmentClick="SearchAsync" OnKeyUp="SearchOnEnterAsync"
+                      OnClearButtonClick="ClearSearchAsync" />
         @if (HasSkillFilter)
         {
             @* навык записи — зачем он: медиа-модели незачем читать выводы кодировщиков.
@@ -41,6 +52,16 @@
                 <MudSelectItem T="string" Value="@tag">@tag</MudSelectItem>
             }
         </MudSelect>
+        @* ФИЛЬТР ПО АКТИВНОСТИ (T-265-S0), три значения с умолчанием «Активные»: неактивная
+           запись в задание не идёт вовсе, и в списке её место — за отдельным выбором, иначе
+           погашенные записи мешались бы в работе каждый день. Действует во всех трёх режимах
+           вкладки — узел шаблона, проект, общий опыт *@
+        <MudSelect T="string" @bind-Value="_activeFilter" Label="@L["exp.filter.active"]"
+                   Dense="true" data-exp-filter-active="@_activeFilter" Style="max-width: 200px;">
+            <MudSelectItem T="string" Value="@ActiveOnly">@L["exp.filter.active.only"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@InactiveOnly">@L["exp.filter.active.inactive"]</MudSelectItem>
+            <MudSelectItem T="string" Value="@AnyActivity">@L["exp.filter.active.all"]</MudSelectItem>
+        </MudSelect>
         <MudSpacer />
         @* правку прячем, а не гасим (T-45-S0): в архиве опыт только читается *@
         @if (CanEdit)
@@ -54,31 +75,47 @@
 
     @if (Visible.Count == 0)
     {
-        <MudText Typo="Typo.body2" Style="opacity:.7">
-            @(IsGeneral ? L["exp.empty.general"] : IsProject ? L["exp.empty.project"] : L["exp.empty"])
+        <MudText Typo="Typo.body2" Style="opacity:.7" data-exp-empty="1">
+            @(_found is not null
+                ? L["exp.search.none"]
+                : IsGeneral ? L["exp.empty.general"] : IsProject ? L["exp.empty.project"] : L["exp.empty"])
         </MudText>
     }
     else
     {
-        <MudSimpleTable Dense="true" Hover="true">
+        @* ШИРИНА СПИСКА (T-279-S0): таблица занимает ровно ширину вкладки, «резиновая»
+           здесь ОДНА колонка — текст записи (width:100% забирает весь остаток). У неё есть
+           предел сжатия (min-width), и когда места меньше, горизонтальную прокрутку даёт
+           эта обёртка, а не страница целиком. Узкие колонки заданы min-width, иначе
+           браузер сжимает их вместо текста *@
+        <div style="overflow-x:auto; max-width:100%;">
+        <MudSimpleTable Dense="true" Hover="true" Style="width:100%; table-layout:auto;">
             <thead>
                 <tr>
                     @if (IsTemplate)
                     {
-                        <th>@L["exp.node"]</th>
+                        <th style="min-width:90px; white-space:nowrap">@L["exp.node"]</th>
                     }
-                    <th style="width:160px">@L["exp.skill"]</th>
-                    <th style="width:180px">@L["exp.tags"]</th>
-                    <th>@L["exp.text"]</th>
-                    <th>@L["exp.created"]</th>
-                    <th>@L["exp.updated"]</th>
-                    <th style="width:88px"></th>
+                    <th style="min-width:140px">@L["exp.skill"]</th>
+                    @* название колонки в две строки: «Тэги» и «(ключевые слова)» отдельно —
+                       одной строкой заголовок растягивал колонку шире её содержимого *@
+                    <th style="min-width:150px">@TwoLine(L["exp.tags"])</th>
+                    @* «Активен» отдельной колонкой больше нет (T-279-S0): состояние видно
+                       по кнопке переключения активности справа, среди действий *@
+                    <th style="width:100%; min-width:320px">@L["exp.text"]</th>
+                    @* «Создана» и «Изменена» сведены в ОДНУ колонку: у обеих по две строки
+                       (кто и когда), а раздельными они съедали ширину вдвое *@
+                    <th style="min-width:130px; white-space:nowrap">@L["exp.created"]<br />@L["exp.updated"]</th>
+                    <th style="min-width:132px"></th>
                 </tr>
             </thead>
             <tbody>
             @foreach (var record in Visible)
             {
-                <tr data-experience-row="@record.Id">
+                @* признак активности остался на СТРОКЕ (колонку убрали, T-279-S0):
+                   разметка проверок и подсказок по-прежнему находит его у записи *@
+                <tr data-experience-row="@record.Id" data-exp-row-active="@record.Id"
+                    data-exp-active-value="@(record.IsActive ? 1 : 0)">
                     @if (IsTemplate)
                     {
                         <td>@record.TemplateDisplayId</td>
@@ -110,26 +147,48 @@
                             <MudText Typo="Typo.caption" Style="opacity:.6">@L["exp.tags.none"]</MudText>
                         }
                     </td>
-                    <td style="white-space: pre-wrap;">@record.Text</td>
-                    <td style="white-space: nowrap; opacity:.7">
-                        @record.CreatedBy<br />@record.CreatedAt.ToLocalTime().ToString("g")
-                    </td>
-                    <td style="white-space: nowrap; opacity:.7">
+                    <td style="white-space: pre-wrap; overflow-wrap: anywhere;">@record.Text</td>
+                    @* ЧЕТЫРЕ строки одной колонкой: кто и когда создал, кто и когда менял *@
+                    <td style="white-space: nowrap; opacity:.7" data-exp-row-dates="@record.Id">
+                        @record.CreatedBy<br />@record.CreatedAt.ToLocalTime().ToString("g")<br />
                         @record.UpdatedBy<br />@record.UpdatedAt.ToLocalTime().ToString("g")
                     </td>
                     <td style="white-space: nowrap;">
                         @if (CanEdit)
                         {
+                            @* переключатель активности (T-265-S0) — право то же, что
+                               у «изменить» и «удалить»: чужую запись не трогаем *@
+                            <MudIconButton Size="Size.Small" data-exp-toggle-active="@record.Id"
+                                           Icon="@(record.IsActive ? Icons.Material.Filled.ToggleOn : Icons.Material.Filled.ToggleOff)"
+                                           Color="@(record.IsActive ? Color.Success : Color.Default)"
+                                           title="@(record.IsActive ? L["exp.active.off"] : L["exp.active.on"])"
+                                           OnClick="@(() => ToggleActiveAsync(record))" />
                             <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
                                            OnClick="@(() => EditAsync(record))" />
+                            @* ПЕРЕНОС В ДРУГУЮ ОБЛАСТЬ (T-269-S0): общие правила ↔ опыт
+                               проекта ↔ опыт узла шаблона. Раньше «перенести» значило
+                               удалить и завести заново, потеряв id, историю и авторство *@
+                            <MudIconButton Icon="@Icons.Material.Filled.DriveFileMove" Size="Size.Small"
+                                           data-exp-move="@record.Id" title="@L["exp.move"]"
+                                           OnClick="@(() => MoveAsync(record))" />
                             <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
                                            OnClick="@(() => DeleteAsync(record))" />
+                        }
+                        else
+                        {
+                            @* без права правки кнопки переключения нет, а активность видеть
+                               надо — колонки «Активен» больше нет, поэтому здесь иконка *@
+                            <MudIcon Size="Size.Small"
+                                     Icon="@(record.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                     Color="@(record.IsActive ? Color.Success : Color.Default)"
+                                     Title="@(record.IsActive ? L["exp.filter.active.only"] : L["exp.filter.active.inactive"])" />
                         }
                     </td>
                 </tr>
             }
             </tbody>
         </MudSimpleTable>
+        </div>
     }
 </MudStack>
 
@@ -158,11 +217,30 @@
     /// <summary>Выбранные тэги фильтра (T-24-S0); пусто — тэгами не отбираем.</summary>
     private IReadOnlyCollection<string> _tagFilter = [];
 
+    /// <summary>Значения фильтра активности (T-265-S0).</summary>
+    private const string ActiveOnly = "active";
+    private const string InactiveOnly = "inactive";
+    private const string AnyActivity = "all";
+
+    /// <summary>Фильтр активности; умолчание — АКТИВНЫЕ: погашенная запись в задание не идёт,
+    /// и в повседневной работе её место за отдельным выбором.</summary>
+    private string _activeFilter = ActiveOnly;
+
     /// <summary>Тэги для фильтра: набор организации (у опыта и у задач он общий) плюс те,
     /// что стоят у показанных записей.</summary>
     private List<string> _allTags = [];
 
     private string _loadedFor = "";
+
+    /// <summary>Строка поиска (T-268-S0); пусто — поиском не отбираем.</summary>
+    private string _search = "";
+
+    /// <summary>
+    /// Идентификаторы найденного В ПОРЯДКЕ РАНГА; null — поиск не выполнялся вовсе (это не
+    /// то же самое, что пустой список: пустой означает «искали и не нашли», и человеку надо
+    /// сказать именно это, а не «записей нет»).
+    /// </summary>
+    private List<string>? _found;
 
     private bool IsGeneral => General;
     private bool IsProject => !General && ProjectId.Length > 0;
@@ -195,6 +273,19 @@
                 visible = visible.Where(r => r.Tags.Any(
                     tag => _tagFilter.Any(chosen => TaskTags.Same(chosen, tag))));
             }
+            // по АКТИВНОСТИ (T-265-S0): «все» ничего не отсекает
+            if (_activeFilter != AnyActivity)
+            {
+                visible = visible.Where(r => r.IsActive == (_activeFilter == ActiveOnly));
+            }
+            // ПОИСК (T-268-S0) идёт ПОВЕРХ фильтров и, в отличие от них, задаёт ПОРЯДОК:
+            // выдача упорядочена рангом сервера, а не датой создания. Пересечение со списком
+            // вкладки заодно удерживает поиск в её пределах — у узла шаблона это поддерево
+            if (_found is { } found)
+            {
+                visible = visible.Where(r => found.Contains(r.Id))
+                    .OrderBy(r => found.IndexOf(r.Id));
+            }
             return visible.ToList();
         }
     }
@@ -205,8 +296,55 @@
         if (key != _loadedFor)
         {
             _loadedFor = key;
+            // сменился показываемый список — поиск по прежнему списку к нему не относится
+            _search = "";
+            _found = null;
             await ReloadAsync();
         }
+    }
+
+    /// <summary>
+    /// ПОИСК (T-268-S0) — на СЕРВЕРЕ, тем же вызовом, что и у агента: ранг считается по
+    /// лексическому индексу (BM25), свежести и совпадению тэгов, и повторить его на клиенте
+    /// было бы нечем. Неактивные запрашиваются ВСЕГДА: что с ними делать, решает отдельный
+    /// фильтр активности вкладки — иначе два способа отбора спорили бы между собой.
+    /// </summary>
+    private async Task SearchAsync()
+    {
+        var query = (_search ?? "").Trim();
+        if (query.Length == 0)
+        {
+            _found = null;
+            return;
+        }
+        try
+        {
+            var hits = await Api.SearchExperienceAsync(query, Scope,
+                IsProject ? ProjectId : null, includeInactive: true);
+            _found = hits.Select(h => h.Record.Id).ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _found = null;
+        }
+    }
+
+    /// <summary>Поиск по Enter — как в фильтрах дерева задач.</summary>
+    private async Task SearchOnEnterAsync(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or "NumpadEnter")
+        {
+            await SearchAsync();
+        }
+    }
+
+    /// <summary>Крестик в строке поиска возвращает полный список.</summary>
+    private Task ClearSearchAsync()
+    {
+        _search = "";
+        _found = null;
+        return Task.CompletedTask;
     }
 
     private async Task ReloadAsync()
@@ -256,6 +394,10 @@
             // «загружать всегда» и тэги (T-24-S0); у новой записи признак выключен
             { d => d.AlwaysLoad, record?.AlwaysLoad ?? false },
             { d => d.Tags, (IReadOnlyCollection<string>)(record?.Tags ?? []) },
+            // активность (T-265-S0); новая запись заводится активной
+            { d => d.IsActive, record?.IsActive ?? true },
+            // область (T-269-S0): от неё зависит предупреждение «похоже на проектную запись»
+            { d => d.Scope, Scope },
         };
         var dialog = await Dialogs.ShowAsync<ExperienceDialog>(L["exp.title"], parameters,
             new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
@@ -285,6 +427,57 @@
             {
                 await Api.UpdateExperienceAsync(record.Id, saved);
             }
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// ПЕРЕНЕСТИ ЗАПИСЬ В ДРУГУЮ ОБЛАСТЬ (T-269-S0): получателя выбирает
+    /// <see cref="ExperienceMoveDialog"/>, сам перенос делает сервер. Идентификатор, текст,
+    /// тэги, навык и авторство сохраняются — тем это и отличается от «удалить и завести
+    /// заново», которым такую правку делали до сих пор.
+    /// </summary>
+    private async Task MoveAsync(ExperienceRecordDto record)
+    {
+        var parameters = new DialogParameters<ExperienceMoveDialog>
+        {
+            { d => d.Current, Scope },
+            { d => d.ProjectId, IsProject ? ProjectId : "" },
+        };
+        var dialog = await Dialogs.ShowAsync<ExperienceMoveDialog>(L["exp.move.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ExperienceMoveDto move })
+        {
+            return;
+        }
+        try
+        {
+            await Api.MoveExperienceAsync(record.Id, move.Scope, move.ProjectId,
+                move.TemplateTaskId);
+            Snackbar.Add(L["exp.move.done", 1], Severity.Success);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>
+    /// Переключить активность записи (T-265-S0) — отдельным вызовом API, а не сохранением
+    /// записи целиком: меняется одно поле, текст и тэги из давно прочитанного списка
+    /// переписывать незачем. Чужую запись сервер не даст переключить (ТЗ гл. 6).
+    /// </summary>
+    private async Task ToggleActiveAsync(ExperienceRecordDto record)
+    {
+        try
+        {
+            await Api.SetExperienceActiveAsync(record.Id, !record.IsActive);
             await ReloadAsync();
         }
         catch (ApiException ex)
@@ -326,6 +519,23 @@
     {
         var value = (text ?? "").Trim().ReplaceLineEndings(" ");
         return value.Length > 80 ? value[..80] + "…" : value;
+    }
+
+    /// <summary>
+    /// Заголовок колонки в ДВЕ строки (T-279-S0): пояснение в скобках уносится на вторую
+    /// строку — «Тэги» / «(ключевые слова)». Делается по ФОРМЕ строки, а не вторым ключом
+    /// словаря: скобка есть во всех пяти языках (в китайском своя, «（»), а если её нет,
+    /// заголовок остаётся одной строкой.
+    /// </summary>
+    private static MarkupString TwoLine(string title)
+    {
+        var at = (title ?? "").IndexOfAny(['(', '（']);
+        if (at <= 0)
+        {
+            return new MarkupString(System.Net.WebUtility.HtmlEncode(title ?? ""));
+        }
+        return new MarkupString(System.Net.WebUtility.HtmlEncode(title![..at].TrimEnd())
+            + "<br />" + System.Net.WebUtility.HtmlEncode(title[at..]));
     }
 
     private string SkillLabel(Skill skill) => skill.IsCustom ? skill.Name : L["skill." + skill.Name];

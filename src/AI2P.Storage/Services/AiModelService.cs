@@ -78,8 +78,24 @@ public sealed class AiModelService
     /// torch cu124, «pip install -e .» по его файлу требований, huggingface_hub и hf_xet).
     /// Блок ":setup" в train.cmd остался запасным путём — на случай, когда окружение
     /// удалили или тренер поставлен руками.
+    ///
+    /// 21 (T-286-S0): МОДЕЛЬ-СУФЛЁР. У трёх вариантов ACE-Step 1.5 XL в профайле появилась
+    /// секция "prompter" (required / rules / schema): параметры трека — длительность, язык
+    /// вокала, слова песни, темп, тональность — задаются у этой модели ОТДЕЛЬНЫМИ полями
+    /// графа, а не общим текстом промпта, поэтому управляющий json для неё готовит вторая,
+    /// текстовая, модель. Версия поднята ради того, чтобы секция доехала до профайлов, уже
+    /// лежащих на диске у установленных систем: без подъёма файл не перезаписывается.
+    ///
+    /// 22 (T-287-S0): ПОЛЯ ГРАФА ИЗ JSON СУФЛЁРА. В workflow трёх вариантов ACE-Step 1.5 XL
+    /// поля узлов "4" и "6" стали именованными плейсхолдерами {p:имя|умолчание} (tags,
+    /// lyrics, duration, language, bpm, keyscale, timesignature), причём длительность в
+    /// обоих узлах — ОДИН плейсхолдер {p:duration}. В профайле у тех же записей уточнена
+    /// схема суфлёра: перечни значений language, keyscale и timesignature и границы bpm и
+    /// duration сняты с ЖИВОГО ComfyUI (/object_info), а не объявлены по смыслу. Версия
+    /// поднята ради того, чтобы новый workflow и новая схема доехали до уже установленных
+    /// систем; умолчания в шаблоне прежние, поэтому без суфлёра граф собирается как раньше.
     /// </remarks>
-    private const int SeedFileVersion = 19;
+    private const int SeedFileVersion = 22;
 
     /// <summary>
     /// Модели дистрибутива: фиксированные UUID — при распределённом вводе (дистрибутив +
@@ -171,7 +187,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000001", "Claude-Fable-5",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "model": "claude-fable-5",
               "baseUrl": "",
@@ -192,7 +208,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-fable-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -218,7 +234,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000002", "Claude-Opus-5.0",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "model": "claude-opus-5",
               "baseUrl": "",
@@ -238,7 +254,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-opus-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -267,7 +283,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000005", "Claude-Fable-5_cli",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "transport": "cli",
               "cliCommand": "claude --permission-mode acceptEdits",
@@ -286,7 +302,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-fable-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -312,7 +328,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000006", "Claude-Opus-5.0_cli",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "transport": "cli",
               "cliCommand": "claude --permission-mode acceptEdits",
@@ -331,7 +347,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-opus-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -363,7 +379,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000003", "DeepSeek-V4-Pro",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "deepseek-v4-pro",
               "baseUrl": "https://api.deepseek.com",
@@ -380,7 +396,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "deepseek-v4-pro",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -406,7 +422,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000004", "DeepSeek-V4-Flash",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "deepseek-v4-flash",
               "baseUrl": "https://api.deepseek.com",
@@ -423,7 +439,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "deepseek-v4-flash",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -455,7 +471,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000007", "Kandinsky-5.0-T2V-Lite-sft-5s",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "kandinsky5lite_t2v_sft_5s",
               "baseUrl": "http://127.0.0.1:8188",
@@ -623,7 +639,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "kandinsky5lite_t2v_sft_5s",
               "inputs":  ["text/plain"],
               "outputs": ["video/*"],
@@ -648,7 +664,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000032", "Kandinsky-5.0-I2V-Lite-5s",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "kandinsky5lite_i2v_5s",
               "baseUrl": "http://127.0.0.1:8188",
@@ -822,7 +838,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "kandinsky5lite_i2v_5s",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["video/*"],
@@ -851,7 +867,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000033", "Z-Image-Turbo",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "z_image_turbo",
               "baseUrl": "http://127.0.0.1:8188",
@@ -1028,7 +1044,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "z_image_turbo",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -1052,7 +1068,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000034", "Qwen-Image-2512",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "qwen_image_2512",
               "baseUrl": "http://127.0.0.1:8188",
@@ -1232,7 +1248,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "qwen_image_2512",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -1257,7 +1273,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000035", "Qwen-Image-Edit-2511",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "qwen_image_edit_2511",
               "baseUrl": "http://127.0.0.1:8188",
@@ -1445,7 +1461,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "qwen_image_edit_2511",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["image/*"],
@@ -1483,7 +1499,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000036", "Seedance-2.5",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "bytedance/seedance-2.5/text-to-video",
               "baseUrl": "https://queue.fal.run",
@@ -1509,7 +1525,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "bytedance/seedance-2.5/text-to-video",
               "inputs":  ["text/plain"],
               "outputs": ["video/mp4"],
@@ -1527,7 +1543,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000037", "Seedance-2.5-I2V",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "bytedance/seedance-2.5/image-to-video",
               "baseUrl": "https://queue.fal.run",
@@ -1558,7 +1574,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "bytedance/seedance-2.5/image-to-video",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["video/mp4"],
@@ -1576,7 +1592,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000038", "Gemini-Omni-Flash",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "google/gemini-omni-flash",
               "baseUrl": "https://queue.fal.run",
@@ -1600,7 +1616,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "google/gemini-omni-flash",
               "inputs":  ["text/plain"],
               "outputs": ["video/mp4"],
@@ -1617,7 +1633,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000039", "Veo-3.1",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "fal-ai/veo3.1",
               "baseUrl": "https://queue.fal.run",
@@ -1646,7 +1662,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "fal-ai/veo3.1",
               "inputs":  ["text/plain"],
               "outputs": ["video/mp4"],
@@ -1663,7 +1679,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000040", "Kling-3.0",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "fal-ai/kling-video/v3/pro/image-to-video",
               "baseUrl": "https://queue.fal.run",
@@ -1696,7 +1712,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "fal-ai/kling-video/v3/pro/image-to-video",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["video/mp4"],
@@ -1713,7 +1729,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000041", "Nano-Banana-Pro",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "fal-ai/nano-banana-pro",
               "baseUrl": "https://queue.fal.run",
@@ -1740,7 +1756,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "fal-ai/nano-banana-pro",
               "inputs":  ["text/plain"],
               "outputs": ["image/png"],
@@ -1762,7 +1778,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000042", "Nano-Banana-Pro-Edit",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "fal-ai/nano-banana-pro/edit",
               "baseUrl": "https://queue.fal.run",
@@ -1794,7 +1810,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "fal-ai/nano-banana-pro/edit",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["image/png"],
@@ -1814,7 +1830,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000043", "GPT-Image-2",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "openai/gpt-image-2",
               "baseUrl": "https://queue.fal.run",
@@ -1840,7 +1856,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "openai/gpt-image-2",
               "inputs":  ["text/plain"],
               "outputs": ["image/png"],
@@ -1861,7 +1877,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000044", "ElevenLabs-Music",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "fal-ai/elevenlabs/music",
               "baseUrl": "https://queue.fal.run",
@@ -1885,7 +1901,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "fal-ai/elevenlabs/music",
               "inputs":  ["text/plain"],
               "outputs": ["audio/mpeg"],
@@ -1904,7 +1920,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000045", "ElevenLabs-TTS-v3",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "fal-ai/elevenlabs/tts/eleven-v3",
               "baseUrl": "https://queue.fal.run",
@@ -1928,7 +1944,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "fal-ai/elevenlabs/tts/eleven-v3",
               "inputs":  ["text/plain"],
               "outputs": ["audio/mpeg"],
@@ -1946,7 +1962,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000046", "Tripo-H3.1",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "tripo3d/h3.1/image-to-3d",
               "baseUrl": "https://queue.fal.run",
@@ -1978,7 +1994,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "tripo3d/h3.1/image-to-3d",
               "inputs":  ["image/*"],
               "outputs": ["model/glb"],
@@ -1996,7 +2012,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000047", "Meshy-7",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "meshy/v7/text-to-3d",
               "baseUrl": "https://queue.fal.run",
@@ -2023,7 +2039,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "meshy/v7/text-to-3d",
               "inputs":  ["text/plain"],
               "outputs": ["model/glb"],
@@ -2044,7 +2060,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000008", "Qwen3.6-35B-A3B-Local",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "qwen3.6-35b-a3b",
               "baseUrl": "http://localhost:8080/v1",
@@ -2093,7 +2109,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "qwen3.6-35b-a3b",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2127,7 +2143,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000009", "Claude-Sonnet-5",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "model": "claude-sonnet-5",
               "baseUrl": "",
@@ -2144,7 +2160,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-sonnet-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2170,7 +2186,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000010", "Claude-Sonnet-5_cli",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "transport": "cli",
               "cliCommand": "claude --permission-mode acceptEdits",
@@ -2189,7 +2205,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-sonnet-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2215,7 +2231,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000011", "Claude-Haiku-4.5",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "model": "claude-haiku-4-5",
               "baseUrl": "",
@@ -2232,7 +2248,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-haiku-4-5",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2261,7 +2277,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000012", "GPT-5.6-Sol",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gpt-5.6-sol",
               "baseUrl": "https://api.openai.com/v1",
@@ -2278,7 +2294,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gpt-5.6-sol",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2304,7 +2320,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000013", "GPT-5.6-Terra",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gpt-5.6-terra",
               "baseUrl": "https://api.openai.com/v1",
@@ -2321,7 +2337,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gpt-5.6-terra",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2351,7 +2367,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000014", "Gemini-3-Ultra",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gemini-3-ultra",
               "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -2368,7 +2384,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gemini-3-ultra",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2394,7 +2410,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000015", "Gemini-3.1-Pro",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gemini-3.1-pro",
               "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -2411,7 +2427,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gemini-3.1-pro",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2437,7 +2453,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000016", "Gemini-3.7-Flash",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gemini-3.7-flash",
               "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -2454,7 +2470,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gemini-3.7-flash",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2482,7 +2498,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000017", "Grok-4.6",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "grok-4.6",
               "baseUrl": "https://api.x.ai/v1",
@@ -2499,7 +2515,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "grok-4.6",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2528,7 +2544,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000018", "Qwen3.8-Max",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "qwen3.8-max",
               "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
@@ -2545,7 +2561,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "qwen3.8-max",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2574,7 +2590,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000019", "Muse-Spark-1.2",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "meta/muse-spark-1.2",
               "baseUrl": "https://openrouter.ai/api/v1",
@@ -2591,7 +2607,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "meta/muse-spark-1.2",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2619,7 +2635,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000020", "Kimi-K3",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "kimi-k3",
               "baseUrl": "https://api.moonshot.ai/v1",
@@ -2636,7 +2652,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "kimi-k3",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2662,7 +2678,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000021", "GLM-5.2",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "glm-5.2",
               "baseUrl": "https://api.z.ai/api/paas/v4",
@@ -2679,7 +2695,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "glm-5.2",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2705,7 +2721,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000022", "MiniMax-M3",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "minimax-m3",
               "baseUrl": "https://api.minimax.io/v1",
@@ -2722,7 +2738,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "minimax-m3",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2751,7 +2767,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000023", "Inkling-975B",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "thinkingmachines/inkling",
               "baseUrl": "https://openrouter.ai/api/v1",
@@ -2768,7 +2784,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "thinkingmachines/inkling",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "audio/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2794,7 +2810,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000024", "Nemotron-3-Ultra",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "nvidia/nemotron-3-ultra-550b-a55b",
               "baseUrl": "https://openrouter.ai/api/v1",
@@ -2811,7 +2827,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "nvidia/nemotron-3-ultra-550b-a55b",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2840,7 +2856,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000025", "Ling-3.0-Flash",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "inclusionai/ling-3.0-flash",
               "baseUrl": "https://openrouter.ai/api/v1",
@@ -2857,7 +2873,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "inclusionai/ling-3.0-flash",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2883,7 +2899,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000026", "Mistral-Large-3",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "mistral-large-2512",
               "baseUrl": "https://api.mistral.ai/v1",
@@ -2900,7 +2916,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "mistral-large-2512",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2932,7 +2948,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000027", "GigaChat-3.5-Ultra",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "GigaChat-3.5-Ultra",
               "baseUrl": "https://gigachat.devices.sberbank.ru/api/v1",
@@ -2949,7 +2965,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "GigaChat-3.5-Ultra",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -2975,7 +2991,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000028", "YandexGPT-5.1-Pro",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gpt://<folder-id>/yandexgpt/latest",
               "baseUrl": "https://llm.api.cloud.yandex.net/v1",
@@ -2992,7 +3008,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gpt://<folder-id>/yandexgpt/latest",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -3024,7 +3040,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000029", "Qwen3.8-27B-Local",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "qwen3.8-27b",
               "baseUrl": "http://localhost:8081/v1",
@@ -3073,7 +3089,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "qwen3.8-27b",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -3099,7 +3115,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000030", "Qwen3.6-27B-Local",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "qwen3.6-27b",
               "baseUrl": "http://localhost:8082/v1",
@@ -3148,7 +3164,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "qwen3.6-27b",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -3174,7 +3190,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000031", "Muse-Glimmer-30B-Local",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "muse-glimmer-30b",
               "baseUrl": "http://localhost:8083/v1",
@@ -3223,7 +3239,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "muse-glimmer-30b",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -3267,7 +3283,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000048", "Wan-2.2-T2V-A14B",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "wan2.2_t2v_a14b",
               "baseUrl": "http://127.0.0.1:8188",
@@ -3465,7 +3481,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "wan2.2_t2v_a14b",
               "inputs":  ["text/plain"],
               "outputs": ["video/*"],
@@ -3486,7 +3502,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000049", "Wan-2.2-I2V-A14B",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "wan2.2_i2v_a14b",
               "baseUrl": "http://127.0.0.1:8188",
@@ -3690,7 +3706,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "wan2.2_i2v_a14b",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["video/*"],
@@ -3709,7 +3725,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000050", "HunyuanVideo-1.5-720p-T2V",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "hunyuanvideo15_720p_t2v",
               "baseUrl": "http://127.0.0.1:8188",
@@ -3904,7 +3920,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "hunyuanvideo15_720p_t2v",
               "inputs":  ["text/plain"],
               "outputs": ["video/*"],
@@ -3928,7 +3944,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000051", "LTX-2.5",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "ltx_2_5_distilled",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4027,7 +4043,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "ltx_2_5_distilled",
               "inputs":  ["text/plain"],
               "outputs": ["video/*"],
@@ -4067,7 +4083,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000070", "FLUX.2-klein-4B",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "flux2_klein_4b",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4231,7 +4247,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "flux2_klein_4b",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -4255,7 +4271,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000071", "FLUX.2-klein-4B-Edit",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "flux2_klein_4b_edit",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4425,7 +4441,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "flux2_klein_4b_edit",
               "inputs":  ["text/plain", "image/*"],
               "outputs": ["image/*"],
@@ -4455,7 +4471,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000072", "Kandinsky-5.0-Image-Lite",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "kandinsky5lite_t2i",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4554,7 +4570,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "kandinsky5lite_t2i",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -4583,7 +4599,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000073", "SD-3.5-Large",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "sd3_5_large",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4664,7 +4680,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "sd3_5_large",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -4688,7 +4704,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000074", "SDXL-1.0",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "sdxl_base_1_0",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4769,7 +4785,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "sdxl_base_1_0",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -4799,7 +4815,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000075", "FLUX.2-dev",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "flux2_dev",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4892,7 +4908,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "flux2_dev",
               "inputs":  ["text/plain"],
               "outputs": ["image/*"],
@@ -4921,7 +4937,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000080", "Hunyuan3D-2.1",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "hunyuan3d_2_1",
               "baseUrl": "http://127.0.0.1:8188",
@@ -4966,7 +4982,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "hunyuan3d_2_1",
               "inputs":  ["image/*"],
               "outputs": ["model/glb"],
@@ -4987,7 +5003,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000081", "TRELLIS-2",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "trellis_2",
               "baseUrl": "http://127.0.0.1:8188",
@@ -5056,7 +5072,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "trellis_2",
               "inputs":  ["image/*"],
               "outputs": ["model/glb"],
@@ -5075,7 +5091,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000082", "TripoSplat",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "comfyui",
               "model": "triposplat",
               "baseUrl": "http://127.0.0.1:8188",
@@ -5144,7 +5160,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "triposplat",
               "inputs":  ["image/*"],
               "outputs": ["model/3d"],
@@ -5170,7 +5186,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000083", "GPT-6-Astra",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gpt-6-astra",
               "baseUrl": "https://api.openai.com/v1",
@@ -5187,7 +5203,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gpt-6-astra",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -5219,7 +5235,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000084", "Claude-Fable-5.1",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "anthropic",
               "model": "claude-fable-5-1",
               "baseUrl": "",
@@ -5240,7 +5256,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "claude-fable-5-1",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -5270,7 +5286,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000085", "Gemini-3.8-Flash",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "gemini-3.8-flash",
               "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -5287,7 +5303,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "gemini-3.8-flash",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -5316,7 +5332,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000086", "Muse-Spark-1.3",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "meta/muse-spark-1.3",
               "baseUrl": "https://openrouter.ai/api/v1",
@@ -5333,7 +5349,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "meta/muse-spark-1.3",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -5364,7 +5380,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000087", "DeepSeek-V4.1-Flash",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "deepseek-v4.1-flash",
               "baseUrl": "https://api.deepseek.com",
@@ -5381,7 +5397,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "deepseek-v4.1-flash",
               "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -5411,7 +5427,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000088", "GLM-5.3",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "openai-compatible",
               "model": "glm-5.3",
               "baseUrl": "https://api.z.ai/api/paas/v4",
@@ -5428,7 +5444,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "glm-5.3",
               "inputs":  ["text/markdown", "text/plain", "text/source-code"],
               "outputs": ["text/markdown", "text/source-code"],
@@ -5459,7 +5475,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000089", "GPT-Image-2.5",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "openai/gpt-image-2.5/flare/text-to-image",
               "baseUrl": "https://queue.fal.run",
@@ -5485,7 +5501,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "openai/gpt-image-2.5/flare/text-to-image",
               "inputs":  ["text/plain"],
               "outputs": ["image/png"],
@@ -5507,7 +5523,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000090", "Wan-3.0-Prime",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "alibaba/wan-3.0-prime/text-to-video",
               "baseUrl": "https://queue.fal.run",
@@ -5533,7 +5549,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "alibaba/wan-3.0-prime/text-to-video",
               "inputs":  ["text/plain"],
               "outputs": ["video/mp4"],
@@ -5553,7 +5569,7 @@ public sealed class AiModelService
         ("6f1a45e0-0d31-4c65-9a01-000000000091", "MiniMax-H3-Max",
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "provider": "fal-ai",
               "model": "minimax/h3-max/text-to-video",
               "baseUrl": "https://queue.fal.run",
@@ -5579,7 +5595,7 @@ public sealed class AiModelService
             """,
             """
             {
-              "_seed": 19,
+              "_seed": 22,
               "id": "minimax/h3-max/text-to-video",
               "inputs":  ["text/plain"],
               "outputs": ["video/mp4"],
@@ -5589,6 +5605,131 @@ public sealed class AiModelService
               "limits":  {},
               "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
                            "per_unit": 0.08, "unit": "second" }
+            }
+            """),
+
+        // ПЕРВЫЕ ДВЕ ЗАПИСИ С РЕФЕРЕНСНЫМ АУДИО (T-251-S0). Механизм секции profile.refAudio
+        // сделан в T-249-S0, но ни одна поставляемая запись его не объявляла — «принимает
+        // образец голоса» не умела ни одна модель справочника. Каталог шлюза опрошен
+        // 14.09.2026 (GET https://fal.ai/api/models, 1500 записей) плюс схемы OpenAPI очереди
+        // кандидатов; ИМЯ ПОЛЯ У КАЖДОГО ЭНДПОЙНТА СВОЁ и выдумывать его нельзя — незнакомое
+        // поле шлюз отвергает HTTP 422 уже во время платного задания:
+        //   fal-ai/chatterbox/text-to-speech  → audio_url            (текст в text)
+        //   fal-ai/zonos2                     → reference_audio_url  (текст в text, поле ОБЯЗАТЕЛЬНОЕ)
+        //   fal-ai/index-tts-2/text-to-speech → audio_url            (текст в prompt) — не взята: лицензия весов не объявлена
+        //   fal-ai/qwen-3-tts/clone-voice/*   → audio_url, НО отдаёт speaker_embedding, а не звук
+        //   fal-ai/minimax/voice-clone        → audio_url, НО отдаёт custom_voice_id, а не звук
+        // Поля вида reference_audio_url, названного в задании «общим», у Chatterbox НЕТ вовсе.
+        //
+        // Chatterbox (Resemble AI, веса MIT) — самый дешёвый zero-shot клон голоса у шлюза:
+        // $0,025 за 1000 знаков. Оценка audio-speech НИЖЕ, чем у ElevenLabs-TTS-v3 (96)
+        // намеренно: обычную озвучку без образца должен брать ElevenLabs, а эта запись —
+        // задачи, где голос задан эталонной записью.
+        ("6f1a45e0-0d31-4c65-9a01-000000000092", "Chatterbox-TTS",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "fal-ai/chatterbox/text-to-speech",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "text": "{prompt}",
+                "audio_url": "{audio}",
+                "exaggeration": 0.25,
+                "temperature": 0.7,
+                "cfg": 0.5,
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              },
+              "refAudio": {
+                "kind": "request-field",
+                "placeholder": "{audio}",
+                "field": "audio_url",
+                "maxCount": 1,
+                "maxSeconds": 30,
+                "formats": ["audio/wav", "audio/mpeg"],
+                "required": true
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "fal-ai/chatterbox/text-to-speech",
+              "inputs":  ["text/plain", "audio/wav", "audio/mpeg"],
+              "outputs": ["audio/wav"],
+              "skills":  [
+                { "name": "audio-speech", "score": 88 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.025, "unit": "1000 chars" }
+            }
+            """),
+
+        // Zonos 2 (Zyphra, веса Apache 2.0, репозиторий Zyphra/ZONOS2 — сверено 14.09.2026
+        // по https://huggingface.co/api/models?author=Zyphra). У этого эндпойнта образец
+        // голоса — ЕДИНСТВЕННОЕ обязательное поле схемы (required=['reference_audio_url']),
+        // поэтому "required": true здесь не наша осторожность, а требование провайдера:
+        // без записи задание слать бессмысленно, шлюз ответит 422.
+        ("6f1a45e0-0d31-4c65-9a01-000000000093", "Zonos-2-TTS",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "fal-ai/zonos2",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "text": "{prompt}",
+                "reference_audio_url": "{audio}",
+                "language": "en_us",
+                "accurate_mode": true,
+                "temperature": 1.15,
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              },
+              "refAudio": {
+                "kind": "request-field",
+                "placeholder": "{audio}",
+                "field": "reference_audio_url",
+                "maxCount": 1,
+                "maxSeconds": 30,
+                "formats": ["audio/wav", "audio/mpeg"],
+                "required": true
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "fal-ai/zonos2",
+              "inputs":  ["text/plain", "audio/wav", "audio/mpeg"],
+              "outputs": ["audio/wav"],
+              "skills":  [
+                { "name": "audio-speech", "score": 86 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
             }
             """),
         .. KandinskyLiteVariants(),
@@ -5613,6 +5754,15 @@ public sealed class AiModelService
         .Replace("<<STEPS>>", v.Steps.ToString(), StringComparison.Ordinal)
         .Replace("<<SONG>>", v.Song.ToString(), StringComparison.Ordinal)
         .Replace("<<MUSIC>>", v.Music.ToString(), StringComparison.Ordinal);
+
+    /// <summary>Путь файла правил для модели-суфлёра (T-289-S0) — рядом с профайлом, в том же
+    /// каталоге данных; ровно его называет <c>prompter.rules</c> профайла.</summary>
+    public static string PrompterRulesPathOf(string modelId) => $"models/prompter_{modelId}.md";
+
+    /// <summary>Правила составления управляющего json для варианта ACE-Step 1.5 XL: текст общий,
+    /// подставляется только имя варианта — суфлёр управляет теми же полями у всех трёх.</summary>
+    private static string AceStep15Rules(AceStep15Kind v) =>
+        AceStep15RulesMd.Replace("<<NAME>>", v.Name, StringComparison.Ordinal);
 
     /// <summary>Workflow-шаблон варианта ACE-Step 1.5 XL: свои веса, своя сила текста и top_p.</summary>
     private static string AceStep15Workflow(AceStep15Kind v) =>
@@ -5658,7 +5808,7 @@ public sealed class AiModelService
     /// </summary>
     private const string KandinskyLiteProfileJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "provider": "comfyui",
           "model": "<<MODEL>>",
           "baseUrl": "http://127.0.0.1:8188",
@@ -5828,7 +5978,7 @@ public sealed class AiModelService
     /// <summary>Декларация возможностей варианта Kandinsky Lite.</summary>
     private const string KandinskyLiteScopeJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "id": "<<MODEL>>",
           "inputs":  ["text/plain"],
           "outputs": ["video/*"],
@@ -5850,17 +6000,29 @@ public sealed class AiModelService
     /// поставить нельзя — ModelProfile.Int отбрасывает неположительные («не задано»), и
     /// в сводку задания всё равно попали бы умолчания профайла 768×512. Пусть уж это
     /// будут честные умолчания, а не выдуманное нами число;</item>
-    /// <item>обучение адаптера — <c>external</c>: применить чужой адаптер ComfyUI умеет
-    /// (в comfy/lora.py есть разбор официального формата ACE-Step для ACEStep15), а вот
-    /// обучить своим процессом нечем — musubi-tuner ACE-Step не знает вовсе (в нём нет ни
-    /// одного acestep-скрипта, проверено 27.08.2026), а официальный тренер ACE-Step-1.5
-    /// учится на АУДИОЗАПИСЯХ, тогда как датасет LoRA в AI2P — кадры-картинки (T-274).
+    /// <item>обучение адаптера — <c>external</c> С ПУСТОЙ КОМАНДОЙ, и это ПРОВЕРЕННЫЙ ОТКАЗ,
+    /// а не пропущенная работа (T-250-S0, сверено по файлам репозитория 14.09.2026).
+    /// Тренер у модели ЕСТЬ и идёт на Windows с одной видеокартой: ace-step/ACE-Step-1.5,
+    /// MIT, <c>python -m acestep.training_v2.cli.train_fixed</c> — без torchrun, номер
+    /// видеокарты по умолчанию один, число рабочих DataLoader на Windows намеренно 0.
+    /// Не хватает ВЕСОВ: тренеру нужен каталог чекпойнтов в формате HuggingFace
+    /// (config.json + model-0000N-of-00004.safetensors, ~19,9 ГБ на вариант, плюс vae и
+    /// языковая модель разметки), а мы ставим ПЕРЕПАКОВКУ Comfy-Org — другие файлы, другая
+    /// раскладка. Это ровно тот случай, когда честнее отказать сразу (msg.lora.6), чем
+    /// считать полчаса и упасть. Второе, что мешает: адаптер тренера — peft поверх их DiT,
+    /// а в comfy/lora.py разбор «официального формата ACE-Step» стоит под
+    /// <c>isinstance(model, ACEStep)</c>, тогда как 1.5 — ОТДЕЛЬНЫЙ класс ACEStep15
+    /// (comfy/model_base.py), то есть подхватится ли обученный файл узлом
+    /// LoraLoaderModelOnly, не проверено. musubi-tuner ACE-Step не знает вовсе (в нём нет
+    /// ни одного acestep-скрипта, проверено 27.08.2026).
+    /// Пределы датасета при этом ОБЪЯВЛЕНЫ (media = audio): по ним собирают датасет те,
+    /// кто обучает адаптер руками у себя, и по ним же сверяется наш редактор.
     /// </item>
     /// </list>
     /// </summary>
     private const string AceStep15ProfileJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "provider": "comfyui",
           "model": "<<MODEL>>",
           "baseUrl": "http://127.0.0.1:8188",
@@ -5919,18 +6081,23 @@ public sealed class AiModelService
             },
             "train": {
               "kind": "external",
-              "docUrl": "https://github.com/ace-step/ACE-Step-1.5/blob/main/README.md",
+              "docUrl": "https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/LoRA_Training_Tutorial.md",
               "packages": [],
               "dataset": {
                 "kind": "none",
+                "media": "audio",
                 "path": "",
-                "captions": "",
-                "minItems": 0,
+                "captions": "txt",
+                "minItems": 10,
                 "maxItems": 0,
                 "width": 0,
                 "height": 0,
                 "maxKb": 0,
-                "formats": []
+                "minSeconds": 0,
+                "maxSeconds": 240,
+                "sampleRate": 48000,
+                "channels": 2,
+                "formats": ["wav", "mp3", "flac", "ogg", "opus"]
               },
               "files": [],
               "start": { "kind": "none", "command": "", "workDir": "", "steps": 0 },
@@ -5940,6 +6107,28 @@ public sealed class AiModelService
           },
           "refImage": {
             "kind": "none"
+          },
+          "prompter": {
+            "required": true,
+            "rules": "models/prompter_<<ID>>.md",
+            "schema": [
+              { "name": "tags", "type": "string", "required": true, "maxLength": 600,
+                "description": "стилевые тэги через запятую: жанр, инструменты, настроение, тембр вокала; не назван — в поле уйдёт описание задачи целиком" },
+              { "name": "lyrics", "type": "string", "maxLength": 3000,
+                "description": "слова песни; пусто — модель сочинит их сама" },
+              { "name": "duration", "type": "number", "min": 1, "max": 1000,
+                "description": "длительность трека в СЕКУНДАХ (уходит и в duration планировщика, и в seconds пустого латента); не названа — length профайла" },
+              { "name": "language", "type": "enum",
+                "values": ["ar", "az", "bg", "bn", "ca", "cs", "da", "de", "el", "en", "es", "fa", "fi", "fr", "he", "hi", "hr", "ht", "hu", "id", "is", "it", "ja", "ko", "la", "lt", "ms", "ne", "nl", "no", "pa", "pl", "pt", "ro", "ru", "sa", "sk", "sr", "sv", "sw", "ta", "te", "th", "tl", "tr", "uk", "ur", "vi", "yue", "zh", "unknown"],
+                "description": "язык вокала; unknown (умолчание AI2P) — модель решает сама по словам песни" },
+              { "name": "bpm", "type": "int", "min": 10, "max": 300,
+                "description": "темп, ударов в минуту; не назван — 120" },
+              { "name": "keyscale", "type": "enum",
+                "values": ["C major", "C# major", "Db major", "D major", "D# major", "Eb major", "E major", "F major", "F# major", "Gb major", "G major", "G# major", "Ab major", "A major", "A# major", "Bb major", "B major", "C minor", "C# minor", "Db minor", "D minor", "D# minor", "Eb minor", "E minor", "F minor", "F# minor", "Gb minor", "G minor", "G# minor", "Ab minor", "A minor", "A# minor", "Bb minor", "B minor"],
+                "description": "тональность и лад; не названа — C major" },
+              { "name": "timesignature", "type": "enum", "values": ["2", "3", "4", "6"],
+                "description": "размер такта: 2, 3, 4 или 6 четвертей; не назван — 4" }
+            ]
           }
         }
         """;
@@ -5951,7 +6140,7 @@ public sealed class AiModelService
     /// </summary>
     private const string AceStep15ScopeJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "id": "<<MODEL>>",
           "inputs":  ["text/plain"],
           "outputs": ["audio/mpeg"],
@@ -5970,16 +6159,26 @@ public sealed class AiModelService
     /// Узлы фронтенда PrimitiveNode/PrimitiveInt, раздававшие seed и длительность, в
     /// API-формат не переносятся — их значения стоят прямо в полях узлов.
     ///
-    /// Плейсхолдеры AI2P: {prompt} — описание задачи (у ACE-Step это поле tags, языковая
-    /// модель внутри сама достаёт из него стиль, строение и слова), "{seed}" — общий для
-    /// планировщика и сэмплера (в шаблоне он тоже раздавался из одного узла), "{length}" —
-    /// СЕКУНДЫ трека сразу в двух местах, "{steps}" — шаги сэмплера, {job} — имя файла.
+    /// Плейсхолдеры AI2P: "{seed}" — общий для планировщика и сэмплера (в шаблоне он тоже
+    /// раздавался из одного узла), "{steps}" — шаги сэмплера, {job} — имя файла.
     /// Угловыми скобками — величины варианта (см. <see cref="AceStep15Workflow"/>).
+    ///
+    /// ПОЛЯ ОТ МОДЕЛИ-СУФЛЁРА (T-287-S0) — именованные плейсхолдеры {p:имя|умолчание}:
+    /// tags, lyrics, duration, language, bpm, keyscale, timesignature. Имена входов и
+    /// перечни значений сверены с ЖИВЫМ ComfyUI (GET /object_info/TextEncodeAceStepAudio1.5
+    /// и /EmptyAceStep1.5LatentAudio, 18.09.2026), а не взяты из памяти: опечатка во входе
+    /// даёт «required input is missing» уже во время задания (наука T-20-S0). Умолчания
+    /// оставлены прежние, поэтому БЕЗ суфлёра граф собирается ровно как до правки: tags —
+    /// описание задачи ({prompt}), lyrics пусто, duration и seconds — "{length}" профайла,
+    /// bpm 120, размер такта 4, тональность C major, язык "unknown".
+    ///
+    /// Длительность стоит в ДВУХ местах — duration узла "4" и seconds пустого латента узла
+    /// "6", — и это ОДИН И ТОТ ЖЕ плейсхолдер {p:duration}: расхождение даёт обрезанный
+    /// либо растянутый трек.
     ///
     /// Про язык: в официальных шаблонах стоит "en", здесь — "unknown" (опция объявлена в
     /// схеме узла): система многоязычная, и жёсткий английский заставил бы модель петь
-    /// русский текст с английским произношением. Кому нужен конкретный язык — правит поле
-    /// в шаблоне, об этом сказано в документе модели.
+    /// русский текст с английским произношением. Конкретный язык называет суфлёр.
     ///
     /// SaveAudioMP3 в ComfyUI помечен deprecated (замена — SaveAudioAdvanced с составным
     /// полем format), но именно он стоит в официальных шаблонах и работает; когда его
@@ -5987,20 +6186,118 @@ public sealed class AiModelService
     /// </summary>
     private const string AceStep15WorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "UNETLoader", "inputs": { "unet_name": "<<UNET>>", "weight_dtype": "default" } },
             "2": { "class_type": "ModelSamplingAuraFlow", "inputs": { "shift": 3, "model": ["1", 0] } },
             "3": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_0.6b_ace15.safetensors", "clip_name2": "qwen_4b_ace15.safetensors", "type": "ace", "device": "default" } },
-            "4": { "class_type": "TextEncodeAceStepAudio1.5", "inputs": { "clip": ["3", 0], "tags": "{prompt}", "lyrics": "", "seed": "{seed}", "bpm": 120, "duration": "{length}", "timesignature": "4", "language": "unknown", "keyscale": "C major", "generate_audio_codes": true, "cfg_scale": 2.0, "temperature": 0.85, "top_p": "<<TOPP>>", "top_k": 0, "min_p": 0.0 } },
+            "4": { "class_type": "TextEncodeAceStepAudio1.5", "inputs": { "clip": ["3", 0], "tags": "{p:tags|{prompt}}", "lyrics": "{p:lyrics|}", "seed": "{seed}", "bpm": "{p:bpm|120}", "duration": "{p:duration|{length}}", "timesignature": "{p:timesignature|4}", "language": "{p:language|unknown}", "keyscale": "{p:keyscale|C major}", "generate_audio_codes": true, "cfg_scale": 2.0, "temperature": 0.85, "top_p": "<<TOPP>>", "top_k": 0, "min_p": 0.0 } },
             "5": { "class_type": "ConditioningZeroOut", "inputs": { "conditioning": ["4", 0] } },
-            "6": { "class_type": "EmptyAceStep1.5LatentAudio", "inputs": { "seconds": "{length}", "batch_size": 1 } },
+            "6": { "class_type": "EmptyAceStep1.5LatentAudio", "inputs": { "seconds": "{p:duration|{length}}", "batch_size": 1 } },
             "7": { "class_type": "VAELoader", "inputs": { "vae_name": "ace_1.5_vae.safetensors" } },
             "8": { "class_type": "KSampler", "inputs": { "seed": "{seed}", "steps": "{steps}", "cfg": "<<CFG>>", "sampler_name": "euler", "scheduler": "simple", "denoise": 1, "model": ["2", 0], "positive": ["4", 0], "negative": ["5", 0], "latent_image": ["6", 0] } },
             "9": { "class_type": "VAEDecodeAudio", "inputs": { "samples": ["8", 0], "vae": ["7", 0] } },
             "10": { "class_type": "SaveAudioMP3", "inputs": { "audio": ["9", 0], "filename_prefix": "AI2P/{job}", "quality": "V0" } }
           }
         }
+        """;
+
+    /// <summary>
+    /// ПРАВИЛА СОСТАВЛЕНИЯ УПРАВЛЯЮЩЕГО JSON для ACE-Step 1.5 XL (T-289-S0) — файл
+    /// <c>models/prompter_&lt;ID&gt;.md</c> рядом с профайлом, на него показывает
+    /// <c>prompter.rules</c> профайла. Текст читает МОДЕЛЬ-СУФЛЁР: он уходит в её промпт
+    /// целиком (<c>PrompterService.BuildPrompt</c>), перед перечнем полей со схемой.
+    ///
+    /// ПОЧЕМУ ФАЙЛОМ, А НЕ ЗАПИСЬЮ ОПЫТА: медиа-модель опыта не видит вовсе (ComfyUiConnector
+    /// берёт только описание задачи), а суфлёр — обычный текстовый вызов, и правила ему
+    /// передаются ЯВНО, из файла рядом с профайлом. Правка файла действует со следующего же
+    /// задания — как правка workflow.
+    ///
+    /// Поля, границы и перечни сверены с ЖИВЫМ ComfyUI (GET /object_info узлов
+    /// TextEncodeAceStepAudio1.5, EmptyAceStep1.5LatentAudio и KSampler, 18.09.2026 —
+    /// снимок test/t289s0/objinfo.json), а не взяты из памяти. Числа В ТЕКСТЕ намеренно
+    /// не повторяют схему профайла подробно: границы проверяет код (PrompterField), и
+    /// число, написанное в двух местах, рано или поздно разойдётся.
+    ///
+    /// Язык текста — русский, как и описания полей схемы в профайле: файл один на все
+    /// языки интерфейса, а суфлёр — языковая модель, для которой язык правил безразличен
+    /// (промпт вокруг правил собирается на языке команды, Loc.In).
+    ///
+    /// Версия файла — строка-отметка <c>&lt;!-- _seed: N --&gt;</c> в первой строке: json-поля
+    /// "_seed" в markdown не бывает, а перезаписывать файл при каждом старте нельзя —
+    /// правки человека пропадали бы молча (см. <see cref="WriteSeedText"/>).
+    /// </summary>
+    private const string AceStep15RulesMd = """
+        <!-- _seed: 22 -->
+        # Управляющий json для ACE-Step 1.5 XL (<<NAME>>)
+
+        Ты готовишь задание локальной модели сочинения музыки **ACE-Step 1.5 XL**. Она
+        работает в ComfyUI: твой json заполняет поля узла `TextEncodeAceStepAudio1.5`
+        (стилевые тэги, слова песни, темп, тональность, размер такта, язык вокала) и
+        длительность пустого латента `EmptyAceStep1.5LatentAudio`.
+
+        Ответ — **один json-объект и ничего больше**: без пояснений, без ```-заборчика,
+        без комментариев внутри json. Поля — только из перечня ниже; лишние игнорируются.
+        Поле, о котором в задаче ничего не сказано, **лучше не называть вовсе**, чем
+        выдумать: у каждого есть разумное умолчание, оно перечислено здесь.
+
+        ## Что класть в каждое поле
+
+        **`tags` — СТИЛЕВЫЕ ТЭГИ, а не пересказ задания.** Через запятую: жанр, темп
+        словами, инструменты, настроение, тембр и пол вокала, приёмы записи. Пример:
+        `synthwave, driving, analog bass, gated drums, male vocal, wide reverb`. Сюда НЕ
+        пишут ни слова песни, ни длительность, ни язык, ни служебные указания («положи
+        результат в файл»), ни сам текст задачи предложениями — у них свои поля. Тэги
+        принято писать по-английски: на них модель обучена, и английский тэг срабатывает
+        точнее перевода. Нет вокала — так и скажи тэгом (`instrumental, no vocals`).
+
+        **`lyrics` — слова песни.** Заполняй, только если человек написал текст сам либо
+        просит спеть названные слова. Переноси их ДОСЛОВНО, строка в строку, ничего не
+        переводя и не дописывая. Строение помечают строками-метками `[verse]`, `[chorus]`,
+        `[bridge]`, `[outro]` — если человек их уже расставил, сохрани. Пусто — модель
+        сочинит слова сама (внутри неё языковая модель-планировщик), и это обычный случай:
+        для инструментала поле оставляют пустым всегда.
+
+        **`duration` — длительность в СЕКУНДАХ** (не в минутах и не в кадрах). «Полторы
+        минуты» — это 90. Не названа — не называй её и ты: возьмётся `length` профайла
+        модели. Значение уходит сразу в два места графа, поэтому число должно быть одно.
+
+        **`language` — код языка ВОКАЛА** из перечня узла (`ru`, `en`, `zh`, `ja`, `es`, …).
+        Ставь его, когда язык назван прямо или очевиден из слов песни. Инструментал, разные
+        языки вперемешку и любые сомнения — `unknown`: тогда модель решает сама по словам, а
+        жёстко поставленный `en` заставил бы её петь русский текст с английским
+        произношением. Язык ОПИСАНИЯ задачи языком вокала не является.
+
+        **`bpm` — темп, ударов в минуту.** Назван словами («медленно», «танцевальный») —
+        переведи в число сам: баллада 60–75, поп 100–120, танцевальное 124–132, драм-н-бэйс
+        170–175. Ничего про темп не сказано — не называй поле, возьмётся 120.
+
+        **`keyscale` — тональность и лад** строкой из перечня (`C major`, `A minor`, …).
+        Умолчание `C major`. Просьба «грустно, минорно» — повод взять минор (`A minor`),
+        «светло, мажорно» — мажор; точная тональность нужна, только когда её назвали.
+
+        **`timesignature` — размер такта**: `2`, `3`, `4` или `6` четвертей. Умолчание `4`;
+        вальс — `3`, колыбельная или баллада с «раскачкой» — `6`.
+
+        ## Чем ты НЕ управляешь
+
+        Шаги диффузии, `cfg` сэмплера, seed, отрицательный промпт и таймаут берутся из
+        профайла модели — полей для них в json нет, называть их бесполезно. Имя выходного
+        файла и папку результата задаёт AI2P.
+
+        ## Пример
+
+        Описание задачи:
+
+        > Нужна заставка для ролика про горы — минута спокойной музыки без вокала,
+        > неторопливая, акустическая гитара и струнные, немного грустная.
+
+        Ответ:
+
+        {"tags": "cinematic acoustic, calm, slow, fingerpicked guitar, warm strings, airy pads, instrumental, no vocals", "duration": 60, "bpm": 70, "keyscale": "A minor", "language": "unknown"}
+
+        Слов песни нет — поля `lyrics` нет вовсе; размер такта не назван — поля
+        `timesignature` тоже нет.
         """;
 
     /// <summary>
@@ -6035,7 +6332,7 @@ public sealed class AiModelService
     /// </summary>
     private const string PackagesSeedJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "packages": [
             {
               "id": "comfyui",
@@ -6230,7 +6527,7 @@ public sealed class AiModelService
     /// </summary>
     private const string KandinskyWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_name2": "clip_l.safetensors", "type": "kandinsky5", "device": "default" } },
             "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "{negative}", "clip": ["1", 0] } },
@@ -6260,7 +6557,7 @@ public sealed class AiModelService
     /// </summary>
     private const string KandinskyI2vWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_name2": "clip_l.safetensors", "type": "kandinsky5", "device": "default" } },
             "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "{negative}", "clip": ["1", 0] } },
@@ -6291,7 +6588,7 @@ public sealed class AiModelService
     /// </summary>
     private const string ZImageWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_3_4b.safetensors", "type": "lumina2", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "z_image_turbo_bf16.safetensors", "weight_dtype": "default" } },
@@ -6316,7 +6613,7 @@ public sealed class AiModelService
     /// </summary>
     private const string QwenImageWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "type": "qwen_image", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "qwen_image_2512_fp8_e4m3fn.safetensors", "weight_dtype": "default" } },
@@ -6343,7 +6640,7 @@ public sealed class AiModelService
     /// </summary>
     private const string QwenImageEditWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "type": "qwen_image", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "qwen_image_edit_2511_fp8mixed.safetensors", "weight_dtype": "default" } },
@@ -6376,7 +6673,7 @@ public sealed class AiModelService
     /// </summary>
     private const string WanT2vWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "UNETLoader", "inputs": { "unet_name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors", "weight_dtype": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors", "weight_dtype": "default" } },
@@ -6405,7 +6702,7 @@ public sealed class AiModelService
     /// </summary>
     private const string WanI2vWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "UNETLoader", "inputs": { "unet_name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", "weight_dtype": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", "weight_dtype": "default" } },
@@ -6436,7 +6733,7 @@ public sealed class AiModelService
     /// </summary>
     private const string HunyuanVideo15WorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "UNETLoader", "inputs": { "unet_name": "hunyuanvideo1.5_720p_t2v_fp16.safetensors", "weight_dtype": "default" } },
             "2": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_name2": "byt5_small_glyphxl_fp16.safetensors", "type": "hunyuan_video_15", "device": "default" } },
@@ -6474,7 +6771,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Ltx25WorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "UNETLoader", "inputs": { "unet_name": "ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors", "weight_dtype": "default" } },
             "2": { "class_type": "CLIPLoader", "inputs": { "clip_name": "gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors", "type": "ltxv", "device": "default" } },
@@ -6514,7 +6811,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Flux2Klein4bWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_3_4b.safetensors", "type": "flux2", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "flux-2-klein-base-4b.safetensors", "weight_dtype": "default" } },
@@ -6547,7 +6844,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Flux2Klein4bEditWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "qwen_3_4b.safetensors", "type": "flux2", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "flux-2-klein-base-4b.safetensors", "weight_dtype": "default" } },
@@ -6582,7 +6879,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Kandinsky5ImageWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_name2": "clip_l.safetensors", "type": "kandinsky5_image", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "kandinsky5lite_t2i.safetensors", "weight_dtype": "default" } },
@@ -6606,7 +6903,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Sd35LargeWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "sd3.5_large_fp8_scaled.safetensors" } },
             "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "{prompt}", "clip": ["1", 1] } },
@@ -6627,7 +6924,7 @@ public sealed class AiModelService
     /// </summary>
     private const string SdxlWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "sd_xl_base_1.0.safetensors" } },
             "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "{prompt}", "clip": ["1", 1] } },
@@ -6651,7 +6948,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Flux2DevWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "CLIPLoader", "inputs": { "clip_name": "mistral_3_small_flux2_fp8.safetensors", "type": "flux2", "device": "default" } },
             "2": { "class_type": "UNETLoader", "inputs": { "unet_name": "flux2_dev_fp8mixed.safetensors", "weight_dtype": "default" } },
@@ -6682,7 +6979,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Hunyuan3D21WorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "ImageOnlyCheckpointLoader", "inputs": { "ckpt_name": "hunyuan_3d_v2.1.safetensors" } },
             "2": { "class_type": "LoadImage", "inputs": { "image": "{image}" } },
@@ -6713,7 +7010,7 @@ public sealed class AiModelService
     /// </summary>
     private const string Trellis2WorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "LoadImage", "inputs": { "image": "{image}" } },
             "2": { "class_type": "LoadBackgroundRemovalModel", "inputs": { "bg_removal_name": "birefnet.safetensors" } },
@@ -6760,7 +7057,7 @@ public sealed class AiModelService
     /// </summary>
     private const string TripoSplatWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "LoadImage", "inputs": { "image": "{image}" } },
             "2": { "class_type": "LoadBackgroundRemovalModel", "inputs": { "bg_removal_name": "birefnet.safetensors" } },
@@ -6790,7 +7087,7 @@ public sealed class AiModelService
     /// </summary>
     private const string KandinskyLiteVariantWorkflowJson = """
         {
-          "_seed": 19,
+          "_seed": 22,
           "prompt": {
             "1": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_2.5_vl_7b_fp8_scaled.safetensors", "clip_name2": "clip_l.safetensors", "type": "kandinsky5", "device": "default" } },
             "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "{negative}", "clip": ["1", 0] } },
@@ -7047,6 +7344,9 @@ public sealed class AiModelService
         foreach (var model in models)
         {
             model.Skills = SkillsOf(model);
+            // форматы результата — оттуда же, из декларации (T-286-S0): по ним форма
+            // исполнителя отбирает текстовые модели в суфлёры
+            model.Outputs = OutputsOf(model);
             // настройка LoRA и референсной картинки — из профайла (T-13-S1): колонка «LoRA»
             // справочника показывает именно её отметку
             ReadProfileSettings(model);
@@ -7066,6 +7366,34 @@ public sealed class AiModelService
         var profileJson = ReadProfile(model);
         model.Lora = LoraSettings.Parse(profileJson);
         model.RefImage = RefImageSettings.Parse(profileJson);
+        model.RefAudio = RefAudioSettings.Parse(profileJson);
+        // модель-суфлёр (T-286-S0): нужна ли этой модели вторая, текстовая, которая готовит
+        // управляющий json. Секции нет — суфлёр не нужен, и это обычный случай
+        model.Prompter = PrompterSettings.Parse(profileJson);
+    }
+
+    /// <summary>
+    /// Форматы РЕЗУЛЬТАТА модели из её декларации возможностей (<c>outputs</c>, ТЗ п. 7.3);
+    /// нечитаемая декларация — пустой список. Читается вместе с навыками: по ним форма
+    /// исполнителя отличает ТЕКСТОВУЮ модель от медийной (T-286-S0), а подбор исполнителя —
+    /// режим навыка (SkillIo, T-257).
+    /// </summary>
+    public List<string> OutputsOf(AiModel model)
+    {
+        var abs = _files.Abs(model.CapabilitiesPath);
+        if (model.CapabilitiesPath.Length == 0 || !File.Exists(abs))
+        {
+            return [];
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(abs));
+            return JsonRead.Strings(doc.RootElement, "outputs");
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return [];
+        }
     }
 
     /// <summary>Навыки модели из её декларации возможностей; нечитаемая декларация — пустой список.</summary>
@@ -7118,6 +7446,7 @@ public sealed class AiModelService
         Decorate(model);
         // настройка LoRA и картинки нужна и одной записи: форму модели открывают по ней
         ReadProfileSettings(model);
+        model.Outputs = OutputsOf(model);
         return model;
     }
 
@@ -7668,6 +7997,10 @@ public sealed class AiModelService
         foreach (var v in AceStep15)
         {
             WriteSeedFile("models/workflow_" + v.Id + ".json", AceStep15Workflow(v));
+            // правила составления управляющего json для модели-суфлёра (T-289-S0): файл
+            // ставится тем же путём, что профайл и workflow, — программой, а не скриптами
+            // выкладки (наука T-270-S0), и по той же причине не реплицируется
+            WriteSeedText(PrompterRulesPathOf(v.Id), AceStep15Rules(v));
         }
         // справочник пакетов локальных моделей (ТЗ v1.42, todo36_5)
         WriteSeedFile(PackagesPath, PackagesSeedJson);
@@ -7908,6 +8241,47 @@ public sealed class AiModelService
         }
         _files.WriteText(relativePath, seedJson);
     }
+
+    /// <summary>
+    /// То же для ТЕКСТОВОГО seed-файла (T-289-S0, правила для модели-суфлёра): версия
+    /// написана отметкой <c>&lt;!-- _seed: N --&gt;</c> в первых строках — json-поля в markdown
+    /// не бывает, а <see cref="ReadSeedVersion"/> на не-json честно отвечает нулём, то есть
+    /// файл переписывался бы при КАЖДОМ старте и правки человека пропадали бы молча.
+    /// </summary>
+    private void WriteSeedText(string relativePath, string text)
+    {
+        var abs = _files.Abs(relativePath);
+        if (File.Exists(abs) && ReadSeedMark(abs) >= SeedFileVersion)
+        {
+            return;
+        }
+        _files.WriteText(relativePath, text);
+    }
+
+    /// <summary>Версия из отметки <c>&lt;!-- _seed: N --&gt;</c>; нет отметки или файл нечитаем — 0.</summary>
+    private static int ReadSeedMark(string absPath)
+    {
+        try
+        {
+            foreach (var line in File.ReadLines(absPath).Take(5))
+            {
+                var m = SeedMark.Match(line);
+                if (m.Success && int.TryParse(m.Groups[1].Value, out var version))
+                {
+                    return version;
+                }
+            }
+            return 0;
+        }
+        catch (IOException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>Отметка версии текстового seed-файла.</summary>
+    private static readonly System.Text.RegularExpressions.Regex SeedMark =
+        new(@"<!--\s*_seed:\s*(\d+)\s*-->", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>Версия "_seed" из файла; 0 — поле отсутствует или файл нечитаем.</summary>
     private static int ReadSeedVersion(string absPath)

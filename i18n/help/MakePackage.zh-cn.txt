@@ -23,9 +23,11 @@ builds/<OS>/releasefull 中，它的工作方式是「从这里 — 到那里」
   ./MakePackage.sh --help           本帮助
 
 文件名自动生成，取自部署包的 version.json：
-  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
-  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
-NN 是构建号（版本号的第二部分），无需询问。在 Windows 上安装程序由 Inno Setup
+  releasefull -> AI2P_v_1_NN_full_windows_x64.exe / AI2P_v_1_NN_full_linux_x64.run
+  release     -> AI2P_v_1_NN_windows_x64.exe      / AI2P_v_1_NN_linux_x64.run
+NN 是构建号（版本号的第二部分），无需询问。full 一词位于版本号之后，再往后是系统
+（windows、linux、macos）和架构（x64、arm64、arm、x86）：完整部署包由其运行时给出，
+普通部署包则取自操作系统目录和当前编译器。在 Windows 上安装程序由 Inno Setup
 （ISCC.exe）构建，.exe 就是它的产物形式；.run 是 makeself 的产物形式：一个自解压
 归档，它自己会运行 install.sh。
 

@@ -131,6 +131,10 @@ else
 
     private string AgeText(ArchiveRule rule)
     {
+        if (rule.AgeKind == ArchiveRuleAges.Any)
+        {
+            return L["arcrules.short.any"];   // «возраст не важен» (T-265-S0)
+        }
         if (rule.AgeKind == ArchiveRuleAges.Days)
         {
             return $"{rule.AgeDays} {L["arcrules.short.days"]}";

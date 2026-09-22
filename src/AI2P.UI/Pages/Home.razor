@@ -233,6 +233,9 @@
     .ai2p-diagram-title { font-size: .72rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ai2p-diagram-state { position: absolute; left: 4px; right: 4px; bottom: 2px; display: flex; gap: 3px; overflow: hidden; white-space: nowrap; }
     .ai2p-diagram-state .ai2p-status { font-size: .6rem; padding: 0 3px; }
+    /* время работы и причина ожидания (T-312-S0): мелко, как подписи состояний */
+    .ai2p-diagram-elapsed, .ai2p-diagram-pause { font-size: .6rem; line-height: 1.5; opacity: .8; }
+    .ai2p-diagram-pause { overflow: hidden; text-overflow: ellipsis; }
     .ai2p-diagram-menu { position: absolute; top: -2px; right: -2px; }
     /* УЗКИЙ КВАДРАТ (T-159-S0): подписей у него нет, а три значка стоят ПО ВЕРТИКАЛИ друг
        под другом — маркер переноса, контекстное меню, круг состояния. Наименьшая ширина
@@ -247,6 +250,10 @@
     .ai2p-diagram-grip { position: absolute; top: 0; left: 0; cursor: grab; opacity: .45; touch-action: none; }
     .ai2p-diagram-grip:hover { opacity: .9; }
     .ai2p-diagram-links { position: absolute; top: 0; left: 0; pointer-events: none; }
+    /* развилки и циклы диаграммы (T-301-S0): знаки поверх квадратов, мышь им не нужна */
+    .ai2p-diagram-stop { position: absolute; box-sizing: border-box; border-radius: 50%; background: #8b0000; border: 1px solid #fff; color: #fff; font-size: 6px; font-weight: 700; line-height: 1; display: flex; align-items: center; justify-content: center; pointer-events: none; letter-spacing: -.2px; }
+    .ai2p-diagram-loopcount { position: absolute; transform: translateX(-100%); pointer-events: none; font-size: .6rem; line-height: 1; padding: 1px 5px; border-radius: 999px; border: 1px solid var(--mud-palette-primary); background: var(--mud-palette-surface); white-space: nowrap; }
+    .ai2p-diagram-flowlabel { position: absolute; pointer-events: none; font-size: .6rem; font-weight: 700; line-height: 1; white-space: nowrap; }
 </style>
 
 @if (!State.Initialized)
@@ -402,7 +409,7 @@ else
                    проверка «как выглядит в обеих темах» искала её перебором кнопок шапки *@
                 <MudIconButton Icon="@(State.DarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
                                Size="Size.Small" data-theme-toggle="@(State.DarkMode ? "dark" : "light")"
-                               OnClick="@(() => { State.DarkMode = !State.DarkMode; State.NotifyChanged(); })" />
+                               OnClick="@(() => State.ToggleDarkMode())" />
             </MudTooltip>
             @* 6. вошедший пользователь (ТЗ п. 2.14, гл. 12, этап 39): форма своего аккаунта,
                вход администратора сервера и выход *@

@@ -1,5 +1,5 @@
 {
-  "seedVersion": 21,
+  "seedVersion": 25,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -127,7 +127,7 @@
       "tool": "create_experience",
       "title": "Adicionar registro de experiência",
       "hint": "O agente adiciona um registro de experiência: no nó de modelo da tarefa atual ou no projeto inteiro (bloco «Experiência do projeto» da tarefa). Uma regra de segurança deny/confirm sobre este código proíbe ou exige confirmação para a criação de experiência por agentes. O agente de linha de comando não tem ferramentas do AI2P — ele faz o mesmo com o marcador AI2P_EXPERIENCE na resposta, e esta ação também o controla.",
-      "prompt": "Adicionar um registro de experiência. Parâmetros: text — uma lição ou conclusão curta, útil em execuções futuras (o que funcionou, as armadilhas, o que fazer de outro jeito); scope — o alcance do registro: «project» (experiência do projeto inteiro, bloco «Experiência do projeto» da tarefa) ou «template» (experiência do nó de modelo); por padrão, uma tarefa criada a partir de um modelo usa o nó dela, as demais usam o projeto; template — o código do nó de modelo ou o título dele (só para scope=template, se for preciso outro nó); skill — o código de uma habilidade do catálogo: esse registro só chega aos executores com essa habilidade, sem ela o registro é geral. Registre apenas observações comprovadas e não repita o que já está nos blocos de experiência. Só amplie a experiência do PROJETO e de nós alheios se a tarefa pedir explicitamente ou se a conclusão for importante para todas as tarefas do projeto."
+      "prompt": "Adicionar um registro de experiência. Parâmetros: text — uma lição ou conclusão curta, útil em execuções futuras (o que funcionou, as armadilhas, o que fazer de outro jeito); scope — o alcance do registro: «project» (experiência do projeto inteiro, bloco «Experiência do projeto» da tarefa) ou «template» (experiência do nó de modelo); por padrão, uma tarefa criada a partir de um modelo usa o nó dela, as demais usam o projeto; template — o código do nó de modelo ou o título dele (só para scope=template, se for preciso outro nó); skill — o código de uma habilidade do catálogo: esse registro só chega aos executores com essa habilidade, sem ela o registro é geral. Registre apenas observações comprovadas e não repita o que já está nos blocos de experiência. Só amplie a experiência do PROJETO e de nós alheios se a tarefa pedir explicitamente ou se a conclusão for importante para todas as tarefas do projeto. OS ÂMBITOS SÃO SEPARADOS assim: uma regra geral é sobre COMO TRABALHAMOS (processo, relatórios, disciplina de testes): vale em qualquer projeto da organização e não cita nenhum arquivo, código de tarefa nem o nome do produto; a experiência do PROJETO é sobre este produto: sua estrutura, suas armadilhas, suas decisões e os nomes de suas entidades; a experiência do NÓ DE MODELO é sobre esta etapa do processo. Um texto com indícios de algo específico do projeto (código de tarefa, caminho, nome de arquivo ou de projeto) NÃO É ACEITO nas regras gerais — guarde-o na experiência do projeto; corrija um âmbito errado com move_experience, e não com um registro novo."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000015",
@@ -135,7 +135,47 @@
       "tool": "update_experience",
       "title": "Alterar registro de experiência",
       "hint": "O agente corrige um registro de experiência existente do seu projeto ou dos modelos dele. Uma regra de segurança deny/confirm sobre este código proíbe ou exige confirmação para a edição de experiência por agentes. No agente de linha de comando é o mesmo marcador AI2P_EXPERIENCE com o parâmetro id.",
-      "prompt": "Alterar um registro de experiência. Parâmetros: id — o identificador do registro, tirado do bloco «Experiência do projeto» ou «Experiência de execução» do texto da tarefa; text — o novo texto COMPLETO do registro; skill — o código da habilidade (se informado, a habilidade do registro muda; se não, permanece a anterior). Use quando o registro estiver desatualizado ou contrariar o que de fato aconteceu; caso contrário, adicione um novo registro com create_experience."
+      "prompt": "Alterar um registro de experiência. Parâmetros: id — o identificador do registro, tirado do bloco «Experiência do projeto» ou «Experiência de execução» do texto da tarefa; text — o novo texto COMPLETO do registro; skill — o código da habilidade (se informado, a habilidade do registro muda; se não, permanece a anterior). Use quando o registro estiver desatualizado ou contrariar o que de fato aconteceu; caso contrário, adicione um novo registro com create_experience. A edição NÃO muda o âmbito do registro — para isso existe move_experience; lembrete dos limites: uma regra geral é sobre COMO TRABALHAMOS (processo, relatórios, disciplina de testes): vale em qualquer projeto da organização e não cita nenhum arquivo, código de tarefa nem o nome do produto; a experiência do PROJETO é sobre este produto: sua estrutura, suas armadilhas, suas decisões e os nomes de suas entidades; a experiência do NÓ DE MODELO é sobre esta etapa do processo. Desde a versão 1.135 também se podem mudar tags (a lista de etiquetas), alwaysLoad (a marca «carregar sempre») e active (se o registro está ativo); UM CAMPO NÃO ENVIADO NÃO MUDA — enviar só o texto não apaga as etiquetas e marcas postas por uma pessoa."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000036",
+      "code": "AI2P.Experience.Search",
+      "tool": "search_experience",
+      "title": "Buscar na experiência",
+      "hint": "O agente busca nos registros de experiência acumulados — do projeto, dos nós de modelo e das regras gerais da organização. Foi criado porque NÃO havia como obter um registro que não coube na tarefa (o limite de inserção de experiência fica nas configurações do projeto): a dica dizia «pergunte à pessoa». Por padrão são buscados apenas registros ATIVOS; a flag includeInactive acrescenta os inativos. Uma regra de segurança deny/confirm sobre este código fecha a busca por completo. O agente CLI tem o mesmo — o comando «ai2p experience-find».",
+      "prompt": "Buscar registros de experiência por palavras. Parâmetros: query — as palavras da consulta; scope — a área: «project» (experiência do projeto), «template» (experiência dos nós de modelo), «general» (regras gerais de trabalho da organização), «all» ou vazio — buscar em todas; limit — quantos registros devolver (1..50, 10 por padrão); includeInactive — buscar TAMBÉM nos registros INATIVOS (por padrão só nos ativos: um registro inativo nunca é inserido na tarefa). A busca é lexical — pelas palavras do texto do registro, não pelo significado. Use quando o bloco de experiência disser que parte dos registros não é exibida, ou quando precisar de uma conclusão anterior sobre um tema concreto; o registro encontrado pode ser corrigido com update_experience pelo seu id."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000037",
+      "code": "AI2P.Experience.Move",
+      "tool": "move_experience",
+      "title": "Mover um registro de experiência",
+      "hint": "O agente move um registro de experiência entre âmbitos: regras gerais da organização ↔ experiência do projeto ↔ experiência de um nó de modelo. Existe porque corrigir o âmbito não era possível: o registro tinha de ser apagado e criado de novo, perdendo id, histórico e autoria — daí o lixo na experiência geral, que chega a todas as tarefas da organização. Só move o servidor dono do registro; uma regra fornecida com a distribuição nunca é movida. Uma regra de segurança deny/confirm sobre este código fecha a movimentação por completo. O agente de CLI faz o mesmo com o comando «ai2p experience-move».",
+      "prompt": "Mover um registro de experiência para outro âmbito. Parâmetros: id — o registro (dos blocos de experiência da tarefa ou do resultado de search_experience); scope — para onde: «project» (experiência deste projeto), «template» (experiência de um nó de modelo), «general» (regras gerais de trabalho da organização); template — código ou título do nó de modelo (apenas para scope=template; omitido significa o nó da tarefa atual). O projeto de destino é sempre o atual. Os âmbitos são separados assim: uma regra geral é sobre COMO TRABALHAMOS (processo, relatórios, disciplina de testes): vale em qualquer projeto da organização e não cita nenhum arquivo, código de tarefa nem o nome do produto; a experiência do PROJETO é sobre este produto: sua estrutura, suas armadilhas, suas decisões e os nomes de suas entidades; a experiência do NÓ DE MODELO é sobre esta etapa do processo. A movimentação mantém o id, o texto, as etiquetas, a habilidade e a autoria — use-a em vez de «apagar e criar de novo». Um texto com indícios de algo específico do projeto (código de tarefa, caminho, nome de projeto) não é aceito nas regras gerais."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000038",
+      "code": "AI2P.Experience.SetActive",
+      "tool": "set_experience_active",
+      "title": "Ligar ou desligar um registro de experiência",
+      "hint": "O agente torna um registro de experiência inativo (deixa de ser inserido nos trabalhos) ou o devolve ao uso. Criado para o modelo «Análise da experiência»: o agente NÃO apaga experiência e nunca vai apagar — ele desliga o que ficou obsoleto, e depois a regra de arquivamento leva embora. O agente não pode desligar as regras fornecidas com a distribuição: são as regras pelas quais ele próprio trabalha. Uma regra de segurança deny/confirm sobre este código fecha a troca por completo. No cliente de linha de comando é «ai2p experience-active».",
+      "prompt": "Tornar um registro de experiência ativo ou inativo. Parâmetros: id — o registro (dos blocos de experiência do trabalho, de list_experience ou de search_experience); active — true (o registro volta aos trabalhos) ou false (deixa de ser inserido). Desligue um registro quando ele estiver obsoleto, contradisser outro mais novo ou tiver sido resumido num novo. A experiência NÃO se apaga, apenas se desliga: um registro inativo pode ser lido e reativado. Registros de outro servidor e regras da distribuição não são trocados."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000039",
+      "code": "AI2P.Experience.List",
+      "tool": "list_experience",
+      "title": "Listar registros de experiência",
+      "hint": "O agente lê os registros de um escopo em sequência, por páginas: a busca devolve o que se parece com a consulta, enquanto rever a experiência exige o corpus inteiro. Filtra por habilidade e etiqueta; includeInactive acrescenta os desligados. Uma regra de segurança deny/confirm sobre este código fecha a listagem. No cliente de linha de comando é «ai2p experience-list».",
+      "prompt": "Listar os registros de experiência de um escopo. Parâmetros: scope — «project» (experiência do projeto, padrão), «template» (experiência de um nó de modelo), «general» (regras gerais de trabalho da organização); template — código ou título do nó de modelo (para scope=template; omitido — o nó da tarefa atual); skill — código de habilidade (correspondência exata); tag — etiqueta (correspondência exata); includeInactive — mostrar também os registros INATIVOS (por padrão só os ativos); limit — quantas linhas (1..200, padrão 20); offset — quantas pular. Use para rever a experiência em lotes: achar duplicatas, fundir vários registros num só, pôr etiquetas e habilidades."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000040",
+      "code": "AI2P.Experience.Usage",
+      "tool": "experience_usage",
+      "title": "Estatística de uso da experiência",
+      "hint": "O agente pergunta quantas tarefas receberam um registro de experiência no texto do trabalho e quando foi a última vez (o rastro é guardado desde T-266-S0). O modelo «Análise da experiência» decide por esses números o que desligar. Uma regra de segurança deny/confirm sobre este código fecha a estatística. No cliente de linha de comando é «ai2p experience-usage».",
+      "prompt": "Estatística de uso dos registros de experiência: quantas TAREFAS receberam o registro no texto do trabalho e quando foi a última vez. Parâmetros: id — um registro; ou scope — um escopo inteiro: «project», «template», «general» (padrão — o projeto da tarefa atual); limit — quantas linhas (1..200, padrão 50); offset — quantas pular. Para um escopo as linhas vão dos menos usados aos mais usados. A contagem é por tarefa, não por execução: reiniciar a mesma tarefa não a aumenta."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000016",
@@ -263,6 +303,68 @@
       "title": "Início de uma tarefa do executor de software",
       "hint": "Ação-política (o agente não tem ferramenta): uma regra de segurança deny ou confirm sobre este código proíbe iniciar tarefas do executor «software», ou seja, o trabalho de um programa externo do plugin (treino de LoRA e outras execuções longas). A decisão é consultada antes de CADA início, inclusive quando a tarefa foi criada e iniciada por um agente de IA. Qual plugin pode ser executado é definido por outro tipo de regra — «plugins e MCP».",
       "prompt": ""
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000034",
+      "code": "AI2P.Update.Check",
+      "title": "Verificar atualizações do aplicativo",
+      "hint": "Consultar o repositório de versões e descobrir se saiu uma versão mais nova que a instalada. O arquivo é escolhido PARA ESTA instalação: o mesmo sistema, a mesma arquitetura e o mesmo modo de instalação (versão completa com o runtime dentro ou comum). Não instala nada e não mexe no servidor — a resposta vai para o registro. É colocado na agenda (tipo de disparo «ação do sistema») pela caixa «verificação automática» nas configurações; a execução em console verifica ao iniciar e não precisa de entrada na agenda.",
+      "prompt": "Verificar se saiu uma nova versão do AI2P: a resposta é «sem atualizações» ou «saiu a versão 1.NN». Não instala nada."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000035",
+      "code": "AI2P.Update.Run",
+      "title": "Atualizar o aplicativo",
+      "hint": "Verificar as versões e, se saiu uma mais nova, baixar o pacote de instalação para este sistema e instalá-lo. A atualização REINICIA o servidor: os agentes de todas as organizações que trabalham nele serão parados. É colocado na agenda pela caixa «atualização automática» nas configurações (2:00 da hora local por padrão) e é chamado pelo botão «Atualizar» nas configurações.",
+      "prompt": "Atualizar o AI2P para a última versão: baixar o pacote de instalação para este sistema, instalar e reiniciar o servidor. Todos os agentes em execução serão parados."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000041",
+      "code": "AI2P.Tasks.SendMessage",
+      "tool": "send_task_message",
+      "title": "Mensagem ao agente de uma tarefa aparentada",
+      "hint": "O agente escreve no CHAT de uma tarefa aparentada: uma subtarefa irmã do mesmo pai, a tarefa pai ou a sua própria subtarefa (T-185). Se um agente estiver trabalhando nessa tarefa agora, a mensagem chega a ele durante o trabalho (interrupção por chat); caso contrário, fica esperando no chat e será vista pela pessoa e pelo agente quando a tarefa for iniciada. «wait» pausa o trabalho até a resposta. Uma regra de segurança deny/confirm sobre este código fecha por completo a conversa entre agentes; antes deste registro a ferramenta não era fechada por nada: uma ação sem registro do catálogo não tem código, e a verificação de regras a deixa passar. O agente de CLI faz o mesmo com o marcador AI2P_TO_TASK.",
+      "prompt": "Escreva ao agente de uma tarefa APARENTADA: uma subtarefa irmã do mesmo pai, a tarefa pai ou a sua própria subtarefa. A mensagem entra no chat daquela tarefa em seu nome e chega ao agente dela durante o trabalho. Parâmetros: code — código da tarefa interlocutora (T-15); text — o texto; wait — true se o trabalho deve ser pausado até a resposta (ela chega como a próxima mensagem desta mesma sessão e você continua do mesmo ponto). Escreva quando seu resultado depender da parte de outro (formato de dados, nome de função, o que já foi feito) ou quando perceber que fazem a mesma coisa. Repita no seu resultado todo acordo que afete o trabalho: a conversa não substitui a tarefa."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000042",
+      "code": "AI2P.Tasks.WaitReply",
+      "tool": "wait_task_reply",
+      "title": "Aguardar a resposta do interlocutor",
+      "hint": "O agente aguarda uma resposta no chat da PRÓPRIA tarefa sem encerrar o turno: conta qualquer mensagem que não seja dele — do agente de uma tarefa aparentada ou da pessoa (T-185). Aguarda no máximo os minutos indicados (10 por padrão; o limite está no código); se ninguém responder, isso é dito e o trabalho segue com o que há. É necessário para agentes com as ferramentas do AI2P; o agente de CLI tem, em seu lugar, a pausa do trabalho (marcador AI2P_TO_TASK com wait=true). Uma regra de segurança deny/confirm sobre este código fecha a espera.",
+      "prompt": "Aguarde uma resposta no chat da tarefa ATUAL sem encerrar o turno. Conta como resposta qualquer mensagem que não seja sua: a réplica do agente de uma tarefa aparentada a quem você escreveu, ou uma mensagem da pessoa. Parâmetro minutes — quantos minutos aguardar (10 por padrão). Se ninguém responder, continue com o que tem e diga isso no seu resultado."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000043",
+      "code": "AI2P.Tasks.ConditionResult",
+      "tool": "set_condition_result",
+      "title": "Decisão da tarefa-condição",
+      "hint": "O agente de uma tarefa do tipo «Condição» devolve a decisão estritamente como true («Sim») ou false («Não») — T-300-S0. A decisão fica gravada na tarefa e a fila da hierarquia escolhe o ramo por ela quando o trabalho termina; o ramo não escolhido é cancelado pelo sistema. Qualquer valor diferente do booleano true/false (ou das cadeias \"true\"/\"false\" do cliente de linha de comando) é um erro da ação: não existe terceiro resultado. Publicada apenas para uma tarefa do tipo «Condição». Para um agente CLI: o comando «ai2p condition true|false» e o marcador AI2P_CONDITION.",
+      "prompt": "Devolver a DECISÃO de uma tarefa do tipo «Condição»: parâmetro value — estritamente true («Sim», a condição é satisfeita) ou false («Não»). Decida pela descrição da tarefa, pelo chat e pelos resultados do trabalho; se não for possível decidir sem ambiguidade, pergunte à pessoa em vez de adivinhar. Chame ANTES de terminar: sem decisão o sistema para a execução da hierarquia. Uma nova chamada substitui a decisão. O ramo é escolhido pelo sistema, que cancela o outro — não faça isso você."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000044",
+      "code": "AI2P.Tasks.LoopResult",
+      "tool": "set_loop_result",
+      "title": "Resultado da verificação do ciclo",
+      "hint": "O agente de uma tarefa do tipo «Ciclo (verificar antes)» ou «Ciclo (verificar depois)» responde se é preciso mais uma volta de subtarefas: true — as condições do ciclo são satisfeitas, mais uma volta; false — sair do ciclo (T-300-S0). A fila da hierarquia conta as voltas, reinicia as subtarefas e respeita o limite de voltas. Qualquer valor diferente de true/false é um erro da ação. Publicada apenas para uma tarefa-ciclo. Para um agente CLI: o comando «ai2p loop true|false» e o marcador AI2P_LOOP.",
+      "prompt": "Devolver o RESULTADO DA VERIFICAÇÃO DAS CONDIÇÕES DO CICLO (tarefa «Ciclo (verificar antes)» / «Ciclo (verificar depois)»): parâmetro continue — estritamente true (as condições são satisfeitas, é preciso mais uma volta de subtarefas) ou false (sair do ciclo). Verifique pela descrição da tarefa, pelo chat e pelos resultados das subtarefas. Chame ANTES de terminar: sem resposta o sistema para a execução da hierarquia. Voltas, reinício de subtarefas e limite ficam com o sistema."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000045",
+      "code": "AI2P.Tasks.StopHierarchy",
+      "tool": "stop_hierarchy",
+      "title": "Parar a execução da hierarquia",
+      "hint": "O agente fecha a fila de execução da hierarquia a que pertence a sua tarefa (T-300-S0): a fila não inicia mais tarefas, os trabalhos em curso terminam. O mesmo que o motor faz com a opção «parar a execução da hierarquia», mas por decisão do agente — por exemplo, quando a descrição da tarefa manda parar tudo perante certo resultado. Uma pessoa pode reabrir a fila com o botão de executar a hierarquia. Publicada apenas para uma tarefa dentro de uma fila aberta. Para um agente CLI: o comando «ai2p stop-hierarchy» e o marcador AI2P_STOP_HIERARCHY.",
+      "prompt": "PARAR A EXECUÇÃO DA HIERARQUIA a que pertence a tarefa atual: a fila não iniciará mais tarefas, os trabalhos em curso terminarão. Parâmetro reason — porquê (vai para a resposta e para o registo). Chame apenas quando a descrição da tarefa ou uma pessoa disserem explicitamente para parar toda a hierarquia: os ramos das condições e os limites dos ciclos o sistema respeita sozinho."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000046",
+      "code": "AI2P.Tasks.FromTemplate",
+      "tool": "create_tasks_from_template",
+      "title": "Tarefas do ramo a partir de um nó de modelo",
+      "hint": "O agente instancia um nó de modelo do projeto como subtarefa da sua tarefa (ou de uma tarefa da sua subárvore) — o mesmo que o botão «a partir de modelo» no cartão (T-300-S0). Necessário a um ramo da condição sem tarefa com a opção «criar tarefas»: o trabalho típico do ramo fica melhor como modelo. Os executores são escolhidos «primeiro IA». Assim o agente não faz crescer uma árvore alheia. Para um agente CLI: o comando «ai2p from-template <código do nó>» e o marcador AI2P_FROM_TEMPLATE.",
+      "prompt": "Criar tarefas a partir de um NÓ DE MODELO do projeto: parâmetro template — código do nó (T-5) ou o seu título; parent — código da tarefa-pai da sua subárvore (por omissão, a tarefa atual). O nó é instanciado com todos os descendentes e os executores são escolhidos automaticamente. Use quando um ramo da condição mandar «criar tarefas» e existir um modelo adequado; caso contrário, create_task."
     }
   ]
 }

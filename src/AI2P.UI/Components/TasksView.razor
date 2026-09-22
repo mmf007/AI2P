@@ -98,6 +98,8 @@
         @* «тэги» (T-222): категория — тэг, внутри обычный список как в таблице;
            при загрузке все категории свёрнуты *@
         <MudSelectItem T="string" Value="@TagsKey">@L["tasks.view.tags"]</MudSelectItem>
+        @* «диаграммы в работе» (T-328-S0): и в общем списке (полосы проектов), и во вкладке проекта *@
+        <MudSelectItem T="string" Value="@DiagramsKey">@L["tasks.view.diagrams"]</MudSelectItem>
         @* «в работе у ИИ» (T-187) — только в общем списке задач: он сводит работу агентов
            по ВСЕМ проектам и серверам, и во вкладке одного проекта смысла не имеет *@
         @if (FixedProjectId is null)
@@ -276,6 +278,10 @@ else
             @* «в работе у ИИ» (T-187): своя выборка с сервера и своё автообновление *@
             <AiWorkView />
             break;
+        case DiagramsKey:
+            @* «диаграммы в работе» (T-328-S0): своя выборка, фильтр списка к ней не относится *@
+            <RunningDiagramsView FixedProjectId="@FixedProjectId" />
+            break;
         case "table":
             <TaskTableView Tasks="_tasks" StateKey="@("taskTable:" + StateKey)" />
             break;
@@ -307,13 +313,16 @@ else
     /// <summary>Код представления «тэги» (T-222): категории по тэгам, внутри — список задач.</summary>
     private const string TagsKey = "tags";
 
+    /// <summary>Код представления «диаграммы в работе» (T-328-S0).</summary>
+    private const string DiagramsKey = "diagrams";
+
     /// <summary>Встраивание во вкладку «задачи» проекта (ТЗ v1.17): фильтр по проекту фиксирован,
     /// новая задача получает этот проект и его команду по умолчанию.</summary>
     [Parameter] public string? FixedProjectId { get; set; }
 
     /// <summary>Показано «в работе у ИИ» (T-187): у него нет ни фильтра, ни выбора сортировки —
     /// список сам знает, что показывать, и обновляется сам.</summary>
-    private bool IsAiWork => _view == AiWorkKey;
+    private bool IsAiWork => _view == AiWorkKey || _view == DiagramsKey;
 
     private List<TaskItem> _tasks = [];
     /// <summary>Список прочитан хотя бы раз — представление можно рисовать. СБРАСЫВАТЬ этот

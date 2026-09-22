@@ -96,6 +96,7 @@ CLI 代理自己维持它的循环，工作期间是**沉默的** — AI2P 只�
   （见 Claude-Fable-5_cli）；
 * 在层级中移动任务（更换父任务、移到根）代理可以用 `AI2P_MOVE_TASK` 标记 — 代替
   `move_task` 工具；
+* 在“条件”/循环类型任务中，代理用 `AI2P_CONDITION`（`{"value": true}`）或 `AI2P_LOOP`（`{"continue": false}`）标记返回判定 — 代替 `set_condition_result` / `set_loop_result` 工具；从模板创建分支任务用 `AI2P_FROM_TEMPLATE`，停止层级用 `AI2P_STOP_HIERARCHY`（也可用 `ai2p` 命令）；
 * 其他作业的文本（描述、结果和整个聊天）代理用 `AI2P_GET_TASK` 标记请求 — 代替它同样
   没有的 `get_task_by_code` / `get_task_by_url` / `get_task_chat` 工具。
 

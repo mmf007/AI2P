@@ -14,6 +14,26 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="3">
+            @* ПРАВИЛО РАЗГРАНИЧЕНИЯ ОБЛАСТЕЙ (T-269-S0) — одной фразой и в самой форме:
+               то же, что стоит в подсказке инструмента агента и в его промпте. Три области
+               смешивались именно потому, что нигде не было сказано, чем они отличаются *@
+            <MudAlert Severity="Severity.Info" Dense="true" data-exp-scope-rule="1">
+                @L["exp.scope.rule"]
+            </MudAlert>
+            @* ПРЕДУПРЕЖДЕНИЕ (T-269-S0): проектный текст в ОБЩИЕ правила не проходит, но
+               человеку — с возможностью подтвердить (агенту отказ окончательный). Проверка
+               та же самая (ExperienceScopeCheck) и считается на клиенте: она дешёвая
+               и без модели *@
+            @if (_warning.Length > 0)
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" data-exp-general-warn="1">
+                    @L["exp.general.warn", _warning]
+                    <MudButton Size="Size.Small" Color="Color.Warning" Class="ml-2"
+                               data-exp-general-force="1" OnClick="SaveAnyway">
+                        @L["exp.general.warn.save"]
+                    </MudButton>
+                </MudAlert>
+            }
             <MudSelect T="string" @bind-Value="_skillId" Label="@L["exp.skill"]" Clearable="true"
                        ToStringFunc="@SkillById" HelperText="@L["exp.skill.hint"]">
                 @foreach (var skill in State.Skills)
@@ -52,6 +72,11 @@
             <MudCheckBox T="bool" @bind-Value="_alwaysLoad" Dense="true"
                          Label="@L["exp.alwaysLoad"]" data-exp-always="1" />
             <MudText Typo="Typo.caption" Style="opacity:.7">@L["exp.alwaysLoad.hint"]</MudText>
+            @* АКТИВНОСТЬ (T-265-S0): у новой записи включена. Неактивная запись не идёт
+               в задание НИ ПРИ КАКОМ раскладе — даже с пометкой «загружать всегда» *@
+            <MudSwitch T="bool" @bind-Value="_isActive" Color="Color.Primary"
+                       Label="@L["exp.active"]" data-exp-active="1" />
+            <MudText Typo="Typo.caption" Style="opacity:.7">@L["exp.active.hint"]</MudText>
             <MudTextField T="string" @bind-Value="_text" Lines="6" AutoFocus="true"
                           Label="@L["exp.text"]" Placeholder="@L["exp.placeholder"]"
                           Immediate="true" />
@@ -81,9 +106,18 @@
     /// <summary>Тэги записи (T-24-S0).</summary>
     [Parameter] public IReadOnlyCollection<string> Tags { get; set; } = [];
 
+    /// <summary>Активность записи (T-265-S0); у новой записи — включена.</summary>
+    [Parameter] public bool IsActive { get; set; } = true;
+
+    /// <summary>Область записи (T-269-S0): general / project / template. От неё зависит
+    /// только одно — предупреждение «похоже на проектную запись» показывается ОБЩИМ
+    /// правилам: в опыте проекта код задачи и путь файла как раз уместны.</summary>
+    [Parameter] public string Scope { get; set; } = "";
+
     private string _text = "";
     private string? _skillId;
     private bool _alwaysLoad;
+    private bool _isActive = true;
     private IReadOnlyCollection<string> _tags = [];
 
     /// <summary>Тэги, предлагаемые в списке: все заведённые в организации (у опыта и у задач
@@ -99,6 +133,7 @@
         _text = Text;
         _skillId = SkillId.Length > 0 ? SkillId : null;
         _alwaysLoad = AlwaysLoad;
+        _isActive = IsActive;
         _tags = Tags.ToList();
         _allTags = _tags.ToList();
     }
@@ -158,14 +193,52 @@
         _newTag = "";
     }
 
-    /// <summary>Набранный, но не добавленный кнопкой тэг тоже сохраняется — иначе человек
-    /// теряет его молча (то же правило в форме задачи).</summary>
-    private void Save() => Dialog.Close(DialogResult.Ok(new ExperienceSaveDto
+    /// <summary>Образцы проектного в тексте общего правила (T-269-S0); пусто —
+    /// предупреждения нет.</summary>
+    private string _warning = "";
+
+    /// <summary>
+    /// Сохранение. У ОБЩЕГО правила (T-269-S0) сначала проверяется область: текст с кодом
+    /// задачи, путём файла или именем файла — это опыт ПРОЕКТА, а общее правило получает
+    /// каждая задача организации. Человеку показывается предупреждение с кнопкой «всё равно
+    /// сохранить»: запрещать ему нельзя — проверка дешёвая и ошибается в одну сторону.
+    /// <para>Имена проектов клиенту не нужны: их знает сервер и проверит ими ещё раз.
+    /// Набранный, но не добавленный кнопкой тэг тоже сохраняется — иначе человек теряет его
+    /// молча (то же правило в форме задачи).</para>
+    /// </summary>
+    private void Save()
+    {
+        if (Scope == "general")
+        {
+            var signs = ExperienceScopeCheck.Signs(_text);
+            if (signs.Count > 0)
+            {
+                if (_warning.Length == 0)
+                {
+                    _warning = ExperienceScopeCheck.Samples(signs);
+                    return;
+                }
+                // предупреждение уже показано: повторное «Сохранить» — такое же
+                // подтверждение, как кнопка «Всё равно сохранить»
+                Close(force: true);
+                return;
+            }
+        }
+        Close(force: false);
+    }
+
+    /// <summary>«Всё равно сохранить» — подтверждение человека: запись уходит с Force,
+    /// и сервер её принимает.</summary>
+    private void SaveAnyway() => Close(force: true);
+
+    private void Close(bool force) => Dialog.Close(DialogResult.Ok(new ExperienceSaveDto
     {
         Text = _text.Trim(),
         SkillId = _skillId,
         AlwaysLoad = _alwaysLoad,
+        IsActive = _isActive,
         Tags = TaskTags.Normalize(_tags.Concat([_newTag])),
+        Force = force,
     }));
 
     private string SkillLabel(Skill skill) => skill.IsCustom ? skill.Name : L["skill." + skill.Name];

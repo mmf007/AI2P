@@ -37,6 +37,7 @@ Three rules about the reference that save time:
 | **prop** | an item in the frame |
 | **style** | the manner of drawing, the limits of the look |
 | **reference frame** | a sample picture; usually a child of a character or of a location |
+| **reference audio** | a voice or sound sample: the connector passes its file to the model the same way as a reference frame |
 | **dataset** | a folder of captioned frames for training an adapter; the frames are its children |
 | **LoRA adapter** | a trained addition to the weights of a model ([The LoRA editor](LoRAEditor.md)) |
 | **file** | a file the tasks refer to |

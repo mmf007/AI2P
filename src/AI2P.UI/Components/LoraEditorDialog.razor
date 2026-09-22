@@ -74,23 +74,67 @@
                         <MudExpansionPanels Elevation="0" data-lora-limits-panel="1">
                             <MudExpansionPanel Text="@L["lora.limits"]">
                                 <MudStack Spacing="2">
-                                    <MudStack Row="true" Spacing="2">
-                                        <MudNumericField T="int" @bind-Value="_limits.MaxWidth" Min="16" Max="8192"
-                                                         Label="@L["settings.lora.maxWidth"]"
-                                                         data-lora-limit-width="1" />
-                                        <MudNumericField T="int" @bind-Value="_limits.MaxHeight" Min="16" Max="8192"
-                                                         Label="@L["settings.lora.maxHeight"]"
-                                                         data-lora-limit-height="1" />
-                                        <MudNumericField T="int" @bind-Value="_limits.MaxKb" Min="16" Max="102400"
-                                                         Label="@L["settings.lora.maxKb"]"
-                                                         data-lora-limit-kb="1" />
-                                        <MudSelect T="string" @bind-Value="_limits.Format"
-                                                   Label="@L["settings.lora.format"]"
-                                                   data-lora-limit-format="1">
-                                            <MudSelectItem T="string" Value="@("png")">PNG</MudSelectItem>
-                                            <MudSelectItem T="string" Value="@("jpeg")">JPEG</MudSelectItem>
-                                        </MudSelect>
-                                    </MudStack>
+                                    @* ВИД ДАТАСЕТА (T-250-S0) стоит первым: от него зависит,
+                                       чем пределы вообще являются — у картинок ширина с
+                                       высотой, у записей длительность и частота *@
+                                    <MudSelect T="string" Value="@_limits.Media"
+                                               ValueChanged="OnMediaChanged"
+                                               Label="@L["lora.limits.media"]"
+                                               data-lora-limit-media="1">
+                                        <MudSelectItem T="string" Value="@LoraDatasetMedia.Image">
+                                            @L["lora.limits.media.image"]
+                                        </MudSelectItem>
+                                        <MudSelectItem T="string" Value="@LoraDatasetMedia.Audio">
+                                            @L["lora.limits.media.audio"]
+                                        </MudSelectItem>
+                                    </MudSelect>
+                                    @if (_limits.IsAudio)
+                                    {
+                                        <MudStack Row="true" Spacing="2">
+                                            <MudNumericField T="int" @bind-Value="_limits.MinSeconds" Min="0" Max="3600"
+                                                             Label="@L["lora.limits.minSeconds"]"
+                                                             data-lora-limit-minsec="1" />
+                                            <MudNumericField T="int" @bind-Value="_limits.MaxSeconds" Min="1" Max="3600"
+                                                             Label="@L["lora.limits.maxSeconds"]"
+                                                             data-lora-limit-maxsec="1" />
+                                            <MudNumericField T="int" @bind-Value="_limits.SampleRate" Min="8000" Max="192000"
+                                                             Label="@L["lora.limits.sampleRate"]"
+                                                             data-lora-limit-rate="1" />
+                                            <MudNumericField T="int" @bind-Value="_limits.Channels" Min="1" Max="2"
+                                                             Label="@L["lora.limits.channels"]"
+                                                             data-lora-limit-channels="1" />
+                                            <MudSelect T="string" @bind-Value="_limits.Format"
+                                                       Label="@L["settings.lora.format"]"
+                                                       data-lora-limit-format="1">
+                                                @foreach (var format in LoraDatasetLimits.AudioFormats)
+                                                {
+                                                    <MudSelectItem T="string" Value="@format">
+                                                        @format.ToUpperInvariant()
+                                                    </MudSelectItem>
+                                                }
+                                            </MudSelect>
+                                        </MudStack>
+                                    }
+                                    else
+                                    {
+                                        <MudStack Row="true" Spacing="2">
+                                            <MudNumericField T="int" @bind-Value="_limits.MaxWidth" Min="16" Max="8192"
+                                                             Label="@L["settings.lora.maxWidth"]"
+                                                             data-lora-limit-width="1" />
+                                            <MudNumericField T="int" @bind-Value="_limits.MaxHeight" Min="16" Max="8192"
+                                                             Label="@L["settings.lora.maxHeight"]"
+                                                             data-lora-limit-height="1" />
+                                            <MudNumericField T="int" @bind-Value="_limits.MaxKb" Min="16" Max="102400"
+                                                             Label="@L["settings.lora.maxKb"]"
+                                                             data-lora-limit-kb="1" />
+                                            <MudSelect T="string" @bind-Value="_limits.Format"
+                                                       Label="@L["settings.lora.format"]"
+                                                       data-lora-limit-format="1">
+                                                <MudSelectItem T="string" Value="@("png")">PNG</MudSelectItem>
+                                                <MudSelectItem T="string" Value="@("jpeg")">JPEG</MudSelectItem>
+                                            </MudSelect>
+                                        </MudStack>
+                                    }
                                     <MudStack Row="true" Spacing="2">
                                         <MudNumericField T="int" @bind-Value="_limits.MinItems" Min="0" Max="10000"
                                                          Label="@L["lora.limits.minItems"]"
@@ -133,7 +177,8 @@
 
                         <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
                             <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary"
-                                           data-lora-frame-add="1" title="@L["lora.frame.add"]"
+                                           data-lora-frame-add="1"
+                                           title="@(_limits.IsAudio ? L["lora.frame.addAudio"] : L["lora.frame.add"])"
                                            OnClick="AddFrameAsync" />
                             <MudText Typo="Typo.caption" Class="mud-text-secondary"
                                      data-lora-frame-count="@(_frames?.Count ?? 0)">
@@ -158,9 +203,19 @@
                                         @* ПРЕВЬЮ обязательно: кадры отличают глазами, по именам
                                            «001.png» и «002.png» не отличить ничего *@
                                         <td style="width: 96px;">
-                                            <img src="@FrameUrl(frame)" alt="@frame.Name" loading="lazy"
-                                                 data-lora-frame-img="1"
-                                                 style="width: 84px; height: 84px; object-fit: contain;" />
+                                            @if (frame.Type == ObjectKinds.Audio)
+                                            {
+                                                @* запись превью не имеет: показываем её
+                                                   проигрывателем браузера, а не картинкой *@
+                                                <audio controls preload="none" src="@FrameUrl(frame)"
+                                                       data-lora-frame-audio="1" style="width: 180px;"></audio>
+                                            }
+                                            else
+                                            {
+                                                <img src="@FrameUrl(frame)" alt="@frame.Name" loading="lazy"
+                                                     data-lora-frame-img="1"
+                                                     style="width: 84px; height: 84px; object-fit: contain;" />
+                                            }
                                         </td>
                                         <td>
                                             <MudText Typo="Typo.body2"><b>@frame.Name</b></MudText>
@@ -364,13 +419,30 @@
 
     private static LoraDatasetLimitsDto Copy(LoraDatasetLimitsDto from) => new()
     {
+        Media = from.Media,
         MaxWidth = from.MaxWidth,
         MaxHeight = from.MaxHeight,
         MaxKb = from.MaxKb,
         Format = from.Format,
         MinItems = from.MinItems,
         MaxItems = from.MaxItems,
+        MinSeconds = from.MinSeconds,
+        MaxSeconds = from.MaxSeconds,
+        SampleRate = from.SampleRate,
+        Channels = from.Channels,
     };
+
+    /// <summary>
+    /// СМЕНА ВИДА ДАТАСЕТА (T-250-S0). Формат приходится менять вместе с видом: «png» у
+    /// записи и «wav» у картинки одинаково бессмысленны, а поле формата в форме одно.
+    /// Остальные пределы остаются как были — человек может вернуться обратно.
+    /// </summary>
+    private void OnMediaChanged(string value)
+    {
+        _limits.Media = LoraDatasetMedia.Normalize(value);
+        _limits.Format = LoraDatasetLimits.NormalizeFormat(
+            _limits.IsAudio ? "wav" : "png", _limits.Media);
+    }
 
     /// <summary>Подпись выбранного датасета: у MudSelect в поле иначе стоит идентификатор.</summary>
     private string NameOfDataset(string id) =>
@@ -569,9 +641,11 @@
         {
             { d => d.Owner, Item },
             { d => d.Limits, FrameLimits },
+            { d => d.Media, _limits.Media },
             { d => d.DatasetId, _datasetId },
         };
-        var dialog = await Dialogs.ShowAsync<LoraFrameDialog>(L["lora.frame.add"], parameters,
+        var dialog = await Dialogs.ShowAsync<LoraFrameDialog>(
+            _limits.IsAudio ? L["lora.frame.addAudio"] : L["lora.frame.add"], parameters,
             FormDialogs.Options(MaxWidth.Medium));
         if (await dialog.Result is { Canceled: false })
         {
@@ -586,6 +660,7 @@
             { d => d.Owner, Item },
             { d => d.Frame, frame },
             { d => d.Limits, FrameLimits },
+            { d => d.Media, _limits.Media },
             { d => d.DatasetId, _datasetId },
         };
         var dialog = await Dialogs.ShowAsync<LoraFrameDialog>(L["lora.frame.edit"], parameters,

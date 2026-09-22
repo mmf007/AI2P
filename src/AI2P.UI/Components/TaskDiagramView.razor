@@ -81,7 +81,46 @@
    исполнителей, хотя у большинства на дорожке по одному ряду квадратов (жалоба заказчика).
    Теперь высота каждой полосы считается по ЕЁ СОБСТВЕННЫМ задачам — насколько низко на этой
    дорожке опускается самый нижний квадрат, — а верх дорожек идёт накопленной суммой высот
-   предыдущих (RowHeight/RowTop). *@
+   предыдущих (RowHeight/RowTop).
+
+   ДОРАБОТКА T-301-S0: РАЗВИЛКИ И ЦИКЛЫ (тип задачи T-298-S0, ход — ключи TaskFlowRun T-299-S0).
+   Рисуется только ФАКТ, известный системе: тип задачи, ссылки ветвей, исход перехода, счёт
+   кругов и отметка остановки — по тексту описания ничего не угадывается.
+   * «УСЛОВИЕ» — треугольники справа и под квадратом (T-305-S0; высота — четверть высоты
+     квадрата). Из правого идёт стрелка ветви «Да», из нижнего — «Нет»: жёлтая,
+     пока переход не выполнен, после перехода пройденная — зелёная, непройденная — серая.
+     Ветвь без задачи с флажком «завершить выполнение» ведёт к тёмно-красному знаку Stop;
+   * «ЦИКЛ ДО» — рамка квадрата повторена дважды снизу и справа, «ЦИКЛ ПОСЛЕ» — сверху и слева;
+     у обоих справа внизу овал «пройдено кругов / предел», а при остановке иерархии на
+     этой задаче — знак Stop и красная стрелка к нему;
+   * линейная задача рисуется как прежде.
+
+   ДОРАБОТКА T-305-S0, четыре вещи:
+   * «ДА» УСЛОВИЯ — СПРАВА: треугольник на правом краю квадрата (фигура if-right вместо
+     if-top), «Нет» остаётся снизу — выходы справа и снизу, входы слева и сверху;
+   * МЕСТО ПОД ФИГУРЫ: повторы рамки цикла и правый треугольник вычитаются из ширины квадрата
+     (у «цикла после» квадрат ещё и сдвинут вправо), а дорожка с условием выше на нижний
+     треугольник и подпись «Нет» — иначе на нижней дорожке они уходили за край поля;
+   * ПОВТОРЫ РАМКИ ЦИКЛА — только видимый край и без заливки: замкнутые залитые рамки
+     закрывали стрелки, а в режиме прозрачности сквозь квадрат проступали их боковые линии;
+   * ПОТОМКИ «УСЛОВИЯ» И «ЦИКЛА ДО» рисуются ПОСЛЕ самой задачи — так их запускает очередь
+     (TaskDiagram.RunsFirst), и синяя стрелка иерархии у них идёт от задачи к потомку.
+   Диаграмма перечитывает себя, когда карточка сообщает новую подпись поддерева (Version).
+
+   ДОРАБОТКА T-312-S0, четыре вещи:
+   * «ДА» УСЛОВИЯ СНОВА СВЕРХУ (фигура if-top): правый треугольник ломал раскладку, и верх
+     оставлен исключением из правила «выходы справа и снизу». Над квадратом условия заложено
+     место под треугольник и подпись (IfSpace), по ширине условие больше ничего не теряет;
+   * ОТМЕНЁННАЯ задача рисуется наименьшей ширины (сервер отдаёт ей нулевую длительность);
+   * ШАБЛОН рисует свои подзадачи — сервер берёт узлы-шаблоны, если корень шаблон;
+   * НИЗ КВАДРАТА: вторая надпись, совпавшая с первой, не выводится; добавлены время работы
+     живого задания и причина ожидания — те же, что в представлении «в работе у ИИ».
+   ВТОРОЙ ПРОГОН T-328-S0: знак Stop стоит не справа от квадрата (там он наезжал на следующую
+   задачу дорожки), а на оси своей фигуры — у цикла и ветви «Нет» под квадратом, у ветви «Да»
+   над ним; место под знак заложено в высоту дорожки (StopAbove/StopBelow).
+   Разметка для проверок: data-diagram-kind у квадрата, data-diagram-shape у фигур,
+   data-diagram-link="if-yes|if-no|loop-stop" и data-diagram-transition="pending|taken|skipped"
+   у стрелок, data-diagram-stop и data-diagram-loopcount у знака и овала. *@
 
 @if (_diagram is null)
 {
@@ -171,6 +210,14 @@ else
                                 orient="auto">
                             <path d="M0,0 L6,3 L0,6 z" fill="var(--mud-palette-error)" />
                         </marker>
+                        @* стрелки ветвей условия (T-301-S0): цвет — состояние перехода *@
+                        @foreach (var state in TransitionStates)
+                        {
+                            <marker id="@(_arrowFlow + state)" markerWidth="7" markerHeight="7" refX="6" refY="3"
+                                    orient="auto">
+                                <path d="M0,0 L6,3 L0,6 z" fill="@TransitionColor(state)" />
+                            </marker>
+                        }
                     </defs>
                     @foreach (var link in Links())
                     {
@@ -178,6 +225,24 @@ else
                               stroke="@(link.Blocker ? "var(--mud-palette-error)" : "var(--mud-palette-primary)")"
                               marker-end="@($"url(#{(link.Blocker ? _arrowRed : _arrowBlue)})")"
                               data-diagram-link="@(link.Blocker ? "blocker" : "parent")" />
+                    }
+                    @* ФИГУРЫ ТИПА ЗАДАЧИ (T-301-S0) — под квадратами, как и стрелки: треугольники
+                       условия лежат вне квадрата, а повторы рамки цикла виднеются из-под него
+                       только своим краем (снизу-справа либо сверху-слева) *@
+                    @foreach (var shape in Shapes())
+                    {
+                        @* без заливки (T-305-S0): залитая фигура закрывала стрелки под собой *@
+                        <path d="@shape.Path" fill="none" stroke="var(--mud-palette-primary)"
+                              stroke-width="1.5" stroke-linejoin="round"
+                              data-diagram-shape="@shape.Kind" data-diagram-shape-of="@shape.Of" />
+                    }
+                    @foreach (var arrow in FlowArrows())
+                    {
+                        <path d="@arrow.Path" fill="none" stroke-width="1.8"
+                              stroke="@(arrow.Link == "loop-stop" ? "var(--mud-palette-error)" : TransitionColor(arrow.State))"
+                              marker-end="@($"url(#{(arrow.Link == "loop-stop" ? _arrowRed : _arrowFlow + arrow.State)})")"
+                              data-diagram-link="@arrow.Link" data-diagram-transition="@arrow.State"
+                              data-diagram-link-of="@arrow.Of" />
                     }
                 </svg>
 
@@ -195,6 +260,7 @@ else
                          data-diagram-outside="@(node.Outside ? "1" : "0")"
                          data-diagram-tiny="@(tiny ? "1" : "0")"
                          data-diagram-level="@Level(node)"
+                         data-diagram-kind="@Kind(node)"
                          title="@Hint(node)"
                          @onclick="@(() => Open(node))">
                         @if (CanMove(node))
@@ -214,6 +280,10 @@ else
                                      data-diagram-menu="@node.DisplayId">
                                 <MudMenuItem Icon="@Icons.Material.Filled.OpenInNew"
                                              OnClick="@(() => Open(node))">@L["task.open"]</MudMenuItem>
+                                @* без обработчика действий («Диаграммы в работе», T-328-S0)
+                                   меню только открывает задачу: прочие пункты молчали бы *@
+                                @if (OnAction.HasDelegate)
+                                {
                                 @if (!node.Settled && !node.HasActiveJob)
                                 {
                                     <MudMenuItem Icon="@Icons.Material.Filled.PlayArrow"
@@ -237,6 +307,7 @@ else
                                 <MudMenuItem Icon="@Icons.Material.Filled.Delete"
                                              Disabled="@(!CanAct(node))"
                                              OnClick="@(() => ActAsync("delete", node))">@L["common.delete"]</MudMenuItem>
+                                }
                             </MudMenu>
                         </span>
                         @* внутри квадрата: код, заголовок и два поля состояния внизу. Код
@@ -268,16 +339,60 @@ else
                                 <span class="ai2p-status" style="@State.StatusStyle(node.Status)">
                                     @State.StatusName(node.Status)
                                 </span>
-                                @if (node.WorkStatus.Length > 0)
+                                @* вторая надпись, совпавшая с первой, не выводится (T-312-S0) *@
+                                @if (node.WorkStatus.Length > 0 && node.WorkStatus != node.Status)
                                 {
                                     <span class="ai2p-status" data-diagram-work="@node.WorkStatus"
                                           style="@State.StatusStyle(node.WorkStatus)">
                                         @State.StatusName(node.WorkStatus)
                                     </span>
                                 }
+                                @* время работы и причина ожидания — как в «в работе у ИИ» (T-312-S0) *@
+                                @if (node.WorkStartedAt is not null)
+                                {
+                                    <span class="ai2p-diagram-elapsed" data-diagram-elapsed="1">@Elapsed(node)</span>
+                                }
+                                @if (node.Pause is { } pause)
+                                {
+                                    <span class="ai2p-diagram-pause" data-diagram-pause="@pause.Kind"
+                                          title="@AiPauseText.Of(L, pause)">
+                                        <MudIcon Icon="@AiPauseText.Icon(pause)" Size="Size.Small"
+                                                 Style="font-size: 14px; vertical-align: middle;" />
+                                        @AiPauseText.Of(L, pause)
+                                    </span>
+                                }
                             </div>
                         }
                     </div>
+                }
+
+                @* ЗНАКИ ПОВЕРХ КВАДРАТОВ (T-301-S0): подписи ветвей условия, знак Stop и овал
+                   счёта кругов — мышь им не нужна, клик проходит к квадрату *@
+                @foreach (var label in FlowLabels())
+                {
+                    <span class="ai2p-diagram-flowlabel" data-diagram-branch="@label.Branch"
+                          data-diagram-transition="@label.State"
+                          style="@($"left: {label.X}px; top: {label.Y}px; color: {TransitionColor(label.State)};")">
+                        @label.Text
+                    </span>
+                }
+                @foreach (var stop in FlowStops())
+                {
+                    <span class="ai2p-diagram-stop" data-diagram-stop="@stop.Of" data-diagram-transition="@stop.State"
+                          title="@L["task.diagram.flow.stopHint"]"
+                          style="@($"left: {stop.X - StopRadius}px; top: {stop.Y - StopRadius}px; "
+                                   + $"width: {StopRadius * 2}px; height: {StopRadius * 2}px;")">
+                        @L["task.diagram.flow.stop"]
+                    </span>
+                }
+                @foreach (var node in _diagram.Nodes.Where(n => TaskFlow.IsLoop(Kind(n)) && n.LoopLimit > 0))
+                {
+                    var box = Box(node);
+                    <span class="ai2p-diagram-loopcount" data-diagram-loopcount="@($"{node.LoopPass}/{node.LoopLimit}")"
+                          title="@L["task.diagram.flow.passes", node.LoopPass, node.LoopLimit]"
+                          style="@($"left: {box.X + box.W + 4}px; top: {box.Y + NodeHeight - 9}px;")">
+                        @($"{node.LoopPass}/{node.LoopLimit}")
+                    </span>
                 }
             </div>
         </div>
@@ -291,12 +406,34 @@ else
     /// <summary>Задача, подзадачи которой рисуются.</summary>
     [Parameter] public string TaskId { get; set; } = "";
 
+    /// <summary>НЕСКОЛЬКО КОРНЕЙ НА ОДНОЙ ДИАГРАММЕ (T-328-S0, «Диаграммы в работе»): задано —
+    /// <see cref="TaskId"/> не читается, диаграммы корней склеиваются в одну (узлы подряд,
+    /// дорожки исполнителей без повторов), и раскладка разводит их задачи по общим дорожкам.
+    /// Смену набора сообщать через <see cref="Version"/>.</summary>
+    [Parameter] public IReadOnlyList<string>? TaskIds { get; set; }
+
     /// <summary>Действие над задачей квадрата: карточка делает его теми же руками, что и
     /// в таблице подзадач (правка, статус, удаление, ссылка, запуск, остановка).</summary>
     [Parameter] public EventCallback<(string Action, string TaskId)> OnAction { get; set; }
 
     /// <summary>Перечитать подзадачи у карточки после переноса по иерархии.</summary>
     [Parameter] public EventCallback OnReload { get; set; }
+
+    /// <summary>Подпись поддерева от карточки (T-305-S0): сменилась — карточка перечитала
+    /// подзадачи (например завела подзадачу из шаблона), и диаграмма перечитывает себя тоже.</summary>
+    [Parameter] public string Version { get; set; } = "";
+    private string? _loadedVersion;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedVersion is not null && _loadedVersion != Version)
+        {
+            _loadedVersion = Version;
+            await ReloadAsync();
+            return;
+        }
+        _loadedVersion = Version;
+    }
 
     // геометрия: высота дорожки, квадрата и шапки со шкалой времени
     private const int BaseRowHeight = 84;
@@ -375,6 +512,8 @@ else
     private readonly string _containerId = "ai2p-diagram-" + Guid.NewGuid().ToString("N")[..8];
     private readonly string _arrowBlue = "ai2p-arr-b-" + Guid.NewGuid().ToString("N")[..6];
     private readonly string _arrowRed = "ai2p-arr-r-" + Guid.NewGuid().ToString("N")[..6];
+    /// <summary>Приставка маркеров стрелок ветвей условия (T-301-S0), к ней — состояние.</summary>
+    private readonly string _arrowFlow = "ai2p-arr-f-" + Guid.NewGuid().ToString("N")[..6] + "-";
     private DotNetObjectReference<TaskDiagramView>? _selfRef;
 
     protected override async Task OnInitializedAsync()
@@ -413,7 +552,7 @@ else
     {
         try
         {
-            _diagram = await Api.GetTaskDiagramAsync(TaskId);
+            _diagram = TaskIds is null ? await Api.GetTaskDiagramAsync(TaskId) : await MergedAsync(TaskIds);
             _levels = Levels(_diagram);
             var total = Total;
             // масштаб подбирается под ширину поля: длительности бывают и минутные, и
@@ -439,6 +578,27 @@ else
             Snackbar.Add(ex.Message, Severity.Error);
             _diagram ??= new TaskDiagramDto();
         }
+    }
+
+    /// <summary>Склейка диаграмм нескольких корней (T-328-S0): узел, попавший в два поддерева
+    /// (блокирующая вне иерархии), берётся один раз, дорожка исполнителя — тоже.</summary>
+    private async Task<TaskDiagramDto> MergedAsync(IReadOnlyList<string> rootIds)
+    {
+        var merged = new TaskDiagramDto();
+        var nodeIds = new HashSet<string>(StringComparer.Ordinal);
+        var laneIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rootId in rootIds)
+        {
+            var part = await Api.GetTaskDiagramAsync(rootId);
+            if (nodeIds.Count == 0)
+            {
+                merged.DefaultHours = part.DefaultHours;
+            }
+            merged.Running |= part.Running;
+            merged.Nodes.AddRange(part.Nodes.Where(n => nodeIds.Add(n.Id)));
+            merged.Lanes.AddRange(part.Lanes.Where(l => laneIds.Add(l.ExecutorId)));
+        }
+        return merged;
     }
 
     private double Total => _diagram is null || _diagram.Nodes.Count == 0
@@ -542,8 +702,12 @@ else
             var lane = LaneIndex(node);
             if (lane < heights.Length)
             {
+                // у условия под квадратом треугольник «Нет» с подписью (T-305-S0), а над ним
+                // треугольник «Да» с подписью (T-312-S0): без места под них они уходили за
+                // край дорожки
                 heights[lane] = Math.Max(heights[lane],
-                    BaseRowHeight + Level(node) * LevelStep + Stack(node) * StackStep);
+                    BaseRowHeight + Level(node) * LevelStep + Stack(node) * StackStep
+                    + 2 * IfSpace(node) + StopAbove(node) + StopBelow(node));
             }
         }
         var tops = new int[heights.Length + 1];
@@ -600,11 +764,34 @@ else
     private string Hint(TaskDiagramNodeDto node)
     {
         var state = State.StatusName(node.Status);
-        if (node.WorkStatus.Length > 0)
+        if (node.WorkStatus.Length > 0 && node.WorkStatus != node.Status)
         {
             state += " · " + State.StatusName(node.WorkStatus);
         }
+        if (node.WorkStartedAt is not null)
+        {
+            state += " · " + Elapsed(node);
+        }
+        if (node.Pause is { } pause)
+        {
+            state += "\n" + AiPauseText.Of(L, pause);
+        }
         return $"{node.DisplayId} {node.Title} · {Hours(node.DurationHours)}\n{state}";
+    }
+
+    /// <summary>Время работы от начала живого задания: «1:05:33» (как в «в работе у ИИ»).</summary>
+    private static string Elapsed(TaskDiagramNodeDto node)
+    {
+        if (node.WorkStartedAt is not { } started)
+        {
+            return "";
+        }
+        var elapsed = DateTime.UtcNow - started;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+        return $"{(int)elapsed.TotalHours}:{elapsed.Minutes:00}:{elapsed.Seconds:00}";
     }
 
     private int LaneIndex(TaskDiagramNodeDto node)
@@ -618,9 +805,27 @@ else
     /// ЗАЗОРА (T-159-S0: зазор между соседями делается вычитанием из ширины) и не меньше
     /// наименьшей ширины прямоугольника. Считается отдельно от <see cref="Box"/>, потому что
     /// по нему ищется наложение квадратов ДО того, как известна их высота (T-221-S0).</summary>
-    private (int X, int W) Span(TaskDiagramNodeDto node) => (
-        (int)Math.Round(node.StartHours * _pxPerHour) + 4,
-        (int)Math.Max(Math.Round(node.DurationHours * _pxPerHour) - NodeGap, MinNodeWidth));
+    private (int X, int W) Span(TaskDiagramNodeDto node)
+    {
+        var x = (int)Math.Round(node.StartHours * _pxPerHour) + 4;
+        var w = (int)Math.Round(node.DurationHours * _pxPerHour) - NodeGap;
+        // ФИГУРЫ ТИПА ЗАДАЧИ ВНУТРИ СВОЕГО МЕСТА (T-305-S0): повторы рамки цикла и боковой
+        // треугольник «Да» условия не должны залезать на соседа по дорожке — место под них
+        // вычитается из ширины квадрата, а у «цикла после» (повторы слева) квадрат ещё и
+        // сдвигается вправо
+        // «Да» условия с T-312-S0 снова СВЕРХУ — места по ширине условию не нужно
+        switch (Kind(node))
+        {
+            case TaskFlow.Loop:
+                w -= 2 * FrameStep;
+                break;
+            case TaskFlow.DoLoop:
+                x += 2 * FrameStep;
+                w -= 2 * FrameStep;
+                break;
+        }
+        return (x, Math.Max(w, MinNodeWidth));
+    }
 
     /// <summary>Место квадрата: X — время начала, Y — дорожка ПЛЮС ступенька уровня
     /// иерархии (T-140-S0) ПЛЮС место в вертикальной колонке наложившихся (T-221-S0),
@@ -630,9 +835,14 @@ else
         var span = Span(node);
         return (span.X,
             HeadHeight + RowTop(LaneIndex(node)) + LanePad
-                + Level(node) * LevelStep + Stack(node) * StackStep,
+                + Level(node) * LevelStep + Stack(node) * StackStep + IfSpace(node) + StopAbove(node),
             span.W);
     }
+
+    /// <summary>Место НАД квадратом условия под верхний треугольник «Да» и его подпись
+    /// (T-312-S0): столько же, сколько под ним занимают треугольник «Нет» и подпись.</summary>
+    private static int IfSpace(TaskDiagramNodeDto node) =>
+        Kind(node) == TaskFlow.If ? TriangleHeight + LabelHeight : 0;
 
     /// <summary>Часовые отметки шкалы: шаг подбирается так, чтобы их было не больше двух
     /// десятков — иначе подписи сливаются в полосу.</summary>
@@ -663,7 +873,16 @@ else
         {
             if (node.ParentId is { } parentId && byId.TryGetValue(parentId, out var parent))
             {
-                yield return (Curve(node, parent), false);
+                if (!TaskDiagram.RunsFirst(parent))
+                {
+                    yield return (Curve(node, parent), false);
+                }
+                else if (node.Id != parent.Flow.IfTrueTaskId && node.Id != parent.Flow.IfFalseTaskId)
+                {
+                    // условие и «цикл до» идут РАНЬШЕ потомков (T-305-S0): стрелка по ходу
+                    // выполнения — от них к потомку; к задачам ветвей ведут стрелки «Да»/«Нет»
+                    yield return (Curve(parent, node), false);
+                }
             }
             foreach (var blockerId in node.BlockerIds)
             {
@@ -705,6 +924,250 @@ else
         var drop = Math.Max(24, Math.Abs(ty - sy) / 2);
         return string.Create(System.Globalization.CultureInfo.InvariantCulture,
             $"M{sx},{sy} C{sx},{sy + drop} {tx},{ty - drop} {tx},{ty}");
+    }
+
+    // --- развилки и циклы (T-301-S0) ---
+
+    /// <summary>Высота треугольника «Условия» — четверть высоты квадрата (по заданию).</summary>
+    private const int TriangleHeight = NodeHeight / 4;
+
+    /// <summary>Место под подпись «Нет» под нижним треугольником условия (T-305-S0).</summary>
+    private const int LabelHeight = 14;
+
+    /// <summary>Шаг повтора рамки цикла: рамка повторена дважды, через 4 и 8 px.</summary>
+    private const int FrameStep = 4;
+
+    /// <summary>Радиус круглого знака Stop.</summary>
+    private const int StopRadius = 10;
+
+    /// <summary>Состояния перехода по ветви: ещё не выполнен, пройдена, не пройдена.</summary>
+    private static readonly string[] TransitionStates = ["pending", "taken", "skipped"];
+
+    /// <summary>Цвет стрелки по состоянию перехода: жёлтая до перехода, зелёная по
+    /// пройденной ветви, серая по непройденной.</summary>
+    private static string TransitionColor(string state) => state switch
+    {
+        "taken" => "#2e7d32",
+        "skipped" => "#9e9e9e",
+        _ => "#f9a825",
+    };
+
+    private static string Kind(TaskDiagramNodeDto node) => TaskFlow.Normalize(node.Flow.Type);
+
+    /// <summary>Состояние перехода по ветви «Да» (yes) либо «Нет» условия. Переход считается
+    /// выполненным только по отметке движка (flowApplied), а не по одному решению агента:
+    /// решение без применения — ещё не переход.</summary>
+    private static string BranchState(TaskDiagramNodeDto node, bool yes) =>
+        !node.FlowApplied || node.FlowDecision is not { } decision ? "pending"
+        : decision == yes ? "taken" : "skipped";
+
+    private static string Num(FormattableString s) =>
+        s.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Треугольники условия и повторы рамки цикла.</summary>
+    private IEnumerable<(string Path, string Kind, string Of)> Shapes()
+    {
+        foreach (var node in _diagram?.Nodes ?? [])
+        {
+            var kind = Kind(node);
+            var b = Box(node);
+            if (kind == TaskFlow.If)
+            {
+                // «Да» — треугольник НАД квадратом, «Нет» — под ним. Правый «Да» (T-305-S0)
+                // ломал раскладку, и верхний возвращён как исключение из правила «выходы
+                // справа и снизу» (T-312-S0)
+                var mid = b.X + b.W / 2.0;
+                yield return (Num($"M{b.X},{b.Y} L{b.X + b.W},{b.Y} L{mid},{b.Y - TriangleHeight} Z"),
+                    "if-top", node.DisplayId);
+                var bottom = b.Y + NodeHeight;
+                yield return (Num($"M{b.X},{bottom} L{b.X + b.W},{bottom} L{mid},{bottom + TriangleHeight} Z"),
+                    "if-bottom", node.DisplayId);
+            }
+            else if (TaskFlow.IsLoop(kind))
+            {
+                // «цикл до» — повторы снизу и справа, «цикл после» — сверху и слева. Рисуется
+                // ТОЛЬКО ВИДИМЫЙ КРАЙ повтора, без заливки (T-305-S0): замкнутая залитая рамка
+                // закрывала стрелки, а в режиме прозрачности сквозь квадрат проступали её
+                // боковые линии. Край начинается от края предыдущего повтора, линии не пересекаются
+                for (var step = 1; step <= 2; step++)
+                {
+                    yield return (FrameEdge(b, kind == TaskFlow.Loop, step),
+                        kind == TaskFlow.Loop ? "loop-frame" : "do-loop-frame", node.DisplayId);
+                }
+            }
+        }
+    }
+
+    /// <summary>Видимый край повтора рамки цикла номер <paramref name="step"/>: у «цикла до»
+    /// правый и нижний, у «цикла после» левый и верхний.</summary>
+    private static string FrameEdge((int X, int Y, int W) b, bool loop, int step)
+    {
+        var (x, y, w, h) = (b.X, b.Y, b.W, NodeHeight);
+        var d = step * FrameStep;
+        var p = (step - 1) * FrameStep;
+        return loop
+            ? Num($"M{x + w + p},{y + d} L{x + w + d},{y + d} L{x + w + d},{y + h + d} L{x + d},{y + h + d} L{x + d},{y + h + p}")
+            : Num($"M{x - p},{y + h - d} L{x - d},{y + h - d} L{x - d},{y - d} L{x + w - d},{y - d} L{x + w - d},{y - p}");
+    }
+
+    /// <summary>Вершина треугольника ветви: «Да» — верхнего, «Нет» — нижнего.</summary>
+    private (int X, int Y) Apex(TaskDiagramNodeDto node, bool yes)
+    {
+        var b = Box(node);
+        return yes
+            ? (b.X + b.W / 2, b.Y - TriangleHeight)
+            : (b.X + b.W / 2, b.Y + NodeHeight + TriangleHeight);
+    }
+
+    /// <summary>Место по высоте под знак Stop со стрелкой к нему (второй прогон T-328-S0).</summary>
+    private const int StopSpace = 2 * StopRadius + 8;
+
+    /// <summary>Знак Stop ветви условия — на оси своего треугольника, ЗА подписью ветви: «Нет»
+    /// под квадратом, «Да» над ним. Справа (как было) он наезжал на следующую задачу дорожки
+    /// (второй прогон T-328-S0).</summary>
+    private (int X, int Y) BranchStop(TaskDiagramNodeDto node, bool yes)
+    {
+        var (ax, ay) = Apex(node, yes);
+        return yes
+            ? (ax, ay - LabelHeight - 4 - StopRadius)
+            : (ax, ay + LabelHeight + 4 + StopRadius);
+    }
+
+    /// <summary>Знак Stop цикла — ПОД квадратом (второй прогон T-328-S0), под повторами рамки
+    /// «цикла до»; справа он наезжал на следующую задачу дорожки.</summary>
+    private (int X, int Y) LoopStop(TaskDiagramNodeDto node)
+    {
+        var b = Box(node);
+        return (b.X + b.W / 2, b.Y + NodeHeight + LoopFrames(node) + 8 + StopRadius);
+    }
+
+    /// <summary>Сколько повторы рамки «цикла до» занимают под квадратом.</summary>
+    private static int LoopFrames(TaskDiagramNodeDto node) => Kind(node) == TaskFlow.Loop ? 2 * FrameStep : 0;
+
+    /// <summary>Место НАД квадратом под знак Stop ветви «Да».</summary>
+    private static int StopAbove(TaskDiagramNodeDto node) =>
+        Kind(node) == TaskFlow.If && BranchStops(node, true) ? StopSpace : 0;
+
+    /// <summary>Место ПОД квадратом под знак Stop ветви «Нет» либо цикла.</summary>
+    private static int StopBelow(TaskDiagramNodeDto node)
+    {
+        var kind = Kind(node);
+        if (kind == TaskFlow.If)
+        {
+            return BranchStops(node, false) ? StopSpace : 0;
+        }
+        return TaskFlow.IsLoop(kind) && node.FlowStopped ? StopSpace + LoopFrames(node) : 0;
+    }
+
+    /// <summary>Ветвь условия ведёт к знаку Stop: задачи нет, стоит «завершить выполнение».</summary>
+    private static bool BranchStops(TaskDiagramNodeDto node, bool yes) =>
+        (yes ? node.Flow.IfTrueTaskId : node.Flow.IfFalseTaskId) is not { Length: > 0 }
+        && (yes ? node.Flow.IfTrueStopHierarchy : node.Flow.IfFalseStopHierarchy);
+
+    /// <summary>Стрелки ветвей условия (на задачу ветви либо на знак Stop) и красные стрелки
+    /// цикла к знаку Stop. Ветвь, задачи которой на диаграмме нет, стрелки не получает.</summary>
+    private IEnumerable<(string Path, string Link, string State, string Of)> FlowArrows()
+    {
+        if (_diagram is null)
+        {
+            yield break;
+        }
+        var byId = _diagram.Nodes.ToDictionary(n => n.Id, StringComparer.Ordinal);
+        foreach (var node in _diagram.Nodes)
+        {
+            var kind = Kind(node);
+            if (kind == TaskFlow.If)
+            {
+                foreach (var yes in new[] { true, false })
+                {
+                    var (ax, ay) = Apex(node, yes);
+                    var link = yes ? "if-yes" : "if-no";
+                    var targetId = yes ? node.Flow.IfTrueTaskId : node.Flow.IfFalseTaskId;
+                    if (targetId is { Length: > 0 } && byId.TryGetValue(targetId, out var target))
+                    {
+                        yield return (BranchCurve(ax, ay, yes, Box(target)),
+                            link, BranchState(node, yes), node.DisplayId);
+                    }
+                    else if (BranchStops(node, yes))
+                    {
+                        var (sx, sy) = BranchStop(node, yes);
+                        var edge = yes ? sy + StopRadius + 1 : sy - StopRadius - 1;
+                        yield return (Num($"M{ax},{ay} L{sx},{edge}"),
+                            link, BranchState(node, yes), node.DisplayId);
+                    }
+                }
+            }
+            else if (TaskFlow.IsLoop(kind) && node.FlowStopped)
+            {
+                var (sx, sy) = LoopStop(node);
+                var from = Box(node).Y + NodeHeight + LoopFrames(node);
+                yield return (Num($"M{sx},{from} L{sx},{sy - StopRadius - 1}"), "loop-stop", "taken", node.DisplayId);
+            }
+        }
+    }
+
+    /// <summary>Стрелка ветви от вершины треугольника к задаче ветви (T-305-S0). Выход — вверх
+    /// («Да», T-312-S0) либо вниз («Нет»); вход — в левый край цели, если она правее вершины
+    /// (задачи ветви рисуются после условия), иначе в верх либо низ цели.</summary>
+    private static string BranchCurve(int ax, int ay, bool yes, (int X, int Y, int W) t)
+    {
+        var (c1x, c1y) = yes ? (ax, ay - 30) : (ax, ay + 30);
+        if (t.X >= ax)
+        {
+            var ty = t.Y + NodeHeight / 2;
+            return Num($"M{ax},{ay} C{c1x},{c1y} {t.X - 30},{ty} {t.X},{ty}");
+        }
+        var tx = t.X + Math.Min(t.W / 2, 24);
+        var fromAbove = ay <= t.Y;
+        var ty2 = fromAbove ? t.Y : t.Y + NodeHeight;
+        var tc = fromAbove ? ty2 - 30 : ty2 + 30;
+        return Num($"M{ax},{ay} C{c1x},{c1y} {tx},{tc} {tx},{ty2}");
+    }
+
+    /// <summary>Знаки Stop: ветвей условия с «завершить выполнение» (всегда, цвет стрелки —
+    /// по переходу) и цикла, на котором иерархия остановилась.</summary>
+    private IEnumerable<(int X, int Y, string Of, string State)> FlowStops()
+    {
+        foreach (var node in _diagram?.Nodes ?? [])
+        {
+            var kind = Kind(node);
+            if (kind == TaskFlow.If)
+            {
+                foreach (var yes in new[] { true, false })
+                {
+                    if (BranchStops(node, yes))
+                    {
+                        var (x, y) = BranchStop(node, yes);
+                        yield return (x, y, yes ? "if-yes" : "if-no", BranchState(node, yes));
+                    }
+                }
+            }
+            else if (TaskFlow.IsLoop(kind) && node.FlowStopped)
+            {
+                var (x, y) = LoopStop(node);
+                yield return (x, y, "loop", "taken");
+            }
+        }
+    }
+
+    /// <summary>Подписи «Да» / «Нет» у вершин треугольников условия.</summary>
+    private IEnumerable<(int X, int Y, string Text, string Branch, string State)> FlowLabels()
+    {
+        foreach (var node in _diagram?.Nodes ?? [])
+        {
+            if (Kind(node) != TaskFlow.If)
+            {
+                continue;
+            }
+            foreach (var yes in new[] { true, false })
+            {
+                // «Да» — над вершиной верхнего треугольника, «Нет» — под вершиной нижнего
+                // (место под обе подписи заложено в высоту дорожки, T-305-S0, T-312-S0)
+                var (ax, ay) = Apex(node, yes);
+                yield return (ax + 4, yes ? ay - LabelHeight : ay, L[yes ? "task.diagram.flow.yes" : "task.diagram.flow.no"],
+                    yes ? "if-yes" : "if-no", BranchState(node, yes));
+            }
+        }
     }
 
     /// <summary>Длительность словами: минуты у коротких, часы у остальных.</summary>

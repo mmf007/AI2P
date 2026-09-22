@@ -1,5 +1,5 @@
 {
-  "seedVersion": 21,
+  "seedVersion": 25,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -127,7 +127,7 @@
       "tool": "create_experience",
       "title": "Add experience record",
       "hint": "The agent adds an experience record: either for the template node of the current task or for the whole project (the “Project experience” block of the task). A deny/confirm security rule on this code blocks/confirms experience creation by agents. A CLI agent has no AI2P tools — it does the same via the AI2P_EXPERIENCE marker in its answer, and this action governs that too.",
-      "prompt": "Add an experience record. Parameters: text — a short lesson or takeaway useful for future runs (what worked, pitfalls, what to do differently); scope — “project” (experience of the whole project) or “template” (experience of a template node); by default a task created from a template writes to its node and any other task writes to the project; template — code or title of the template node (only for scope=template, when it is not your own node); skill — a skill code from the catalog: such a record is given only to executors having that skill, without it the record is common. Record only verified observations and do not duplicate what the experience blocks already say. Add PROJECT experience (and experience of other nodes) only when the task explicitly asks for it or the takeaway matters for every task of the project."
+      "prompt": "Add an experience record. Parameters: text — a short lesson or takeaway useful for future runs (what worked, pitfalls, what to do differently); scope — “project” (experience of the whole project) or “template” (experience of a template node); by default a task created from a template writes to its node and any other task writes to the project; template — code or title of the template node (only for scope=template, when it is not your own node); skill — a skill code from the catalog: such a record is given only to executors having that skill, without it the record is common. Record only verified observations and do not duplicate what the experience blocks already say. Add PROJECT experience (and experience of other nodes) only when the task explicitly asks for it or the takeaway matters for every task of the project. THE SCOPES ARE SEPARATED like this: a general rule is about HOW WE WORK (process, reporting, test discipline): it holds in any project of the organization and names no file, no task code and no product name; PROJECT experience is about this product — how it is built, its pitfalls, its decisions and the names of its entities; TEMPLATE NODE experience is about this step of the process. A text carrying signs of a project-specific one (a task code, a file path, a file or project name) is NOT ACCEPTED into the general rules — put it into the project experience; correct a wrong scope with move_experience rather than with a new record."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000015",
@@ -135,7 +135,47 @@
       "tool": "update_experience",
       "title": "Fix experience record",
       "hint": "The agent edits an existing experience record of its project or the project's templates. A deny/confirm security rule on this code blocks/confirms experience edits by agents. A CLI agent uses the same AI2P_EXPERIENCE marker with an id parameter.",
-      "prompt": "Fix an experience record. Parameters: id — record identifier from the “Project experience” or “Execution experience” block of the task text; text — the new full text of the record; skill — skill code (passed — the record skill changes, omitted — it stays as is). Use when an existing record is outdated or contradicts the actual run; otherwise add a new record via create_experience."
+      "prompt": "Fix an experience record. Parameters: id — record identifier from the “Project experience” or “Execution experience” block of the task text; text — the new full text of the record; skill — skill code (passed — the record skill changes, omitted — it stays as is). Use when an existing record is outdated or contradicts the actual run; otherwise add a new record via create_experience. Editing does NOT change the scope of a record — move_experience does; as a reminder of the borders: a general rule is about HOW WE WORK (process, reporting, test discipline): it holds in any project of the organization and names no file, no task code and no product name; PROJECT experience is about this product — how it is built, its pitfalls, its decisions and the names of its entities; TEMPLATE NODE experience is about this step of the process. Since version 1.135 you may also change tags (the record's tag list), alwaysLoad (the «always load» mark) and active (whether the record is active); A FIELD YOU DO NOT PASS IS NOT CHANGED — passing the text alone does not wipe the tags and marks a human has set."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000036",
+      "code": "AI2P.Experience.Search",
+      "tool": "search_experience",
+      "title": "Search the experience",
+      "hint": "The agent searches the accumulated experience records — of the project, of template nodes and the organisation's general rules. It was added because there was NO way to fetch a record that did not fit into the job (the experience insertion limit is set in the project settings): the hint used to say “ask the human”. By default only ACTIVE records are searched; the includeInactive flag adds the inactive ones. A deny/confirm security rule on this code closes the search entirely. The CLI agent has the same thing — the “ai2p experience-find” command.",
+      "prompt": "Search the experience records by words. Parameters: query — the words to search for; scope — the area: “project” (project experience), “template” (experience of template nodes), “general” (the organisation's general working rules), “all” or empty — search everywhere; limit — how many records to return (1..50, 10 by default); includeInactive — search the INACTIVE records as well (by default only the active ones: an inactive record is never inserted into a job). The search is lexical — by the words of the record text, not by meaning. Use it when the experience block says that some records are not shown, or when you need an earlier conclusion on a particular topic; a record found can be edited with update_experience by its id."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000037",
+      "code": "AI2P.Experience.Move",
+      "tool": "move_experience",
+      "title": "Move an experience record",
+      "hint": "The agent moves an experience record between scopes: the general rules of the organization ↔ project experience ↔ the experience of a template node. It exists because a wrong scope could not be corrected at all: the record had to be deleted and created again, losing its id, history and authorship — hence the litter in the general experience, which reaches every task of the organization. Only the server that owns the record can move it; a rule shipped with the distribution is never moved. A deny/confirm security rule on this code closes the move entirely. The CLI agent does the same with the “ai2p experience-move” command.",
+      "prompt": "Move an experience record to another scope. Parameters: id — the record (from the experience blocks of the task or from the search_experience output); scope — where to: “project” (the experience of this project), “template” (the experience of a template node), “general” (the general working rules of the organization); template — the code or the title of a template node (for scope=template only; omitted means the node of the current task). The target project is always the current one: records are not moved into other projects. The scopes are separated like this: a general rule is about HOW WE WORK (process, reporting, test discipline): it holds in any project of the organization and names no file, no task code and no product name; PROJECT experience is about this product — how it is built, its pitfalls, its decisions and the names of its entities; TEMPLATE NODE experience is about this step of the process. The move keeps the id, the text, the tags, the skill and the authorship — use it instead of “delete and create again”. A text carrying signs of a project-specific one (a task code, a file path, a project name) is not accepted into the general rules."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000038",
+      "code": "AI2P.Experience.SetActive",
+      "tool": "set_experience_active",
+      "title": "Switch an experience record on or off",
+      "hint": "The agent makes an experience record inactive (it is no longer put into jobs) or brings it back. Added for the «Experience analysis» template: the agent has NO deletion of experience and never will — it switches stale records off, and the archiving rule takes them away afterwards. The agent cannot switch off the rules shipped with the distribution — those are the rules it works by. A deny/confirm security rule on this code closes the switch entirely. The CLI agent does the same with «ai2p experience-active».",
+      "prompt": "Make an experience record active or inactive. Parameters: id — the record (from the experience blocks of the job, from list_experience or search_experience); active — true (the record goes into jobs again) or false (it is no longer put into jobs). Switch a record off when it is stale, contradicts a newer one, or has been merged into a new summary record. Experience must NOT be deleted, only switched off: an inactive record can still be read and brought back by a human. Records owned by another server and rules shipped with the distribution are not switched."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000039",
+      "code": "AI2P.Experience.List",
+      "tool": "list_experience",
+      "title": "List experience records",
+      "hint": "The agent reads the records of a scope in a row, page by page: search returns what looks like the query, while going through the experience needs the whole corpus. Filters by skill and tag; includeInactive adds the switched-off records. A deny/confirm security rule on this code closes the listing. The CLI agent does the same with «ai2p experience-list».",
+      "prompt": "List the experience records of a scope. Parameters: scope — «project» (project experience, the default), «template» (experience of a template node), «general» (the organisation's general working rules); template — code or title of the template node (for scope=template; omitted — the node of the current task); skill — skill code (exact match); tag — tag (exact match); includeInactive — show INACTIVE records as well (by default only active ones); limit — how many rows (1..200, default 20); offset — how many to skip. Use it to go through the experience in batches: find duplicates, merge several records into one, set tags and skills."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000040",
+      "code": "AI2P.Experience.Usage",
+      "tool": "experience_usage",
+      "title": "Experience usage statistics",
+      "hint": "The agent asks how many tasks received an experience record in the job text and when that last happened (the trace is kept since T-266-S0). The «Experience analysis» template decides what to switch off by these numbers. A deny/confirm security rule on this code closes the statistics. The CLI agent does the same with «ai2p experience-usage».",
+      "prompt": "Usage statistics of experience records: how many TASKS received the record in their job text and when that last happened. Parameters: id — one record; or scope — a whole scope: «project», «template», «general» (default — the project of the current task); limit — how many rows (1..200, default 50); offset — how many to skip. For a scope the rows go from the least used to the most used. The count is per task, not per run: restarting the same task does not raise it."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000016",
@@ -263,6 +303,68 @@
       "title": "Launch of a software-executor task",
       "hint": "A policy action (there is no agent tool): a deny or confirm security rule on this code forbids launching tasks of the «software» executor — that is, the work of an external plugin program (LoRA training and other long runs). The decision is taken before EVERY launch, including one where the task was created and started by an AI agent. Which plugin exactly may be launched is set by a separate rule kind — «plugins and MCP».",
       "prompt": ""
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000034",
+      "code": "AI2P.Update.Check",
+      "title": "Check for application updates",
+      "hint": "Go to the releases repository and find out whether a version newer than the installed one is out. The file is selected FOR THIS installation: the same system, the same architecture and the same installation kind (a full release with the runtime inside or an ordinary one). It installs nothing and does not touch the server — the answer goes into the log. It is put into a schedule (the «system action» kind of firing) by the «automatic check» checkbox in the settings; a console run checks at startup and needs no schedule entry.",
+      "prompt": "Check whether a new version of AI2P is out: the answer is either «no updates» or «version 1.NN is out». It installs nothing."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000035",
+      "code": "AI2P.Update.Run",
+      "title": "Update the application",
+      "hint": "Check the releases and, if a newer version is out, download the installation package for this system and install it. The update RESTARTS the server: the agents of every organisation running on it will be stopped. It is put into a schedule by the «automatic update» checkbox in the settings (2:00 local time by default) and is called by the «Update» button in the settings.",
+      "prompt": "Update AI2P to the latest version: download the installation package for this system, install it and restart the server. Every running agent will be stopped."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000041",
+      "code": "AI2P.Tasks.SendMessage",
+      "tool": "send_task_message",
+      "title": "Message to the agent of a related task",
+      "hint": "The agent writes into the CHAT of a related task — a sibling subtask of the same parent, the parent itself or its own subtask (T-185). If an agent is working on that task right now, the message reaches it in the middle of its work (a chat interruption); otherwise it waits in the chat for the human and for the agent when the task is started. “wait” pauses the work until the peer answers. A deny/confirm security rule on this code closes the conversation of agents entirely; before this record existed the tool was closed by nothing at all — an action without a catalog record has no code, and the rule check lets it through. The CLI agent does the same with the AI2P_TO_TASK marker.",
+      "prompt": "Write to the agent of a RELATED task: a sibling subtask of the same parent, the parent task or your own subtask. The message goes into the chat of that task under your name and reaches its agent in the middle of its work. Parameters: code — the code of the peer task (T-15); text — the message; wait — true if the work must be paused until the answer (it arrives as the next message of this same session and you continue from the same place). Write when your result depends on someone else's part (a data format, a function name, what is already done) or when you see that you are doing the same thing. Repeat every agreement that affects the work in your own result: a conversation does not replace the task."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000042",
+      "code": "AI2P.Tasks.WaitReply",
+      "tool": "wait_task_reply",
+      "title": "Wait for the peer's answer",
+      "hint": "The agent waits for an answer in the chat of ITS OWN task without ending the turn: any message but its own counts — from the agent of a related task or from the human (T-185). It waits no longer than the given number of minutes (10 by default, the ceiling is set in the code); nobody answered — it says so, and the work continues with what there is. It is needed by agents with the AI2P tools; the CLI agent pauses the job instead (the AI2P_TO_TASK marker with wait=true). A deny/confirm security rule on this code closes the waiting.",
+      "prompt": "Wait for an answer in the chat of the CURRENT task without ending the turn. Any message but your own counts as an answer: a reply from the agent of a related task you wrote to, or a message from the human. Parameter minutes — how long to wait (10 by default). If nobody answered, continue the work with what you have and say so in your result."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000043",
+      "code": "AI2P.Tasks.ConditionResult",
+      "tool": "set_condition_result",
+      "title": "Condition task decision",
+      "hint": "The agent of a \"Condition\" task returns its decision strictly as true (\"Yes\") or false (\"No\") — T-300-S0. The decision is stored on the task, and the hierarchy queue picks the branch from it once the job finishes; the branch not taken is cancelled by the system. Any value other than the boolean true/false (or the strings \"true\"/\"false\" from the command-line client) is an action error: there is no third outcome. Published only to a \"Condition\" task. For a CLI agent: the command \"ai2p condition true|false\" and the AI2P_CONDITION marker.",
+      "prompt": "Return the DECISION of a \"Condition\" task: parameter value — strictly true (\"Yes\", the condition holds) or false (\"No\"). Decide from the task description, its chat and the results of the work; if you cannot decide unambiguously, ask the human a question instead of guessing. Call it BEFORE you finish: without a decision the system stops the hierarchy run. A repeated call overwrites the decision. The system picks the branch and cancels the other one — do not do it yourself."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000044",
+      "code": "AI2P.Tasks.LoopResult",
+      "tool": "set_loop_result",
+      "title": "Loop condition check outcome",
+      "hint": "The agent of a \"Loop (check before)\" or \"Loop (check after)\" task answers whether another round of subtasks is needed: true — the loop conditions hold, run a round; false — leave the loop (T-300-S0). The hierarchy queue counts rounds, restarts the subtasks and enforces the round limit. Any value other than true/false is an action error. Published only to a loop task. For a CLI agent: the command \"ai2p loop true|false\" and the AI2P_LOOP marker.",
+      "prompt": "Return the OUTCOME OF CHECKING THE LOOP CONDITIONS (a \"Loop (check before)\" / \"Loop (check after)\" task): parameter continue — strictly true (the conditions hold, one more round of subtasks is needed) or false (leave the loop). Check against the task description, its chat and the subtask results. Call it BEFORE you finish: without an answer the system stops the hierarchy run. Rounds, subtask restarts and the round limit are handled by the system."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000045",
+      "code": "AI2P.Tasks.StopHierarchy",
+      "tool": "stop_hierarchy",
+      "title": "Stop the hierarchy run",
+      "hint": "The agent closes the hierarchy run queue its task belongs to (T-300-S0): the queue starts no more tasks, jobs already running finish. The same as the engine does for the \"stop the hierarchy run\" flag, but on the agent's decision — e.g. when the task description says to stop everything on a certain outcome. A human can reopen the queue with the hierarchy start button. Published only to a task inside an open queue. For a CLI agent: the command \"ai2p stop-hierarchy\" and the AI2P_STOP_HIERARCHY marker.",
+      "prompt": "STOP THE HIERARCHY RUN the current task belongs to: the queue will start no more tasks, jobs already running will finish. Parameter reason — why (goes into the reply and the log). Call it only when the task description or a human explicitly says to stop the whole hierarchy: condition branches and loop limits are handled by the system itself."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000046",
+      "code": "AI2P.Tasks.FromTemplate",
+      "tool": "create_tasks_from_template",
+      "title": "Branch tasks from a template node",
+      "hint": "The agent instantiates a project template node as a subtask of its own task (or of a task in its subtree) — the same as the \"from template\" button in the card (T-300-S0). Needed by a condition branch without a task that has \"create tasks\" set: routine branch work is easier to keep as a template. Executors are picked \"AI first\". The agent cannot grow someone else's tree this way. For a CLI agent: the command \"ai2p from-template <node code>\" and the AI2P_FROM_TEMPLATE marker.",
+      "prompt": "Create tasks from a project TEMPLATE NODE: parameter template — the node code (T-5) or its title; parent — code of a parent task in your subtree (default — the current task). The node is instantiated with all its descendants, executors are picked automatically. Use it when a condition branch says \"create tasks\" and a suitable template exists; otherwise use create_task."
     }
   ]
 }

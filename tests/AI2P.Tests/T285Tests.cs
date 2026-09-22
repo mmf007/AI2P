@@ -17,8 +17,12 @@ namespace AI2P.Tests;
 ///
 /// Имя пакета складывается само, из <c>version.json</c> выкладки:
 ///
-///     releasefull -> AI2P_full_v_1_NN_win64.exe / _Linux.run / _MacOs.run
-///     release     -> AI2P_v_1_NN_win64.exe      / _Linux.run / _MacOs.run
+///     releasefull -> AI2P_v_1_NN_full_windows_x64.exe / _full_linux_x64.run / _full_macos_arm64.run
+///     release     -> AI2P_v_1_NN_windows_x64.exe      / _linux_x64.run      / _macos_arm64.run
+///
+/// T-234-S0: слово <c>full</c> стоит ПОСЛЕ номера версии, дальше система (windows, linux,
+/// macos) и архитектура (x64, arm64, …) — её называет рантайм полной выкладки, а у обычной
+/// берётся у текущего компилятора.
 ///
 /// Скрипты — не C#, поэтому держатся тестом по своему тексту (как <see cref="T211Tests"/>
 /// и <see cref="T243Tests"/>): договорённости выпуска не должны меняться молча.
@@ -150,13 +154,16 @@ public sealed class T285Tests
         var ps = Script("MakePackage.ps1");
         var sh = Script("MakePackage.sh");
 
+        // T-234-S0: имя это AI2P_v_<версия>[_full]_<система>_<архитектура>.<вид>
         foreach (var text in new[] { ps, sh })
         {
-            Assert.Contains("AI2P_full_v_", text);   // releasefull
-            Assert.Contains("AI2P_v_", text);        // release
-            Assert.Contains("win64", text);
-            Assert.Contains("Linux", text);
-            Assert.Contains("MacOs", text);
+            Assert.Contains("AI2P_v_", text);        // общее начало у обеих выкладок
+            Assert.DoesNotContain("AI2P_full_v_", text);
+            Assert.Contains("_full", text);          // признак полной выкладки — после версии
+            Assert.Contains("windows", text);
+            Assert.Contains("linux", text);
+            Assert.Contains("macos", text);
+            Assert.Contains("arm64", text);          // архитектура берётся у рантайма/компилятора
         }
         // номер билда NN — это вторая часть версии; версия берётся из version.json выкладки
         Assert.Contains("version.json", ps);
@@ -180,7 +187,10 @@ public sealed class T285Tests
     {
         Assert.Contains("MakePackage.sh", Script("MakePackage.ps1"));
         Assert.Contains("MakePackage.cmd", Script("MakePackage.sh"));
-        Assert.Contains("$osTag -notlike \"win*\"", Script("MakePackage.ps1"));
+        // T-234-S0: систему теперь называет $osName (windows/linux/macos), прежней
+        // величины $osTag в скрипте нет — отказ собирать пакет чужой ОС на месте
+        Assert.Contains("$osName -ne \"windows\"", Script("MakePackage.ps1"));
+        Assert.Contains("\"$OS_NAME\" = \"windows\"", Script("MakePackage.sh"));
         // текст с T-65-S0 в каталоге, в скрипте — ключ
         Assert.Contains("scr.pkg.36", Script("MakePackage.sh"));
         Assert.Contains("Пакет для Windows собирается на Windows", Catalogue());

@@ -39,6 +39,10 @@ empty in the profile and this model has no «Set API key» button.
 | Reading other jobs | with the `get_task_by_code`, `get_task_by_url`, `get_task_chat` tools | via the `AI2P_GET_TASK` marker in the answer |
 | External files of the job (attached images) | with the `fetch_file` tool | via the `AI2P_GET_FILE` marker in the answer |
 | Moving a task along the hierarchy | with the `move_task` tool | via the `AI2P_MOVE_TASK` marker in the answer |
+| Condition task decision | with the `set_condition_result` tool | via the `AI2P_CONDITION` marker in the answer or the `ai2p condition` command |
+| Loop condition check result | with the `set_loop_result` tool | via the `AI2P_LOOP` marker in the answer or the `ai2p loop` command |
+| Branch tasks from a template node | with the `create_tasks_from_template` tool | via the `AI2P_FROM_TEMPLATE` marker in the answer or the `ai2p from-template` command |
+| Finishing the hierarchy run | with the `stop_hierarchy` tool | via the `AI2P_STOP_HIERARCHY` marker in the answer or the `ai2p stop-hierarchy` command |
 
 An important consequence: over a CLI connection AI2P tools are **not published** to the agent
 — it uses its own. The AI2P security rules (spec ch. 12) do not cover its actions inside the

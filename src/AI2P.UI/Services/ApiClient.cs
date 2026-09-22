@@ -666,9 +666,10 @@ public sealed class ApiClient
         Post<ObjectItem>($"api/objects/{objectId}/lora/dataset", dto);
 
     /// <summary>Положить исходник кадра в хранилище — из него режут рамкой кропа.</summary>
-    public Task<LoraStageResultDto> StageLoraImageAsync(string? url, string? localPath) =>
+    public Task<LoraStageResultDto> StageLoraImageAsync(string? url, string? localPath,
+        string media = LoraDatasetMedia.Image) =>
         Post<LoraStageResultDto>("api/objects/lora/stage",
-            new LoraStageDto { Url = url ?? "", LocalPath = localPath ?? "" });
+            new LoraStageDto { Url = url ?? "", LocalPath = localPath ?? "", Media = media });
 
     /// <summary>Под какие модели адаптер обучали и чем это кончилось.</summary>
     public Task<List<ObjectLoraModel>> GetLoraModelsAsync(string objectId) =>
@@ -928,9 +929,23 @@ public sealed class ApiClient
         Post<NotificationTestResultDto>("api/notifications/test",
             new NotificationTestDto { Address = address });
 
-    /// <summary>Запуск задачи; force (T-121) — не глядя на остаток лимита исполнителя.</summary>
-    public Task<Job> StartTaskAsync(string id, bool force = false) =>
-        Post<Job>($"api/tasks/{id}/start" + (force ? "?force=true" : ""), new { });
+    /// <summary>Запуск задачи; force (T-121) — не глядя на остаток лимита исполнителя;
+    /// autoChildren (T-274-S0) — ответ переспроса «автоматически выполнять новых потомков»
+    /// (null — не трогать пометку задачи).</summary>
+    public Task<Job> StartTaskAsync(string id, bool force = false, bool? autoChildren = null)
+    {
+        var query = new List<string>();
+        if (force)
+        {
+            query.Add("force=true");
+        }
+        if (autoChildren is { } auto)
+        {
+            query.Add($"autoChildren={(auto ? "true" : "false")}");
+        }
+        var suffix = query.Count == 0 ? "" : "?" + string.Join("&", query);
+        return Post<Job>($"api/tasks/{id}/start{suffix}", new { });
+    }
 
     /// <summary>
     /// Остаток лимита исполнителя задачи (T-121); null — лимиты не указаны. Ответ ПУСТОЙ
@@ -1003,6 +1018,27 @@ public sealed class ApiClient
     /// набор у них общий — он предлагается в форме записи и в фильтре списка опыта.</summary>
     public Task<List<string>> GetExperienceTagsAsync() => Get<List<string>>("api/experience/tags");
 
+    /// <summary>
+    /// ПОИСК ПО ОПЫТУ (T-268-S0) — тот же самый, которым пользуется агент
+    /// (<c>search_experience</c>): лексическое попадание плюс ранг из BM25, свежести и
+    /// совпадения тэгов. Строка поиска в списках опыта.
+    /// </summary>
+    public Task<List<ExperienceHitDto>> SearchExperienceAsync(string query, string? scope = null,
+        string? projectId = null, bool includeInactive = false, int limit = 50)
+    {
+        var url = $"api/experience/search?q={Uri.EscapeDataString(query)}&limit={limit}"
+                  + $"&includeInactive={(includeInactive ? "true" : "false")}";
+        if (!string.IsNullOrWhiteSpace(scope))
+        {
+            url += $"&scope={Uri.EscapeDataString(scope)}";
+        }
+        if (!string.IsNullOrWhiteSpace(projectId))
+        {
+            url += $"&project={Uri.EscapeDataString(projectId)}";
+        }
+        return Get<List<ExperienceHitDto>>(url);
+    }
+
     // запись отдаётся формой целиком (текст, навык, «загружать всегда», тэги — T-24-S0),
     // поэтому в API уходит тот же объект, что вернула форма
     public Task<ExperienceRecordDto> CreateExperienceAsync(string templateTaskId,
@@ -1038,6 +1074,82 @@ public sealed class ApiClient
         Post<ExperienceRecordDto>("api/experience/general", saved);
 
     public Task DeleteExperienceAsync(string id) => Send(HttpMethod.Delete, $"api/experience/{id}");
+
+    /// <summary>ИСПОЛЬЗОВАННЫЙ ОПЫТ ЗАДАЧИ (T-266-S0): что система подставила агенту в текст
+    /// задания. Удалённая или унесённая в архив запись приходит строкой с Available=false.</summary>
+    public Task<List<ExperienceUsedDto>> GetUsedExperienceAsync(string taskId) =>
+        Get<List<ExperienceUsedDto>>($"api/tasks/{taskId}/experience/used");
+
+    /// <summary>Статистика использования записи опыта (T-266-S0): сколько задач её получило
+    /// и когда последний раз.</summary>
+    public Task<ExperienceUsageDto> GetExperienceUsageAsync(string id) =>
+        Get<ExperienceUsageDto>($"api/experience/{id}/usage");
+
+    /// <summary>Переключить АКТИВНОСТЬ записи опыта (T-265-S0): неактивная запись не идёт
+    /// в задание ни при каком раскладе, но остаётся в списке и возвращается той же кнопкой.
+    /// Отдельный вызов — чтобы не переписывать текст и тэги значениями старого списка.</summary>
+    public Task<ExperienceRecordDto> SetExperienceActiveAsync(string id, bool isActive) =>
+        Post<ExperienceRecordDto>($"api/experience/{id}/active",
+            new ExperienceActiveDto { IsActive = isActive });
+
+    /// <summary>
+    /// ПЕРЕНЕСТИ ЗАПИСЬ ОПЫТА В ДРУГУЮ ОБЛАСТЬ (T-269-S0): общие правила ↔ опыт проекта ↔
+    /// опыт узла шаблона. Идентификатор, текст, навык, тэги и авторство сохраняются —
+    /// тем это и отличается от «удалить и завести заново». force — подтверждение человека
+    /// при переносе проектного текста в общие правила.
+    /// </summary>
+    public Task<ExperienceRecordDto> MoveExperienceAsync(string id, string scope,
+        string? projectId = null, string? templateTaskId = null, bool force = false) =>
+        Post<ExperienceRecordDto>($"api/experience/{id}/move", new ExperienceMoveDto
+        {
+            Scope = scope,
+            ProjectId = projectId,
+            TemplateTaskId = templateTaskId,
+            Force = force,
+        });
+
+    /// <summary>РЕВИЗИЯ ОБЩЕГО ОПЫТА (T-269-S0): общие правила, которые выглядят проектными,
+    /// — кандидаты на перенос пачкой в выбранный проект.</summary>
+    public Task<List<ExperienceSuspectDto>> GetGeneralExperienceSuspectsAsync() =>
+        Get<List<ExperienceSuspectDto>>("api/experience/general/suspects");
+
+    // --- НАБОРЫ ОПЫТА (T-270-S0): «библиотека стилей работы» ---
+
+    /// <summary>Наборы, найденные в каталоге данных (packs/*/pack.json), вместе с тем,
+    /// установлен ли каждый и в какую область.</summary>
+    public Task<List<ExperiencePackDto>> GetExperiencePacksAsync(string lang) =>
+        Get<List<ExperiencePackDto>>($"api/packs?lang={Uri.EscapeDataString(lang)}");
+
+    /// <summary>Поставить набор в ВЫБРАННУЮ область: общий опыт / проект / узел шаблона.
+    /// Повторная установка ничего не задваивает и правок человека не затирает.</summary>
+    public Task<ExperiencePackResultDto> InstallExperiencePackAsync(string code, string lang,
+        string scope, string? projectId = null, string? templateTaskId = null) =>
+        Post<ExperiencePackResultDto>(
+            $"api/packs/{Uri.EscapeDataString(code)}/install?lang={Uri.EscapeDataString(lang)}",
+            new ExperiencePackInstallDto
+            {
+                Scope = scope,
+                ProjectId = projectId,
+                TemplateTaskId = templateTaskId,
+            });
+
+    /// <summary>Снять набор — по служебной пометке владельца pack:&lt;код&gt;.</summary>
+    public Task<ExperiencePackResultDto> RemoveExperiencePackAsync(string code) =>
+        Post<ExperiencePackResultDto>(
+            $"api/packs/{Uri.EscapeDataString(code)}/remove", new { });
+
+    /// <summary>Выгрузить отобранные записи опыта в файл набора: так наработанный стиль
+    /// переносится в другую организацию или установку.</summary>
+    public Task<ExperiencePackResultDto> ExportExperiencePackAsync(string code, string lang,
+        string name, string description, IEnumerable<string> recordIds) =>
+        Post<ExperiencePackResultDto>($"api/packs/export?lang={Uri.EscapeDataString(lang)}",
+            new ExperiencePackExportDto
+            {
+                Code = code,
+                Name = name,
+                Description = description,
+                RecordIds = [.. recordIds],
+            });
 
     /// <summary>Статистика шаблона: смены состояния задач, привязанных к шаблону.</summary>
     public Task<List<TemplateStatusStatDto>> GetTemplateStatsAsync(string templateTaskId) =>
@@ -1163,6 +1275,17 @@ public sealed class ApiClient
     public Task<SettingsDto> GetSettingsAsync() => Get<SettingsDto>("api/settings");
 
     public Task SaveSettingsAsync(SettingsDto dto) => Send(HttpMethod.Put, "api/settings", dto);
+
+    // --- ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208) ---
+
+    /// <summary>Сходить в репозиторий выпусков: есть ли версия новее этой.</summary>
+    public Task<UpdateCheckDto> CheckUpdateAsync() => Get<UpdateCheckDto>("api/update/check");
+
+    /// <summary>Кого остановит перезапуск сервера (агенты всех открытых организаций).</summary>
+    public Task<UpdateAgentsDto> UpdateAgentsAsync() => Get<UpdateAgentsDto>("api/update/agents");
+
+    /// <summary>Скачать пакет и обновиться: сервер перезапустится сам.</summary>
+    public Task<UpdateStartDto> RunUpdateAsync() => Post<UpdateStartDto>("api/update/run", new { });
 
     /// <summary>Загрузка файла (картинка из буфера обмена в MD-редакторе, ТЗ гл. 11).</summary>
     public Task<FileUploadResultDto> UploadFileAsync(string? projectId, string fileName, string dataBase64) =>

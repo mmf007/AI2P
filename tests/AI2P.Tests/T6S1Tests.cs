@@ -16,8 +16,9 @@ namespace AI2P.Tests;
 /// лежит в иерархии общего родителя; блокирующую вне иерархии не трогает никто;</item>
 /// <item>перевод блокирующей в «готово» руками сразу запускает всех, кто её ждал, —
 /// и в том случае, когда сама блокирующая иерархии не принадлежит;</item>
-/// <item>перевод блокирующей в «отмена» ждущие задачи НЕ отпускает (до 1.88 отпускал)
-/// и останавливает весь иерархический запуск: пометка с корня снимается.</item>
+/// <item>перевод блокирующей в «отмена» с T-299-S0 снова ОТПУСКАЕТ ждущие задачи, как
+/// «готово» (в 1.88–1.137 держал их и останавливал весь иерархический запуск): иначе
+/// отменённая ветка задачи-условия намертво стопорила бы очередь.</item>
 /// </list>
 /// </summary>
 public sealed class T6S1Tests : IDisposable
@@ -119,10 +120,10 @@ public sealed class T6S1Tests : IDisposable
     // ---------- 1. состояние блокирующих ----------
 
     [Fact]
-    public void A_Cancelled_Blocker_Is_Not_A_Finished_One()
+    public void A_Cancelled_Blocker_Is_A_Finished_One()
     {
-        // ДО 1.88 отменённая блокирующая считалась пройденной и отпускала ждущую задачу;
-        // теперь у состояния блокирующих три исхода, и отмена — отдельный
+        // в 1.88–1.137 (T-6-S1) отмена была отдельным исходом и держала ждущую задачу;
+        // с T-299-S0 блокирующая завершена при «готово» ИЛИ «отменена»
         var done = CreateTask("готовая");
         var cancelled = CreateTask("отменённая");
         var running = CreateTask("в работе");
@@ -135,11 +136,12 @@ public sealed class T6S1Tests : IDisposable
         Assert.Equal(BlockersState.Done, _f.Tasks.BlockersStateOf(_f.Tasks.Get(waits.Id)!));
         Assert.True(_f.Tasks.BlockersDone(_f.Tasks.Get(waits.Id)!));
 
-        var blocked = CreateTask("заблокирована отменой", blockers: [done.Id, cancelled.Id]);
+        var blocked = CreateTask("отпущена отменой", blockers: [done.Id, cancelled.Id]);
+        Assert.Equal(BlockersState.Waiting, _f.Tasks.BlockersStateOf(_f.Tasks.Get(blocked.Id)!));
         _f.Tasks.ChangeStatus(cancelled.Id, TaskStatuses.Cancelled, null);
-        Assert.Equal(BlockersState.Cancelled, _f.Tasks.BlockersStateOf(_f.Tasks.Get(blocked.Id)!));
-        Assert.True(_f.Tasks.BlockersCancelled(_f.Tasks.Get(blocked.Id)!));
-        Assert.False(_f.Tasks.BlockersDone(_f.Tasks.Get(blocked.Id)!));
+        Assert.Equal(BlockersState.Done, _f.Tasks.BlockersStateOf(_f.Tasks.Get(blocked.Id)!));
+        Assert.False(_f.Tasks.BlockersCancelled(_f.Tasks.Get(blocked.Id)!));
+        Assert.True(_f.Tasks.BlockersDone(_f.Tasks.Get(blocked.Id)!));
     }
 
     // ---------- 2. очередь иерархии и блокирующая ВНЕ иерархии ----------
@@ -190,10 +192,10 @@ public sealed class T6S1Tests : IDisposable
     }
 
     [Fact]
-    public async Task A_Cancelled_Blocker_Keeps_Everyone_Waiting_And_Stops_The_Run()
+    public async Task A_Cancelled_Blocker_Starts_Everyone_Who_Waited()
     {
-        // отмена блокирующей — не завершение: ждавшие задачи не запускаются, а очередь
-        // иерархии закрывается (пометка с корня снята), чтобы сторож не ходил по ней вечно
+        // T-299-S0 (было T-6-S1 «отмена останавливает очередь»): отмена блокирующей — тоже
+        // завершение, ждавшие задачи уходят в работу, очередь иерархии остаётся открытой
         var human = CreateHuman("человек");
         var blocker = CreateTask("блокирующая вне иерархии", executor: human);
         var root = CreateTask("корень", executor: CreateAi("root"));
@@ -205,18 +207,9 @@ public sealed class T6S1Tests : IDisposable
 
         _f.Tasks.ChangeStatus(blocker.Id, TaskStatuses.Cancelled, null);
 
-        Assert.True(await WaitFor(() => !HierarchyOpen(root)),
-            "отменённая блокирующая обязана останавливать запуск иерархии");
-        Assert.False(HasJob(first));
-        Assert.False(HasJob(second));
-        Assert.False(HasJob(root));
-        Assert.Equal(TaskStatuses.Pending, Status(first));
-
-        // сторож по такой иерархии больше не ходит, а прямой проход ничего не запускает
-        _f.Orchestrator.RunHierarchiesOnce();
-        var again = await _f.Orchestrator.ProcessHierarchyAsync(root.Id, null);
-        Assert.Empty(again.Started);
-        Assert.False(HasJob(first));
+        Assert.True(await WaitFor(() => HasJob(first) && HasJob(second)),
+            "отменённая блокирующая обязана отпускать ждавшие задачи");
+        Assert.True(HierarchyOpen(root));
     }
 
     // ---------- 3. блокирующая ВНУТРИ иерархии ----------
@@ -246,7 +239,7 @@ public sealed class T6S1Tests : IDisposable
     }
 
     [Fact]
-    public async Task A_Cancelled_Blocker_Inside_The_Hierarchy_Stops_It_Too()
+    public async Task A_Cancelled_Blocker_Inside_The_Hierarchy_Lets_The_Waiting_Task_Go()
     {
         var human = CreateHuman("человек");
         var root = CreateTask("корень", executor: CreateAi("root"));
@@ -260,17 +253,17 @@ public sealed class T6S1Tests : IDisposable
         // человек решил, что делать эту работу не будет
         _f.Tasks.ChangeStatus(blocker.Id, TaskStatuses.Cancelled, null);
 
-        Assert.True(await WaitFor(() => !HierarchyOpen(root)),
-            "отменённая блокирующая подзадача обязана останавливать запуск иерархии");
-        Assert.False(HasJob(waits));
-        Assert.False(HasJob(root));
+        // T-299-S0: отменённая блокирующая — завершённая, ждущая подзадача идёт в работу
+        Assert.True(await WaitFor(() => HasJob(waits)),
+            "после отмены блокирующей подзадачи ждущая обязана запуститься");
+        Assert.True(HierarchyOpen(root));
     }
 
     [Fact]
-    public async Task The_Run_Reports_Why_It_Stopped()
+    public async Task A_Blocker_Cancelled_Before_The_Run_Does_Not_Stop_It()
     {
-        // блокирующую отменили ДО нажатия кнопки: очередь не открывается вовсе, а ответ
-        // называет задачу, из-за которой всё стоит, — иначе «нажал, и ничего не происходит»
+        // блокирующую отменили ДО нажатия кнопки: с T-299-S0 это не тупик — очередь
+        // открывается и запускает ждущую задачу
         var blocker = CreateTask("отменённая", executor: CreateHuman("человек"));
         _f.Tasks.ChangeStatus(blocker.Id, TaskStatuses.Cancelled, null);
         var root = CreateTask("корень", executor: CreateAi("root"));
@@ -278,22 +271,19 @@ public sealed class T6S1Tests : IDisposable
 
         var run = await _f.Orchestrator.StartHierarchyAsync(root.Id, null);
 
-        Assert.True(run.Stopped);
-        Assert.Equal([waits.DisplayId], run.StoppedBy);
-        Assert.Empty(run.Started);
-        Assert.False(run.Finished);
-        Assert.False(HierarchyOpen(root));
-        Assert.False(HasJob(waits));
-        Assert.False(HasJob(root));
+        Assert.False(run.Stopped);
+        Assert.Empty(run.StoppedBy);
+        Assert.Contains(waits.DisplayId, run.Started);
+        Assert.True(HierarchyOpen(root));
     }
 
     // ---------- 4. автозапуск потомков вне иерархии ----------
 
     [Fact]
-    public async Task Auto_Start_Of_Children_Also_Respects_A_Cancelled_Blocker()
+    public async Task Auto_Start_Of_Children_Treats_A_Cancelled_Blocker_As_Finished()
     {
-        // автозапуск потомков (todo22) — второй путь, где блокирующие проверяются: отменённая
-        // блокирующая держит потомка так же, как незавершённая
+        // автозапуск потомков (todo22) — второй путь, где блокирующие проверяются: с T-299-S0
+        // отменённая блокирующая потомка отпускает, как и «готово»
         var parent = CreateTask("родитель", executor: CreateAi("p"));
         var blocker = CreateTask("блокирующая", executor: CreateHuman("человек"));
         var child = _f.Tasks.Create(new TaskItem
@@ -309,9 +299,8 @@ public sealed class T6S1Tests : IDisposable
         _f.Tasks.ChangeStatus(blocker.Id, TaskStatuses.Cancelled, null);
         _f.Tasks.ChangeStatus(parent.Id, TaskStatuses.Done, null);
 
-        await Task.Delay(300);
-        Assert.False(HasJob(child));
-        Assert.Equal(TaskStatuses.Pending, Status(child));
+        Assert.True(await WaitFor(() => HasJob(child)),
+            "отменённая блокирующая не должна держать автозапуск потомка (T-299-S0)");
     }
 
     [Fact]

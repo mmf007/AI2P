@@ -187,7 +187,7 @@ three ways of updating take that into account:
 
 * `install.cmd` / `install.ps1` (Windows) and `./install.sh` (Linux, macOS) stop the service
   before copying the files and start it back afterwards;
-* the **installation package** (`AI2P_v_1_NN_win64.exe`) does the same, and on uninstalling
+* the **installation package** (`AI2P_v_1_NN_windows_x64.exe`) does the same, and on uninstalling
   the program it also removes the service.
 
 The service is looked up **in the system** — by the record in the service manager, the

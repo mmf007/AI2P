@@ -279,6 +279,22 @@ try
     // реестр организаций нужен самим настройкам организации (признак дирижёра), а создаётся
     // после них — поэтому ссылка проставляется сразу за созданием
     OrgRegistry? registry = null;
+    // АВТООБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208): проверка выпусков, скачивание пакета и перезапуск.
+    // Приложение останавливается ШТАТНО (Lifetime), а не Environment.Exit: иначе оборвались
+    // бы запись базы и выгрузка локальных моделей. Ссылка на Lifetime проставляется после
+    // сборки приложения — сервис нужен раньше, его делегат уходит в контексты организаций
+    IHostApplicationLifetime? lifetime = null;
+    var appUpdate = new AppUpdateService(() => config, () =>
+    {
+        if (lifetime is not null)
+        {
+            lifetime.StopApplication();
+        }
+        else
+        {
+            Environment.Exit(0);
+        }
+    });
     var orgDeps = new OrgDeps(
         DbFile: config.Storage.DbFile,
         I18nDir: Path.Combine(AppContext.BaseDirectory, "i18n"),
@@ -364,7 +380,10 @@ try
                 config.ModelInstallOptions[modelId] = [.. off];
             }
             config.Save(configPath);
-        });
+        },
+        // автообновление приложения (T-208): расписание-действие назначает ему время,
+        // а работу делает сервер — обновляется установка целиком, а не организация
+        AppUpdate: install => appUpdate.RunAuto(install));
     // реестр организаций (ТЗ п. 2.15): серверная БД (аккаунты, организации, серверы) и
     // живые контексты организаций. Аккаунт и организация при старте НЕ создаются — их
     // заводит экран первого старта (гл. 11); до входа UI недоступен
@@ -389,6 +408,7 @@ try
     builder.Services.AddSingleton(localModels);
     builder.Services.AddSingleton(claudeLogin);
     builder.Services.AddSingleton(new ConfigHolder(config, configPath, machineRoot));
+    builder.Services.AddSingleton(appUpdate);
     // документация, поставляемая с приложением (ТЗ гл. 14, todo47): каталог doc/ целиком
     // копируется в релизную выкладку, приложение показывает документы моделей в UI
     builder.Services.AddSingleton(new DocStore(
@@ -534,7 +554,7 @@ try
     // организация сегментом URL (ТЗ гл. 11, этап 40): /ai2p/<код>/… Ставится ДО маршрутизации —
     // у служебных разделов (api, ресурсы Blazor, вход) сегмент организации отрезается,
     // а страницам путь не меняется: Blazor сопоставляет маршруты относительно base href
-    app.UseAi2pOrgPath();
+    app.UseAi2pOrgPath(basePath);
     app.UseStaticFiles();
     // UseRouting вызывается явно: иначе WebApplication поставит её в самое начало конвейера,
     // и правка пути выше уже не повлияла бы на выбор эндпойнта
@@ -606,6 +626,22 @@ try
     if (config.Ui.OpenBrowserOnStart && !asService)
     {
         app.Lifetime.ApplicationStarted.Register(() => OpenBrowser(browserUrl));
+    }
+
+    // ПРОВЕРКА ОБНОВЛЕНИЙ ПРИ СТАРТЕ (T-208) — только у КОНСОЛЬНОГО запуска: его включают
+    // и выключают, и старт для него единственный понятный момент «раз в день». Служба
+    // работает сутками, и у неё проверка идёт записью расписания (2:00 местного времени).
+    // Задержка в полминуты — чтобы сеть и сам сервер успели подняться, а человек увидел
+    // экран, а не паузу; отказ проверки в журнале, на старте приложения он ничего не рвёт
+    lifetime = app.Lifetime;
+    if (!asService && (config.Update.AutoCheck || config.Update.AutoUpdate))
+    {
+        app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30));
+            var summary = appUpdate.RunAuto(config.Update.AutoUpdate);
+            app.Logger.LogInformation("AI2P: проверка обновлений — {Summary}", summary);
+        }));
     }
 
     // при остановке приложения выгрузить запущенные нами локальные серверы моделей

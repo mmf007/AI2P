@@ -173,7 +173,7 @@ public sealed class ExecutorPickService
                 Candidates = ordered,
             };
         }
-        return new PickedExecutorDto
+        var result = new PickedExecutorDto
         {
             ExecutorId = best.ExecutorId,
             Nick = best.Nick,
@@ -181,6 +181,75 @@ public sealed class ExecutorPickService
             Reason = Loc.T("msg.executorPick.10", best.Quality, best.CostPer1M, best.Score, bias),
             Candidates = ordered,
         };
+        // СУФЛЁР ПОДБИРАЕТСЯ ЗАОДНО (T-292-S0): у медиа-модели с prompter.required без него
+        // задача не запустится вовсе — остановится ошибкой. Поэтому подбор доводит дело до
+        // конца сам, а не отдаёт человеку исполнителя, которого нельзя запустить
+        if (PickPrompter(best.ExecutorId, team, ordered) is { } prompter)
+        {
+            result.PrompterExecutorId = prompter.Id;
+            result.PrompterNick = prompter.Nick;
+            result.Reason += Loc.T("msg.executorPick.11", prompter.Nick);
+        }
+        return result;
+    }
+
+    /// <summary>Навык, которым ищется суфлёр (T-292-S0): «разбор данных» — именно этим он и
+    /// занят, превращая описание задачи в управляющий json для медиа-модели.</summary>
+    public const string PrompterSkill = "analyze-data";
+
+    /// <summary>
+    /// СУФЛЁР ДЛЯ ПОДОБРАННОГО ИСПОЛНИТЕЛЯ (T-292-S0) или null — не нужен либо не нашёлся.
+    ///
+    /// <para>Порядок: рабочей модели суфлёр не нужен (в профайле нет <c>prompter.required</c>) —
+    /// null сразу; у самой записи исполнителя суфлёр назван — берём его; иначе ищем среди
+    /// кандидатов команды ИИ-исполнителя с навыком <c>analyze-data</c> в лучшем порядке того же
+    /// отбора (навыки × цена). Сам себя суфлёром исполнитель не берёт: пока он считает
+    /// генерацию, он занят, и ждать пришлось бы самого себя.</para>
+    /// </summary>
+    private Executor? PickPrompter(string? bestId, Team team, List<PickCandidateDto> ordered)
+    {
+        if (bestId is null || _executors.Get(bestId) is not { } best || !NeedsPrompter(best))
+        {
+            return null;
+        }
+        if (best.PrompterExecutorId is { Length: > 0 } named && _executors.Get(named) is
+                { IsActive: true, DeletedAt: null } own)
+        {
+            return own;
+        }
+        foreach (var candidate in ordered)
+        {
+            if (candidate.ExecutorId == bestId
+                || _executors.Get(candidate.ExecutorId) is not { } executor
+                || executor.Kind != ExecutorKind.Ai
+                || !team.Members.Any(m => m.ExecutorId == executor.Id && m.IsActive))
+            {
+                continue;
+            }
+            if (DeclaredSkills(executor).Contains(PrompterSkill, StringComparer.OrdinalIgnoreCase))
+            {
+                return executor;
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Рабочей модели исполнителя нужен управляющий json от суфлёра (T-286-S0):
+    /// секция <c>prompter</c> профайла. Профайла нет или он испорчен — «не нужен».</summary>
+    private bool NeedsPrompter(Executor executor)
+    {
+        if (executor.Kind != ExecutorKind.Ai || executor.ProfilePath.Length == 0)
+        {
+            return false;
+        }
+        try
+        {
+            return PrompterSettings.Parse(_files.ReadText(executor.ProfilePath)).Required;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static PickedExecutorDto NotFound(string reason) => new() { Reason = reason };

@@ -1,0 +1,162 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* РЕВИЗИЯ ОБЩЕГО ОПЫТА (T-269-S0, ветка T-318 «Проект опыта»).
+
+   Общие правила получает КАЖДАЯ задача организации, поэтому проектная запись, попавшая
+   сюда по ошибке, стоит дороже любой другой: она приходит всем и во всех проектах. Раздел
+   показывает те правила, которые выглядят проектными (та же дешёвая проверка, что стоит
+   на пути записи, — код задачи, путь файла, имя файла или проекта), и переносит их ПАЧКОЙ
+   в выбранный проект. Один проход — и общий опыт чистый.
+
+   Перенос идёт по одной записи (POST /api/experience/{id}/move): их единицы, зато каждая
+   проходит все проверки сервера — чужую и поставляемую запись перенести нельзя, и об этом
+   надо сказать построчно, а не одним «не получилось». *@
+<MudPaper Class="pa-3 mb-4" Outlined="true" data-exp-audit="1" Style="max-width: 1100px;">
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+        <MudText Typo="Typo.subtitle1">@L["exp.audit.title"]</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" Size="Size.Small"
+                       data-exp-audit-refresh="1" title="@L["exp.audit.refresh"]"
+                       OnClick="ReloadAsync" />
+    </MudStack>
+
+    @if (_suspects.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="opacity:.7" data-exp-audit-clean="1">
+            @L["exp.audit.none"]
+        </MudText>
+    }
+    else
+    {
+        <MudText Typo="Typo.body2" Class="mb-2" data-exp-audit-count="@_suspects.Count">
+            @L["exp.audit.count", _suspects.Count]
+        </MudText>
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <th style="width:48px"></th>
+                    <th style="width:220px">@L["exp.audit.signs"]</th>
+                    <th>@L["exp.text"]</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var row in _suspects)
+            {
+                <tr data-exp-audit-row="@row.Record.Id">
+                    <td>
+                        <MudCheckBox T="bool" Dense="true" Value="@_picked.Contains(row.Record.Id)"
+                                     data-exp-audit-pick="@row.Record.Id"
+                                     ValueChanged="@((bool on) => Pick(row.Record.Id, on))" />
+                    </td>
+                    <td style="opacity:.75">
+                        @string.Join(", ", row.Kinds.Select(k => L["exp.sign." + k]))<br />@row.Samples
+                    </td>
+                    <td style="white-space: pre-wrap;">@row.Record.Text</td>
+                </tr>
+            }
+            </tbody>
+        </MudSimpleTable>
+        @if (CanEdit)
+        {
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-3">
+                <MudSelect T="string" @bind-Value="_projectId" Label="@L["exp.move.project"]"
+                           Dense="true" data-exp-audit-project="1" Style="max-width: 320px;"
+                           ToStringFunc="@ProjectName">
+                    @foreach (var project in State.Projects)
+                    {
+                        <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Color="Color.Primary" Variant="Variant.Filled" data-exp-audit-move="1"
+                           Disabled="@(_picked.Count == 0 || _projectId.Length == 0 || _busy)"
+                           OnClick="MoveBatchAsync">
+                    @L["exp.audit.move"]
+                </MudButton>
+            </MudStack>
+        }
+    }
+</MudPaper>
+
+@code {
+    /// <summary>Правка разрешена (роль): у читателя кнопки переноса нет.</summary>
+    [Parameter] public bool CanEdit { get; set; } = true;
+
+    /// <summary>Список обновился — вкладке «Общий опыт» надо перечитать записи.</summary>
+    [Parameter] public EventCallback Moved { get; set; }
+
+    private List<ExperienceSuspectDto> _suspects = [];
+    private readonly HashSet<string> _picked = [];
+    private string _projectId = "";
+    private bool _busy;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _projectId = State.CurrentProjectId ?? State.Projects.FirstOrDefault()?.Id ?? "";
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _suspects = await Api.GetGeneralExperienceSuspectsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _suspects = [];
+        }
+        // выбор, сделанный до перечитывания, к новому списку не относится
+        _picked.Clear();
+    }
+
+    private void Pick(string id, bool on)
+    {
+        if (on)
+        {
+            _picked.Add(id);
+        }
+        else
+        {
+            _picked.Remove(id);
+        }
+    }
+
+    /// <summary>
+    /// ПЕРЕНОС ПАЧКОЙ: каждая запись идёт своим вызовом, и отказ по одной (чужой сервер,
+    /// поставляемое правило) не отменяет остальные — человеку показывается, сколько
+    /// перенеслось, и текст первого отказа.
+    /// </summary>
+    private async Task MoveBatchAsync()
+    {
+        _busy = true;
+        var moved = 0;
+        string? failure = null;
+        foreach (var id in _picked.ToList())
+        {
+            try
+            {
+                await Api.MoveExperienceAsync(id, ExperienceScopes.Project, _projectId);
+                moved++;
+            }
+            catch (ApiException ex)
+            {
+                failure ??= ex.Message;
+            }
+        }
+        _busy = false;
+        Snackbar.Add(L["exp.move.done", moved], moved > 0 ? Severity.Success : Severity.Warning);
+        if (failure is not null)
+        {
+            Snackbar.Add(failure, Severity.Error);
+        }
+        await ReloadAsync();
+        await Moved.InvokeAsync();
+    }
+
+    private string ProjectName(string? id) =>
+        State.Projects.FirstOrDefault(p => p.Id == id)?.Name ?? "";
+}

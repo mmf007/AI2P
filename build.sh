@@ -27,7 +27,11 @@ done
 
 if [ "$HELP" -eq 1 ]; then
     if [ -f "./i18n/loc.sh" ]; then
-        AI2P_LOC_DIR="./i18n"; . "./i18n/loc.sh"; ai2p_set_lang "$LANG_OPT"; ai2p_help build
+        AI2P_LOC_DIR="./i18n"; . "./i18n/loc.sh"
+    fi
+    # T-319: годность загрузчика — по функциям, а не по наличию файла
+    if command -v ai2p_help >/dev/null 2>&1; then
+        ai2p_set_lang "$LANG_OPT"; ai2p_help build
     else
         echo "Usage: ./build.sh [Debug|Release]"
     fi

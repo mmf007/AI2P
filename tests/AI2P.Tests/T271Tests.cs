@@ -141,10 +141,14 @@ public sealed class T271Tests
         Assert.False(dto.ServiceMode);
 
         var api = File.ReadAllText(Path.Combine(AppDir(), "src", "AI2P.Server", "Api", "ApiEndpoints.cs"));
+        // считаем ТОЛЬКО внутри обработчика /api/state: то же поле заполняется и в других
+        // местах файла (UpdateSettingsDto у автообновления, T-208), а счёт по всему файлу
+        // ломался бы от каждого такого соседа
+        var state = Between(api, "api.MapGet(\"/state\",", "api.MapPut(\"/state/ui-layout\"");
         // поле заполняется В ОБЕИХ ветках /api/state: без организации (сервер подал заявку
         // и ждёт решения) интерфейс тоже открывается, и настройки в нём доступны
-        Assert.Equal(2, Count(api, "IsService = ServiceRun.IsService,"));
-        Assert.Equal(2, Count(api, "ServiceMode = configHolder.Config.ServiceMode,"));
+        Assert.Equal(2, Count(state, "IsService = ServiceRun.IsService,"));
+        Assert.Equal(2, Count(state, "ServiceMode = configHolder.Config.ServiceMode,"));
 
         var view = File.ReadAllText(Path.Combine(AppDir(), "src", "AI2P.UI", "Components", "SettingsView.razor"));
         Assert.Contains("settings.runMode", view);
@@ -335,6 +339,17 @@ public sealed class T271Tests
         Assert.Contains("$env:ProgramW6432", Script("install.ps1"));
         Assert.Contains("service_flag_set", Script("install.sh"));
         Assert.Contains("/usr/*|/opt/*|/Applications/*", Script("install.sh"));
+    }
+
+    /// <summary>Кусок текста между двумя опорами: обе обязаны найтись и идти по порядку,
+    /// иначе тест молча считал бы по пустой строке и был бы зелёным ни о чём.</summary>
+    private static string Between(string text, string from, string to)
+    {
+        var start = text.IndexOf(from, StringComparison.Ordinal);
+        Assert.True(start >= 0, "в ApiEndpoints.cs не нашлось начало обработчика: " + from);
+        var end = text.IndexOf(to, start, StringComparison.Ordinal);
+        Assert.True(end > start, "в ApiEndpoints.cs не нашёлся конец обработчика: " + to);
+        return text[start..end];
     }
 
     private static int Count(string text, string needle)

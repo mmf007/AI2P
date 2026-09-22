@@ -1,6 +1,7 @@
 @inject ApiClient Api
 @inject I18nService L
 @inject ISnackbar Snackbar
+@inject IJSRuntime Js
 @implements IDisposable
 
 @* Окно установки локальной модели (ТЗ v1.40, todo36_3): файлы манифеста с состоянием
@@ -36,63 +37,6 @@
                     <MudText Typo="Typo.caption">@L["install.options.hint"]</MudText>
                 }
 
-                @* пакеты, необходимые модели для запуска (ТЗ v1.42, todo36_5): ComfyUI,
-                   llama.cpp … Уже установленный пакет не ставится повторно, только проверяется.
-                   Размер дистрибутива и ход его загрузки — ТЗ v1.43, todo36_6 *@
-                @if (_status.Packages.Count > 0)
-                {
-                    <MudText Typo="Typo.subtitle2" Class="mt-2">@L["install.packages"]</MudText>
-                    <MudSimpleTable Dense="true">
-                        <thead>
-                            <tr>
-                                <th>@L["install.package"]</th>
-                                <th style="text-align:right;">@L["install.size"]</th>
-                                <th style="text-align:right;">@L["install.downloaded"]</th>
-                                <th>@L["install.packageDir"]</th>
-                                <th>@L["install.state"]</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var package in _status.Packages)
-                            {
-                                <tr>
-                                    <td>
-                                        @package.Name
-                                        @if (package.Running)
-                                        {
-                                            <MudProgressCircular Size="Size.Small" Indeterminate="true"
-                                                                 Class="ml-2" Style="vertical-align: middle;" />
-                                        }
-                                    </td>
-                                    <td style="text-align:right; white-space:nowrap;">
-                                        @(package.Size > 0 ? Fmt(package.Size) : "—")
-                                    </td>
-                                    <td style="text-align:right; white-space:nowrap;">
-                                        @(package.Downloaded > 0 ? Fmt(package.Downloaded) : "—")
-                                    </td>
-                                    <td style="word-break: break-all;">@package.Dir</td>
-                                    <td style="white-space:nowrap;">
-                                        <MudIcon Size="Size.Small" Style="vertical-align: middle;"
-                                                 Icon="@StateIcon(package.State)" Color="@StateColor(package.State)" />
-                                        @* пакет, уже стоящий на компьютере (Python, T-4-S0), качать не надо —
-                                           и человеку важно видеть, что взяли ЕГО, а не поставили второй *@
-                                        @(package.Unknown ? L["install.package.unknown"]
-                                            : package.System ? L["install.package.system"]
-                                            : L["install.package." + package.State])
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </MudSimpleTable>
-                    @if (_status.Running && _status.CurrentFile.Length > 0)
-                    {
-                        <MudText Typo="Typo.caption">
-                            @L["install.current"]: @_status.CurrentFile
-                        </MudText>
-                    }
-                    <MudText Typo="Typo.subtitle2" Class="mt-2">@L["install.weights"]</MudText>
-                }
-
                 <MudProgressLinear Color="@(_status.Installed ? Color.Success : Color.Primary)"
                                    Value="@Percent()" Size="Size.Large" Rounded="true">
                     <MudText Typo="Typo.caption">
@@ -100,19 +44,62 @@
                     </MudText>
                 </MudProgressLinear>
 
+                @* ОДНА ТАБЛИЦА НА ПАКЕТЫ И ФАЙЛЫ (T-238-S0): раньше их было две, и человеку
+                   приходилось складывать «что ещё осталось» из двух списков. Теперь строки
+                   лежат рядом, а различает их столбец «способ установки»: пакет (ComfyUI,
+                   llama.cpp, Python …) ИНСТАЛЛИРУЕТСЯ — скачивается дистрибутив и ставится
+                   в каталог пакетов; файл весов просто КОПИРУЕТСЯ в каталог модели.
+                   Подробности пакета (точное имя дистрибутива, виден ли он в каталоге
+                   дистрибутивов, куда поставлен) — в подсказке «i». *@
                 <MudSimpleTable Dense="true">
                     <thead>
                         <tr>
-                            <th>@L["install.file"]</th>
+                            <th>@L["install.item"]</th>
+                            <th>@L["install.method"]</th>
                             <th style="text-align:right;">@L["install.size"]</th>
                             <th style="text-align:right;">@L["install.downloaded"]</th>
                             <th>@L["install.state"]</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
+                        @foreach (var package in _status.Packages)
+                        {
+                            <tr data-install-row="package" data-install-id="@package.Id">
+                                <td>
+                                    @package.Name
+                                    @if (package.Running)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                             Class="ml-2" Style="vertical-align: middle;" />
+                                    }
+                                </td>
+                                <td style="white-space:nowrap;" data-install-method="setup">
+                                    @L["install.method.setup"]
+                                </td>
+                                <td style="text-align:right; white-space:nowrap;">
+                                    @(package.Size > 0 ? Fmt(package.Size) : "—")
+                                </td>
+                                <td style="text-align:right; white-space:nowrap;">
+                                    @(package.Downloaded > 0 ? Fmt(package.Downloaded) : "—")
+                                </td>
+                                <td style="white-space:nowrap;">
+                                    <MudIcon Size="Size.Small" Style="vertical-align: middle;"
+                                             Icon="@StateIcon(package.State)" Color="@StateColor(package.State)" />
+                                    @* пакет, уже стоящий на компьютере (Python, T-4-S0), качать не надо —
+                                       и человеку важно видеть, что взяли ЕГО, а не поставили второй *@
+                                    @(package.Unknown ? L["install.package.unknown"]
+                                        : package.System ? L["install.package.system"]
+                                        : L["install.package." + package.State])
+                                </td>
+                                <td style="white-space:nowrap; text-align:right;">
+                                    @InfoCell(package.Id, PackageHint(package))
+                                </td>
+                            </tr>
+                        }
                         @foreach (var file in _status.Files)
                         {
-                            <tr>
+                            <tr data-install-row="file">
                                 <td style="word-break: break-all;">
                                     @file.Name
                                     @if (_status.Running && file.Name == _status.CurrentFile)
@@ -121,6 +108,9 @@
                                                              Class="ml-2" Style="vertical-align: middle;" />
                                     }
                                 </td>
+                                <td style="white-space:nowrap;" data-install-method="copy">
+                                    @L["install.method.copy"]
+                                </td>
                                 <td style="text-align:right; white-space:nowrap;">@Fmt(file.Size)</td>
                                 <td style="text-align:right; white-space:nowrap;">@Fmt(file.Downloaded)</td>
                                 <td style="white-space:nowrap;">
@@ -128,10 +118,20 @@
                                              Icon="@StateIcon(file.State)" Color="@StateColor(file.State)" />
                                     @L["install.state." + file.State]
                                 </td>
+                                <td style="white-space:nowrap; text-align:right;">
+                                    @InfoCell(file.Name, FileHint(file))
+                                </td>
                             </tr>
                         }
                     </tbody>
                 </MudSimpleTable>
+
+                @if (_status.Running && _status.CurrentFile.Length > 0)
+                {
+                    <MudText Typo="Typo.caption">
+                        @L["install.current"]: @_status.CurrentFile
+                    </MudText>
+                }
 
                 @if (_status.Installed)
                 {
@@ -302,6 +302,85 @@
             await InvokeAsync(StateHasChanged);
         }
     }
+
+    /// <summary>
+    /// ПОДСКАЗКА «i» В КОНЦЕ СТРОКИ (T-238-S0, T-256-S0): у пакета и у файла весов. Текст
+    /// подсказки собирается строками, и те же строки уходят в буфер обмена кнопкой рядом —
+    /// человеку, у которого автоматическая установка не удалась, ссылку источника и точное
+    /// имя файла надо куда-то вставить, а из всплывающей подсказки их не выделить.
+    /// </summary>
+    private RenderFragment InfoCell(string id, List<string> lines) =>@<span>
+        <MudTooltip Placement="Placement.Left">
+            <TooltipContent>
+                <div style="text-align:left; max-width:480px;" data-install-info="@id">
+                    @foreach (var line in lines)
+                    {
+                        <div style="word-break: break-all;">@line</div>
+                    }
+                </div>
+            </TooltipContent>
+            <ChildContent>
+                <MudIcon Icon="@Icons.Material.Outlined.Info" Size="Size.Small" Color="Color.Info"
+                         Style="vertical-align: middle; cursor: help;" />
+            </ChildContent>
+        </MudTooltip>
+        <MudTooltip Text="@L["install.info.copy"]">
+            <MudIconButton Icon="@Icons.Material.Outlined.ContentCopy" Size="Size.Small"
+                           data-install-info-copy="@id" OnClick="@(() => CopyAsync(lines))" />
+        </MudTooltip>
+    </span>;
+
+    private async Task CopyAsync(List<string> lines)
+    {
+        await Js.InvokeVoidAsync("ai2p.copyText", string.Join("\n", lines));
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+
+    /// <summary>Подсказка пакета: краткое имя, точные имена файлов дистрибутива и видны ли
+    /// они в каталоге дистрибутивов, источник, размер и скачанное, куда поставлен и как.</summary>
+    private List<string> PackageHint(ModelPackageStatusDto package)
+    {
+        var lines = new List<string> { $"{L["install.package"]}: {package.Name}", $"{L["install.distFile"]}:" };
+        if (package.Dists.Count == 0)
+        {
+            lines.Add("  —");
+        }
+        foreach (var dist in package.Dists)
+        {
+            lines.Add($"  • {dist.Name}{(dist.Size > 0 ? $" ({Fmt(dist.Size)})" : "")} — "
+                      + (dist.Present ? L["install.dist.present"] : L["install.dist.absent"]));
+        }
+        var sources = package.Dists.Select(d => d.Url).Where(u => u.Length > 0).Distinct().ToList();
+        if (sources.Count == 1)
+        {
+            lines.Add($"{L["install.source"]}: {sources[0]}");
+        }
+        else
+        {
+            lines.Add($"{L["install.source"]}:{(sources.Count == 0 ? " —" : "")}");
+            lines.AddRange(sources.Select(u => $"  • {u}"));
+        }
+        lines.Add($"{L["install.size"]}: {(package.Size > 0 ? Fmt(package.Size) : "—")}");
+        lines.Add($"{L["install.downloaded"]}: {(package.Downloaded > 0 ? Fmt(package.Downloaded) : "—")}");
+        lines.Add($"{L["install.installedIn"]}: {(package.Installed && package.Dir.Length > 0 ? package.Dir : "—")}");
+        lines.Add($"{L["install.method"]}: {L["install.method.setup"]}");
+        if (package.Hint.Length > 0)
+        {
+            lines.Add(package.Hint);
+        }
+        return lines;
+    }
+
+    /// <summary>Подсказка файла весов: имя, источник, размер и скачанное, куда копируется.</summary>
+    private List<string> FileHint(ModelInstallFileDto file) =>
+    [
+        $"{L["install.distFile"]}: {file.Name}",
+        $"{L["install.source"]}: {(file.Url.Length > 0 ? file.Url : "—")}",
+        $"{L["install.size"]}: {Fmt(file.Size)}",
+        $"{L["install.downloaded"]}: {(file.Downloaded > 0 ? Fmt(file.Downloaded) : "—")}",
+        $"{L["install.installedIn"]}: {(file.State == "done" && _status is not null ? System.IO.Path.Combine(_status.TargetDir, file.Name) : "—")}",
+        $"{L["install.method"]}: {L["install.method.copy"]}",
+    ];
 
     private double Percent() => _status is { TotalSize: > 0 }
         ? 100.0 * _status.DownloadedSize / _status.TotalSize

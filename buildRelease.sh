@@ -72,6 +72,10 @@ done
 if [ "$HELP" -eq 1 ]; then
     if [ -f "$SCRIPT_DIR/i18n/loc.sh" ]; then
         AI2P_LOC_DIR="$SCRIPT_DIR/i18n"; . "$SCRIPT_DIR/i18n/loc.sh"
+    fi
+    # T-319: годность загрузчика — по функциям, а не по наличию файла: пустой loc.sh
+    # проходит «-f», но даёт «ai2p_help: not found» вместо справки
+    if command -v ai2p_help >/dev/null 2>&1; then
         ai2p_set_lang "$LANG_OPT"; ai2p_help buildRelease
     else
         echo "Usage: ./buildRelease.sh [dir] [Release|Debug] [--clean] [--self-contained] [--runtime RID]"

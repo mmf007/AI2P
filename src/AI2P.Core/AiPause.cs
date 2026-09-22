@@ -36,6 +36,10 @@ public static class AiPauseKinds
     /// остановлена. Дальше решает человек: снять блокировку, вернуть блокирующую в работу
     /// или запустить задачу вручную.</summary>
     public const string BlockerCancelled = "blocker-cancelled";
+
+    /// <summary>Задача типа «цикл» (T-299-S0): условия проверены, идёт круг тела цикла —
+    /// потомки выполняются, а сама задача стоит на паузе и ждёт окончания цикла.</summary>
+    public const string Loop = "loop";
 }
 
 /// <summary>Причина паузы одной строкой данных (T-187): вид + то, что к нему относится.</summary>
@@ -76,7 +80,7 @@ public static class AiPause
     /// из-за них.</param>
     public static AiPauseDto? Of(bool waiting, string waitKind, DateTime? startAfter,
         int pendingQuestions, DateTime nowUtc, bool hierarchyRun = false,
-        BlockersState blockers = BlockersState.Done)
+        BlockersState blockers = BlockersState.Done, bool loopBody = false)
     {
         // лимит идёт первым: он определяет, КОГДА работа продолжится, — даже если у задания
         // при этом остался висеть вопрос, ответ на него агент прочитает только после сброса окна
@@ -86,6 +90,11 @@ public static class AiPause
         }
         if (!waiting)
         {
+            // идёт круг тела цикла (T-299-S0): задача на паузе ждёт своих потомков
+            if (loopBody)
+            {
+                return new AiPauseDto { Kind = AiPauseKinds.Loop };
+            }
             // блокирующие задачи (T-6-S1) называются раньше очереди иерархии: очередь дошла
             // до задачи и стоит именно из-за них, а отменённая блокирующая ещё и закрыла
             // очередь — иначе человек видел бы «запуск иерархии» у задачи, которая не пойдёт

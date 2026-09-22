@@ -80,6 +80,8 @@ scr.inst.71=Stale and would be deleted: {0}
 scr.inst.72=[WARN] Service {0} did not come up. The files are updated.
 scr.inst.73=       The reason: the logs in {0} and the state of the service itself.
 scr.inst.74=unknown
+scr.inst.75=[ERROR] The target folder lies INSIDE the release folder (or the other way round).
+scr.inst.76=        Copying a folder into itself feeds its own walk and fills the disk. Name a folder outside the release.
 
 # ---------- makeAsServise.ps1 / makeAsServise.sh ----------
 scr.svc.1=AI2P: task and AI agent server. Web interface - the port from config.json of the installation folder.

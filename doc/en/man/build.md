@@ -271,15 +271,15 @@ and it has to be run **from the output directory**; the result lands in `../../p
 ```powershell
 # Windows: Inno Setup 6 is needed (install_required.bat installs it)
 cd builds\windows\releasefull
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_full_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_full_windows_x64.exe
 cd ..\release
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_windows_x64.exe
 ```
 
 ```sh
 # Linux / macOS: makeself is needed (install_required.sh installs it)
 cd builds/linux/releasefull
-./MakePackage.sh                     # -> ../../packages/AI2P_full_v_1_99_Linux.run
+./MakePackage.sh                     # -> ../../packages/AI2P_v_1_99_full_linux_x64.run
 ```
 
 The file name is put together by itself from the output's `version.json` — the build number `NN` does
@@ -287,8 +287,14 @@ not have to be asked for:
 
 | the output | Windows | Linux | macOS |
 |---|---|---|---|
-| `releasefull` | `AI2P_full_v_1_NN_win64.exe` | `AI2P_full_v_1_NN_Linux.run` | `AI2P_full_v_1_NN_MacOs.run` |
-| `release` | `AI2P_v_1_NN_win64.exe` | `AI2P_v_1_NN_Linux.run` | `AI2P_v_1_NN_MacOs.run` |
+| `releasefull` | `AI2P_v_1_NN_full_windows_x64.exe` | `AI2P_v_1_NN_full_linux_x64.run` | `AI2P_v_1_NN_full_macos_arm64.run` |
+| `release` | `AI2P_v_1_NN_windows_x64.exe` | `AI2P_v_1_NN_linux_x64.run` | `AI2P_v_1_NN_macos_arm64.run` |
+
+The parts of the name come in this order: `AI2P_v_` + the version number + `_full` for the full
+release + the system (`windows`, `linux`, `macos`) + the architecture (`x64`, `arm64`, `arm`,
+`x86`). For a full release the system and the architecture are named by its runtime (`win-x64`,
+`linux-arm64`, `osx-arm64`); for the usual one by the OS folder and by the architecture of the
+current compiler (T-234-S0).
 
 The extension sets the kind of the installer: on Windows this is Inno Setup (`.exe`), on Linux and
 macOS a self-extracting makeself archive (`.run`), which runs the same `install.sh` inside. The

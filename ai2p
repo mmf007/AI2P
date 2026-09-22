@@ -24,8 +24,13 @@ ai2p_load_loc() {
     if [ -f "$DIR/i18n/loc.sh" ]; then
         AI2P_LOC_DIR="$DIR/i18n"
         . "$DIR/i18n/loc.sh"
-        ai2p_set_lang "${1:-}"
-        return 0
+        # T-319: файл может лежать на месте и не задавать НИ ОДНОЙ функции (пустой или
+        # обрезанный при копировании) — под «set -e» вызов ai2p_set_lang оборвал бы весь
+        # скрипт кодом 127. Спрашиваем факт, а не наличие файла
+        if command -v ai2p_set_lang >/dev/null 2>&1; then
+            ai2p_set_lang "${1:-}"
+            return 0
+        fi
     fi
     return 1
 }

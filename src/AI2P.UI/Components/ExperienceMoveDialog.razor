@@ -1,0 +1,136 @@
+@inject I18nService L
+@inject UiState State
+@inject ApiClient Api
+
+@* ПЕРЕНОС ЗАПИСИ ОПЫТА В ДРУГУЮ ОБЛАСТЬ (T-269-S0, ветка T-318 «Проект опыта»).
+
+   Областей три, и до этой версии исправить область записи было НЕЧЕМ: её оставалось
+   удалить и завести заново, потеряв идентификатор, историю и авторство (а чужую нельзя
+   и удалить). Здесь выбирается ПОЛУЧАТЕЛЬ: общие правила организации, проект или узел
+   шаблона; сам перенос делает сервер (POST /api/experience/{id}/move).
+
+   Правило разграничения показывается прямо в окне — тем же текстом, что в форме записи
+   и в промпте агента. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="3" Style="min-width: 420px;">
+            <MudAlert Severity="Severity.Info" Dense="true">@L["exp.scope.rule"]</MudAlert>
+            <MudSelect T="string" @bind-Value="_scope" Label="@L["exp.move.scope"]" Dense="true"
+                       data-exp-move-scope="@_scope">
+                @if (Current != ExperienceScopes.General)
+                {
+                    <MudSelectItem T="string" Value="@ExperienceScopes.General">@L["exp.move.scope.general"]</MudSelectItem>
+                }
+                @if (Current != ExperienceScopes.Project || State.Projects.Count > 1)
+                {
+                    <MudSelectItem T="string" Value="@ExperienceScopes.Project">@L["exp.move.scope.project"]</MudSelectItem>
+                }
+                <MudSelectItem T="string" Value="@ExperienceScopes.Template">@L["exp.move.scope.template"]</MudSelectItem>
+            </MudSelect>
+            @if (_scope == ExperienceScopes.Project || _scope == ExperienceScopes.Template)
+            {
+                @* проект нужен обоим: у узла шаблона он задаёт, СРЕДИ КАКИХ узлов выбирать *@
+                <MudSelect T="string" Value="@_projectId" ValueChanged="OnProjectChanged"
+                           Label="@L["exp.move.project"]"
+                           Dense="true" data-exp-move-project="1" ToStringFunc="@ProjectName">
+                    @foreach (var project in State.Projects)
+                    {
+                        <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            @if (_scope == ExperienceScopes.Template)
+            {
+                <MudSelect T="string" @bind-Value="_templateId" Label="@L["exp.move.template"]"
+                           Dense="true" data-exp-move-template="1" ToStringFunc="@NodeTitle">
+                    @foreach (var node in _templates)
+                    {
+                        <MudSelectItem T="string" Value="@node.Id">@node.DisplayId — @node.Title</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            <MudText Typo="Typo.caption" Style="opacity:.75">@L["exp.move.keeps"]</MudText>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(!Ready)"
+                   data-exp-move-ok="1" OnClick="Ok">
+            @L["exp.move"]
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    /// <summary>Нынешняя область записи: её не предлагаем как получателя (кроме проекта —
+    /// запись можно перенести в ДРУГОЙ проект).</summary>
+    [Parameter] public string Current { get; set; } = "";
+
+    /// <summary>Проект, с чьей вкладки пришли, — начальное значение выбора.</summary>
+    [Parameter] public string ProjectId { get; set; } = "";
+
+    private string _scope = ExperienceScopes.Project;
+    private string _projectId = "";
+    private string _templateId = "";
+    private List<TaskItem> _templates = [];
+
+    private bool Ready =>
+        _scope == ExperienceScopes.General
+        || (_scope == ExperienceScopes.Project && _projectId.Length > 0)
+        || (_scope == ExperienceScopes.Template && _templateId.Length > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _scope = Current == ExperienceScopes.Project
+            ? ExperienceScopes.General
+            : ExperienceScopes.Project;
+        _projectId = ProjectId.Length > 0
+            ? ProjectId
+            : State.CurrentProjectId ?? State.Projects.FirstOrDefault()?.Id ?? "";
+        await LoadTemplatesAsync();
+    }
+
+    private async Task OnProjectChanged(string projectId)
+    {
+        _projectId = projectId ?? "";
+        await LoadTemplatesAsync();
+    }
+
+    /// <summary>Узлы шаблонов выбранного проекта: перенести запись можно только в живой
+    /// узел-шаблон, и выбирать его удобнее списком, чем кодом на память.</summary>
+    private async Task LoadTemplatesAsync()
+    {
+        if (_projectId.Length == 0)
+        {
+            _templates = [];
+            return;
+        }
+        try
+        {
+            _templates = await Api.GetTasksAsync(_projectId, templatesOnly: true);
+        }
+        catch (ApiException)
+        {
+            _templates = [];
+        }
+        if (!_templates.Any(t => t.Id == _templateId))
+        {
+            _templateId = "";
+        }
+    }
+
+    private string ProjectName(string? id) =>
+        State.Projects.FirstOrDefault(p => p.Id == id)?.Name ?? "";
+
+    private string NodeTitle(string? id) =>
+        _templates.FirstOrDefault(t => t.Id == id) is { } node ? $"{node.DisplayId} — {node.Title}" : "";
+
+    private void Ok() => Dialog.Close(DialogResult.Ok(new ExperienceMoveDto
+    {
+        Scope = _scope,
+        ProjectId = _scope == ExperienceScopes.Project ? _projectId : null,
+        TemplateTaskId = _scope == ExperienceScopes.Template ? _templateId : null,
+    }));
+}

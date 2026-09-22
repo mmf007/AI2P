@@ -110,7 +110,7 @@ public sealed class Todo92Tests : IDisposable
         // v38 — обучение адаптера LoRA под модель, object_loras (T-12-S1);
         // v39 — заявки на смену дирижёра, conductor_requests (T-21-S1);
         // v40 — уведомления пользователя, notification_* (T-272)
-        Assert.Equal("46", Sql.Scalar<string>(conn, null,
+        Assert.Equal("48", Sql.Scalar<string>(conn, null,
             "SELECT value FROM meta WHERE key='schema_version'"));
 
         // индекс по новой колонке — тот самый, на котором всё падало

@@ -25,9 +25,13 @@ USAGE (Linux / macOS)
   ./MakePackage.sh --help           this help
 
 THE FILE NAME is composed by itself, out of version.json of the release:
-  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
-  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
+  releasefull -> AI2P_v_1_NN_full_windows_x64.exe / AI2P_v_1_NN_full_linux_x64.run
+  release     -> AI2P_v_1_NN_windows_x64.exe      / AI2P_v_1_NN_linux_x64.run
 NN is the build number (the second part of the version), no need to ask for it.
+The word full stands AFTER the version number, then come the system (windows,
+linux, macos) and the architecture (x64, arm64, arm, x86): for a full release
+they are named by its runtime, for the usual one by the OS folder and by the
+current compiler.
 On Windows the installer is built by Inno Setup (ISCC.exe) and .exe is its kind of
 result; .run is the kind of result of makeself - a self-extracting archive that
 starts install.sh itself.

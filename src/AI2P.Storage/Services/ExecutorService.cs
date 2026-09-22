@@ -96,6 +96,16 @@ public sealed class ExecutorService
             ? (executor.LoginEmail.Trim().Length > 0 ? executor.LoginEmail.Trim() : LoginEmailOf(executor))
             : executor.NotifyEmail.Trim();
 
+    /// <summary>
+    /// СУФЛЁР ЗАПИСИ (T-286-S0; с T-292-S0 это ИСПОЛНИТЕЛЬ, а не модель): пустая строка
+    /// приводится к null. Форма присылает
+    /// пустую строку, когда поле очистили, а «нет суфлёра» и «суфлёр с пустым именем» —
+    /// разные вещи только на вид: второго не бывает, и хранить их двумя значениями значит
+    /// заводить два способа написать одно и то же.
+    /// </summary>
+    private static string? Prompter(Executor executor) =>
+        executor.PrompterExecutorId is { } id && id.Trim().Length > 0 ? id.Trim() : null;
+
     private Executor Decorate(Executor executor)
     {
         executor.ServerCode = _scope.CodeOf(executor.ServerId);
@@ -405,16 +415,18 @@ public sealed class ExecutorService
 
         Sql.Exec(conn, tx, """
             INSERT INTO executors (id, display_id, nick, internal_name, kind, system_role, model_id,
-                                   plugin_code, plugin_op,
+                                   prompter_executor_id, plugin_code, plugin_op,
                                    account_id, profile_path, capabilities_path, is_active,
                                    token_limit, limit_window_hours, response_timeout_minutes,
                                    email_from_login, notify_email,
                                    server_id, created_at, updated_at)
-            VALUES (@id, @did, @nick, @internal, @kind, @role, @model, @plugin, @op, @account,
+            VALUES (@id, @did, @nick, @internal, @kind, @role, @model, @prompter, @plugin, @op, @account,
                     @profile, @caps, @active, @tokenLimit, @window, @timeout,
                     @fromLogin, @notifyEmail,
                     @server, @created, @updated)
             """,
+            // модель-суфлёр (T-286-S0): вторая модель исполнителя, пусто — суфлёра нет
+            ("@prompter", Prompter(executor)),
             // «авто ПО» (T-153-S0): пара «плагин + именованная операция» вместо модели
             ("@plugin", executor.PluginCode), ("@op", executor.PluginOp),
             // почта для уведомлений (T-272): по умолчанию берётся из логина
@@ -472,7 +484,8 @@ public sealed class ExecutorService
 
         Sql.Exec(conn, tx, """
             UPDATE executors SET nick=@nick, internal_name=@internal, kind=@kind, system_role=@role,
-                                 model_id=@model, plugin_code=@plugin, plugin_op=@op,
+                                 model_id=@model, prompter_executor_id=@prompter,
+                                 plugin_code=@plugin, plugin_op=@op,
                                  account_id=@account,
                                  profile_path=@profile, capabilities_path=@caps,
                                  is_active=@active, busy_until=@busy, server_id=@server,
@@ -482,6 +495,8 @@ public sealed class ExecutorService
                                  updated_at=@updated
             WHERE id=@id
             """,
+            // модель-суфлёр (T-286-S0)
+            ("@prompter", Prompter(executor)),
             // почта для уведомлений (T-272)
             ("@fromLogin", executor.EmailFromLogin ? 1 : 0),
             ("@notifyEmail", executor.NotifyEmail.Trim()),
@@ -796,6 +811,8 @@ public sealed class ExecutorService
         Kind = EnumMap.ExecutorKindFromDb(r.S("kind")),
         SystemRole = EnumMap.SystemRoleFromDb(r.S("system_role")),
         ModelId = r.SN("model_id"),
+        // модель-суфлёр (T-286-S0): у записей прежних версий колонки ещё нет — суфлёра нет
+        PrompterExecutorId = r.Has("prompter_executor_id") ? r.SN("prompter_executor_id") : null,
         // «авто ПО» (T-153-S0): у записей прежних версий колонок ещё нет
         PluginCode = r.Has("plugin_code") ? r.S("plugin_code") : "",
         PluginOp = r.Has("plugin_op") ? r.S("plugin_op") : "",

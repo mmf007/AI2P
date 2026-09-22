@@ -126,7 +126,8 @@ public sealed class ObjectLoadService
     /// на этом компьютере (null — не задана: тогда файлов объектов взять неоткуда).
     /// </summary>
     public ObjectLoadPlan Plan(string? projectId, string? description, LoraSettings lora,
-        RefImageSettings refImage, string modelName, string? projectFolder, string? modelId = null)
+        RefImageSettings refImage, string modelName, string? projectFolder, string? modelId = null,
+        RefAudioSettings? refAudio = null)
     {
         var refs = RefsOf(projectId, description, modelId);
         return ObjectLoadPlanner.Plan(refs, lora, refImage, modelName,
@@ -134,7 +135,8 @@ public sealed class ObjectLoadService
             // кадр датасета LoRA лежит в каталоге данных организации (T-98-S0), остальные
             // файлы объектов — в папке проекта; откуда его брать, говорит сам путь
             path => ObjectFiles.Resolve(path, projectFolder, _files.DataDir) is { } abs
-                    && File.Exists(abs));
+                    && File.Exists(abs),
+            refAudio);
     }
 
     /// <summary>
@@ -174,7 +176,8 @@ public sealed class ObjectLoadService
                 sb.AppendLine("* " + line);
             }
         }
-        var candidates = Substitutes(currentExecutorId, plan.LoraFailed, plan.ImageFailed);
+        var candidates = Substitutes(currentExecutorId, plan.LoraFailed, plan.ImageFailed,
+            plan.AudioFailed);
         sb.AppendLine();
         sb.AppendLine(candidates.Count == 0
             ? Loc.T("msg.objectLoad.17")
@@ -226,12 +229,12 @@ public sealed class ObjectLoadService
     /// (T-250), и решает именно он.
     /// </summary>
     public List<(Executor Executor, string Why)> Substitutes(string? currentExecutorId,
-        bool needLora, bool needImage)
+        bool needLora, bool needImage, bool needAudio = false)
     {
         var result = new List<(Executor, string)>();
         // ничего не сорвалось — заменять некого и незачем: список «могут заменить», в котором
         // перечислены вообще все агенты, только сбивает с толку
-        if (!needLora && !needImage)
+        if (!needLora && !needImage && !needAudio)
         {
             return result;
         }
@@ -249,6 +252,7 @@ public sealed class ObjectLoadService
             }
             var lora = LoraSettings.Parse(profileJson);
             var refImage = RefImageSettings.Parse(profileJson);
+            var refAudio = RefAudioSettings.Parse(profileJson);
             if (needLora && !lora.Supported)
             {
                 continue;
@@ -257,11 +261,20 @@ public sealed class ObjectLoadService
             {
                 continue;
             }
+            if (needAudio && !refAudio.Supported)
+            {
+                continue;
+            }
             var why = needLora
                 ? Loc.T("models.lora.apply." +
                         (Array.IndexOf(ApplyKinds, lora.Apply.Kind) >= 0 ? lora.Apply.Kind : LoraApplyKinds.None))
-                : Loc.T("models.refImage.kind." +
-                        (Array.IndexOf(RefKinds, refImage.Kind) >= 0 ? refImage.Kind : RefImageKinds.None));
+                : needImage
+                    ? Loc.T("models.refImage.kind." +
+                            (Array.IndexOf(RefKinds, refImage.Kind) >= 0 ? refImage.Kind : RefImageKinds.None))
+                    : Loc.T("models.refAudio.kind." +
+                            (Array.IndexOf(RefAudioKinds.All, refAudio.Kind) >= 0
+                                ? refAudio.Kind
+                                : RefAudioKinds.None));
             result.Add((executor, why));
             if (result.Count >= 10)
             {

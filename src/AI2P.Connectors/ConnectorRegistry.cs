@@ -51,6 +51,23 @@ public sealed class ConnectorRegistry
         _aiByProvider = byProvider;
     }
 
+    /// <summary>
+    /// ПОДПИСАТЬ ВСЕ ИИ-КОННЕКТОРЫ на завершение задания СУФЛЁРА (T-292-S0). Суфлёром может
+    /// работать любой исполнитель — CLI-подписка, локальная модель, облачное API, — поэтому
+    /// обработчик ставится не одному коннектору, а всем: какой из них отработает, решает
+    /// профайл выбранного суфлёра.
+    /// </summary>
+    public void OnPrompterFinished(Func<Job, TaskItem, string, Task> handler)
+    {
+        foreach (var connector in _aiByProvider.Values.Append(_claudeCli))
+        {
+            if (connector is AiConnectorBase ai)
+            {
+                ai.PrompterFinished = handler;
+            }
+        }
+    }
+
     /// <summary>Коннектор исполнителя; для ИИ с неподдержанным провайдером — ошибка с пояснением.</summary>
     public IAgentConnector Resolve(Executor executor)
     {

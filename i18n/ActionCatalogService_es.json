@@ -1,5 +1,5 @@
 {
-  "seedVersion": 21,
+  "seedVersion": 25,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -127,7 +127,7 @@
       "tool": "create_experience",
       "title": "Añadir un registro de experiencia",
       "hint": "El agente añade un registro de experiencia: sobre el nodo de plantilla de la tarea actual o sobre todo el proyecto (bloque «Experiencia del proyecto» del encargo). Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la creación de experiencia por parte de los agentes. El agente CLI no tiene herramientas de AI2P: hace lo mismo con el marcador AI2P_EXPERIENCE en la respuesta, y esta acción también lo controla a él.",
-      "prompt": "Añadir un registro de experiencia. Parámetros: text, una lección o conclusión breve, útil para futuras ejecuciones (qué funcionó, escollos, qué hacer de otra manera); scope, el ámbito del registro: «project» (experiencia de todo el proyecto, bloque «Experiencia del proyecto» del encargo) o «template» (experiencia de un nodo de plantilla); por defecto, en una tarea creada a partir de una plantilla se toma su nodo, y en las demás, el proyecto; template, el código del nodo de plantilla o su título (sólo para scope=template, si hace falta un nodo que no sea el propio); skill, el código de una habilidad del catálogo: ese registro sólo lo recibirán los ejecutores con esa habilidad, y sin él el registro es general. Anota sólo observaciones comprobadas y no dupliques lo que ya está en los bloques de experiencia. La experiencia DEL PROYECTO y la de nodos ajenos amplíala sólo si el encargo lo pide expresamente o si la conclusión es importante para todas las tareas del proyecto."
+      "prompt": "Añadir un registro de experiencia. Parámetros: text, una lección o conclusión breve, útil para futuras ejecuciones (qué funcionó, escollos, qué hacer de otra manera); scope, el ámbito del registro: «project» (experiencia de todo el proyecto, bloque «Experiencia del proyecto» del encargo) o «template» (experiencia de un nodo de plantilla); por defecto, en una tarea creada a partir de una plantilla se toma su nodo, y en las demás, el proyecto; template, el código del nodo de plantilla o su título (sólo para scope=template, si hace falta un nodo que no sea el propio); skill, el código de una habilidad del catálogo: ese registro sólo lo recibirán los ejecutores con esa habilidad, y sin él el registro es general. Anota sólo observaciones comprobadas y no dupliques lo que ya está en los bloques de experiencia. La experiencia DEL PROYECTO y la de nodos ajenos amplíala sólo si el encargo lo pide expresamente o si la conclusión es importante para todas las tareas del proyecto. LOS ÁMBITOS SE DELIMITAN así: una regla general trata de CÓMO TRABAJAMOS (proceso, informes, disciplina de pruebas): vale para cualquier proyecto de la organización y no nombra ningún archivo, código de tarea ni el nombre del producto; la experiencia del PROYECTO trata de este producto: su estructura, sus trampas, sus decisiones y los nombres de sus entidades; la experiencia del NODO DE PLANTILLA trata de este paso del proceso. Un texto con indicios de algo específico del proyecto (código de tarea, ruta, nombre de archivo o de proyecto) NO SE ADMITE en las reglas generales: guárdalo en la experiencia del proyecto; corrige un ámbito equivocado con move_experience y no con un registro nuevo."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000015",
@@ -135,7 +135,47 @@
       "tool": "update_experience",
       "title": "Modificar un registro de experiencia",
       "hint": "El agente edita un registro de experiencia existente de su proyecto o de sus plantillas. Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la edición de experiencia por parte de los agentes. En el agente CLI es el mismo marcador AI2P_EXPERIENCE con el parámetro id.",
-      "prompt": "Modificar un registro de experiencia. Parámetros: id, el identificador del registro del bloque «Experiencia del proyecto» o «Experiencia de ejecución» del texto del encargo; text, el nuevo texto COMPLETO del registro; skill, el código de una habilidad (si se pasa, la habilidad del registro cambia; si no, se queda como estaba). Aplícalo cuando el registro esté obsoleto o contradiga el curso real de la ejecución; en los demás casos añade un registro nuevo con create_experience."
+      "prompt": "Modificar un registro de experiencia. Parámetros: id, el identificador del registro del bloque «Experiencia del proyecto» o «Experiencia de ejecución» del texto del encargo; text, el nuevo texto COMPLETO del registro; skill, el código de una habilidad (si se pasa, la habilidad del registro cambia; si no, se queda como estaba). Aplícalo cuando el registro esté obsoleto o contradiga el curso real de la ejecución; en los demás casos añade un registro nuevo con create_experience. La edición NO cambia el ámbito del registro: para eso está move_experience; recordatorio de los límites: una regla general trata de CÓMO TRABAJAMOS (proceso, informes, disciplina de pruebas): vale para cualquier proyecto de la organización y no nombra ningún archivo, código de tarea ni el nombre del producto; la experiencia del PROYECTO trata de este producto: su estructura, sus trampas, sus decisiones y los nombres de sus entidades; la experiencia del NODO DE PLANTILLA trata de este paso del proceso. Desde la versión 1.135 también se pueden cambiar tags (la lista de etiquetas), alwaysLoad (la marca «cargar siempre») y active (si el registro está activo); UN CAMPO QUE NO SE PASA NO SE CAMBIA: pasar solo el texto no borra las etiquetas ni las marcas puestas por una persona."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000036",
+      "code": "AI2P.Experience.Search",
+      "tool": "search_experience",
+      "title": "Buscar en la experiencia",
+      "hint": "El agente busca en los registros de experiencia acumulados: del proyecto, de los nodos de plantilla y de las reglas generales de la organización. Se creó porque NO había forma de obtener un registro que no cupo en el encargo (el límite de inserción de experiencia está en los ajustes del proyecto): la indicación decía «pregunta a la persona». Por defecto solo se buscan registros ACTIVOS; la bandera includeInactive añade los inactivos. Una regla de seguridad deny/confirm sobre este código cierra la búsqueda por completo. El agente CLI tiene lo mismo: el comando «ai2p experience-find».",
+      "prompt": "Buscar registros de experiencia por palabras. Parámetros: query — las palabras de la consulta; scope — el área: «project» (experiencia del proyecto), «template» (experiencia de los nodos de plantilla), «general» (reglas generales de trabajo de la organización), «all» o vacío — buscar en todas; limit — cuántos registros devolver (1..50, 10 por defecto); includeInactive — buscar TAMBIÉN en los registros INACTIVOS (por defecto solo en los activos: un registro inactivo nunca se inserta en el encargo). La búsqueda es léxica: por las palabras del texto del registro, no por el significado. Úsala cuando el bloque de experiencia diga que parte de los registros no se muestra, o cuando necesites una conclusión anterior sobre un tema concreto; el registro encontrado se puede editar con update_experience por su id."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000037",
+      "code": "AI2P.Experience.Move",
+      "tool": "move_experience",
+      "title": "Mover un registro de experiencia",
+      "hint": "El agente mueve un registro de experiencia entre ámbitos: reglas generales de la organización ↔ experiencia del proyecto ↔ experiencia de un nodo de plantilla. Existe porque corregir el ámbito era imposible: había que borrar el registro y crearlo de nuevo, perdiendo su id, su historial y su autoría; de ahí la basura en la experiencia general, que llega a todas las tareas de la organización. Solo mueve el servidor propietario del registro; una regla incluida en la distribución nunca se mueve. Una regla de seguridad deny/confirm sobre este código cierra el traslado por completo. El agente CLI hace lo mismo con el comando «ai2p experience-move».",
+      "prompt": "Mover un registro de experiencia a otro ámbito. Parámetros: id — el registro (de los bloques de experiencia de la tarea o del resultado de search_experience); scope — adónde: «project» (experiencia de este proyecto), «template» (experiencia de un nodo de plantilla), «general» (reglas generales de trabajo de la organización); template — código o título del nodo de plantilla (solo para scope=template; si se omite, el nodo de la tarea actual). El proyecto de destino es siempre el actual. Los ámbitos se delimitan así: una regla general trata de CÓMO TRABAJAMOS (proceso, informes, disciplina de pruebas): vale para cualquier proyecto de la organización y no nombra ningún archivo, código de tarea ni el nombre del producto; la experiencia del PROYECTO trata de este producto: su estructura, sus trampas, sus decisiones y los nombres de sus entidades; la experiencia del NODO DE PLANTILLA trata de este paso del proceso. El traslado conserva el id, el texto, las etiquetas, la habilidad y la autoría: úsalo en vez de «borrar y crear de nuevo». Un texto con indicios de algo específico del proyecto (código de tarea, ruta, nombre de proyecto) no se admite en las reglas generales."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000038",
+      "code": "AI2P.Experience.SetActive",
+      "tool": "set_experience_active",
+      "title": "Activar o desactivar un registro de experiencia",
+      "hint": "El agente deja un registro de experiencia inactivo (deja de insertarse en los trabajos) o lo devuelve al uso. Creado para la plantilla «Análisis de la experiencia»: el agente NO borra experiencia y nunca lo hará — desactiva lo obsoleto, y luego la regla de archivado se lo lleva. El agente no puede desactivar las reglas incluidas en la distribución: son las reglas por las que él mismo trabaja. Una regla de seguridad deny/confirm sobre este código cierra el cambio por completo. En el cliente de línea de comandos es «ai2p experience-active».",
+      "prompt": "Poner un registro de experiencia como activo o inactivo. Parámetros: id — el registro (de los bloques de experiencia del trabajo, de list_experience o de search_experience); active — true (el registro vuelve a los trabajos) o false (deja de insertarse). Desactiva un registro cuando está obsoleto, contradice a otro más nuevo o se ha resumido en uno nuevo. La experiencia NO se borra, solo se desactiva: un registro inactivo se puede leer y reactivar. No se cambian los registros de otro servidor ni las reglas de la distribución."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000039",
+      "code": "AI2P.Experience.List",
+      "tool": "list_experience",
+      "title": "Listar registros de experiencia",
+      "hint": "El agente lee los registros de un ámbito seguidos, por páginas: la búsqueda devuelve lo parecido a la consulta, mientras que revisar la experiencia exige todo el corpus. Filtra por habilidad y etiqueta; includeInactive añade los desactivados. Una regla de seguridad deny/confirm sobre este código cierra el listado. En el cliente de línea de comandos es «ai2p experience-list».",
+      "prompt": "Listar los registros de experiencia de un ámbito. Parámetros: scope — «project» (experiencia del proyecto, por defecto), «template» (experiencia de un nodo de plantilla), «general» (reglas generales de trabajo de la organización); template — código o título del nodo de plantilla (para scope=template; omitido — el nodo de la tarea actual); skill — código de habilidad (coincidencia exacta); tag — etiqueta (coincidencia exacta); includeInactive — mostrar también los registros INACTIVOS (por defecto solo los activos); limit — cuántas filas (1..200, por defecto 20); offset — cuántas saltar. Úsalo para revisar la experiencia por lotes: encontrar duplicados, fundir varios registros en uno, poner etiquetas y habilidades."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000040",
+      "code": "AI2P.Experience.Usage",
+      "tool": "experience_usage",
+      "title": "Estadística de uso de la experiencia",
+      "hint": "El agente pregunta cuántas tareas recibieron un registro de experiencia en el texto del trabajo y cuándo fue la última vez (el rastro se guarda desde T-266-S0). La plantilla «Análisis de la experiencia» decide con estos números qué desactivar. Una regla de seguridad deny/confirm sobre este código cierra la estadística. En el cliente de línea de comandos es «ai2p experience-usage».",
+      "prompt": "Estadística de uso de los registros de experiencia: cuántas TAREAS recibieron el registro en su texto de trabajo y cuándo fue la última vez. Parámetros: id — un registro; o scope — todo un ámbito: «project», «template», «general» (por defecto el proyecto de la tarea actual); limit — cuántas filas (1..200, por defecto 50); offset — cuántas saltar. Para un ámbito las filas van de los menos usados a los más usados. La cuenta es por tarea, no por ejecución: reiniciar la misma tarea no la aumenta."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000016",
@@ -263,6 +303,68 @@
       "title": "Lanzamiento de una tarea de ejecutor de software",
       "hint": "Acción-política (el agente no tiene herramienta): una regla de seguridad deny o confirm sobre este código prohíbe lanzar tareas del ejecutor «software», es decir, el trabajo de un programa externo del complemento (entrenamiento de LoRA y otras ejecuciones largas). La decisión se consulta antes de CADA lanzamiento, incluso cuando la tarea la creó y lanzó un agente de IA. Qué complemento puede lanzarse se indica con otro tipo de regla: «complementos y MCP».",
       "prompt": ""
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000034",
+      "code": "AI2P.Update.Check",
+      "title": "Comprobar actualizaciones de la aplicación",
+      "hint": "Consultar el repositorio de publicaciones y averiguar si salió una versión más nueva que la instalada. Se elige el archivo PARA ESTA instalación: el mismo sistema, la misma arquitectura y el mismo modo de instalación (publicación completa con el runtime dentro o normal). No instala nada ni toca el servidor: la respuesta va al registro. Se pone en la programación (tipo de disparo «acción del sistema») con la casilla «comprobación automática» de los ajustes; el arranque en consola comprueba al iniciar y no necesita entrada en la programación.",
+      "prompt": "Comprobar si salió una nueva versión de AI2P: la respuesta es «no hay actualizaciones» o «salió la versión 1.NN». No instala nada."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000035",
+      "code": "AI2P.Update.Run",
+      "title": "Actualizar la aplicación",
+      "hint": "Comprobar las publicaciones y, si salió una versión más nueva, descargar el paquete de instalación para este sistema e instalarlo. La actualización REINICIA el servidor: los agentes de todas las organizaciones que trabajan en él se detendrán. Se pone en la programación con la casilla «actualización automática» de los ajustes (2:00 hora local por omisión) y se llama con el botón «Actualizar» de los ajustes.",
+      "prompt": "Actualizar AI2P a la última versión: descargar el paquete de instalación para este sistema, instalarlo y reiniciar el servidor. Todos los agentes en marcha se detendrán."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000041",
+      "code": "AI2P.Tasks.SendMessage",
+      "tool": "send_task_message",
+      "title": "Mensaje al agente de una tarea emparentada",
+      "hint": "El agente escribe en el CHAT de una tarea emparentada: una subtarea hermana del mismo padre, la tarea padre o su propia subtarea (T-185). Si un agente está trabajando en esa tarea ahora mismo, el mensaje le llega en plena ejecución (interrupción por chat); si no, espera en el chat y lo verán tanto la persona como el agente cuando se lance la tarea. «wait» detiene el trabajo hasta la respuesta. Una regla de seguridad deny/confirm sobre este código cierra por completo la conversación entre agentes; antes de existir este registro la herramienta no estaba cerrada por nada: una acción sin registro del catálogo no tiene código y la comprobación de reglas la deja pasar. El agente CLI hace lo mismo con el marcador AI2P_TO_TASK.",
+      "prompt": "Escribe al agente de una tarea EMPARENTADA: una subtarea hermana del mismo padre, la tarea padre o tu propia subtarea. El mensaje entra en el chat de esa tarea en tu nombre y llega a su agente en plena ejecución. Parámetros: code — código de la tarea interlocutora (T-15); text — el mensaje; wait — true si hay que pausar el trabajo hasta la respuesta (llegará como el siguiente mensaje de esta misma sesión y continuarás desde el mismo punto). Escribe cuando tu resultado dependa de la parte de otro (formato de datos, nombre de función, qué está hecho) o cuando veas que hacéis lo mismo. Repite en tu resultado todo acuerdo que afecte al trabajo: la conversación no sustituye a la tarea."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000042",
+      "code": "AI2P.Tasks.WaitReply",
+      "tool": "wait_task_reply",
+      "title": "Esperar la respuesta del interlocutor",
+      "hint": "El agente espera una respuesta en el chat de SU PROPIA tarea sin terminar el turno: cuenta cualquier mensaje que no sea suyo, del agente de una tarea emparentada o de la persona (T-185). Espera como mucho los minutos indicados (10 por defecto; el límite está en el código); si nadie responde, se dice así y hay que seguir con lo que hay. Lo necesitan los agentes con herramientas de AI2P; el agente CLI dispone en su lugar de la pausa del trabajo (marcador AI2P_TO_TASK con wait=true). Una regla de seguridad deny/confirm sobre este código cierra la espera.",
+      "prompt": "Espera una respuesta en el chat de la tarea ACTUAL sin terminar el turno. Cuenta como respuesta cualquier mensaje que no sea tuyo: la réplica del agente de una tarea emparentada a quien escribiste o un mensaje de la persona. Parámetro minutes — cuántos minutos esperar (10 por defecto). Si nadie responde, sigue con lo que tengas y dilo en tu resultado."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000043",
+      "code": "AI2P.Tasks.ConditionResult",
+      "tool": "set_condition_result",
+      "title": "Decisión de la tarea-condición",
+      "hint": "El agente de una tarea de tipo «Condición» devuelve su decisión estrictamente como true («Sí») o false («No») — T-300-S0. La decisión se guarda en la tarea y la cola de la jerarquía elige la rama con ella cuando termina el trabajo; la rama no elegida la cancela el sistema. Cualquier valor distinto del booleano true/false (o de las cadenas \"true\"/\"false\" del cliente de línea de comandos) es un error de la acción: no hay tercer resultado. Solo se publica a una tarea de tipo «Condición». Para un agente CLI: el comando «ai2p condition true|false» y el marcador AI2P_CONDITION.",
+      "prompt": "Devolver la DECISIÓN de una tarea de tipo «Condición»: parámetro value — estrictamente true («Sí», la condición se cumple) o false («No»). Decide según la descripción de la tarea, su chat y los resultados del trabajo; si no puedes decidir sin ambigüedad, pregunta a la persona en vez de adivinar. Llámala ANTES de terminar: sin decisión el sistema detiene la ejecución de la jerarquía. Una llamada repetida sobrescribe la decisión. La rama la elige el sistema y cancela la otra — no lo hagas tú."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000044",
+      "code": "AI2P.Tasks.LoopResult",
+      "tool": "set_loop_result",
+      "title": "Resultado de la comprobación del bucle",
+      "hint": "El agente de una tarea de tipo «Bucle (comprobar antes)» o «Bucle (comprobar después)» responde si hace falta otra vuelta de subtareas: true — las condiciones del bucle se cumplen, otra vuelta; false — salir del bucle (T-300-S0). La cola de la jerarquía cuenta las vueltas, reinicia las subtareas y respeta el límite de vueltas. Cualquier valor distinto de true/false es un error de la acción. Solo se publica a una tarea-bucle. Para un agente CLI: el comando «ai2p loop true|false» y el marcador AI2P_LOOP.",
+      "prompt": "Devolver el RESULTADO DE COMPROBAR LAS CONDICIONES DEL BUCLE (tarea «Bucle (comprobar antes)» / «Bucle (comprobar después)»): parámetro continue — estrictamente true (las condiciones se cumplen, hace falta otra vuelta de subtareas) o false (salir del bucle). Comprueba según la descripción de la tarea, su chat y los resultados de las subtareas. Llámala ANTES de terminar: sin respuesta el sistema detiene la ejecución de la jerarquía. Las vueltas, el reinicio de subtareas y el límite los lleva el sistema."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000045",
+      "code": "AI2P.Tasks.StopHierarchy",
+      "tool": "stop_hierarchy",
+      "title": "Detener la ejecución de la jerarquía",
+      "hint": "El agente cierra la cola de ejecución de la jerarquía a la que pertenece su tarea (T-300-S0): la cola ya no inicia tareas, los trabajos en curso terminan. Lo mismo que hace el motor con la casilla «detener la ejecución de la jerarquía», pero por decisión del agente — por ejemplo, cuando la descripción de la tarea manda parar todo ante cierto resultado. Una persona puede reabrir la cola con el botón de ejecutar la jerarquía. Solo se publica a una tarea dentro de una cola abierta. Para un agente CLI: el comando «ai2p stop-hierarchy» y el marcador AI2P_STOP_HIERARCHY.",
+      "prompt": "DETENER LA EJECUCIÓN DE LA JERARQUÍA a la que pertenece la tarea actual: la cola no iniciará más tareas, los trabajos en curso terminarán. Parámetro reason — por qué (va a la respuesta y al registro). Llámala solo cuando la descripción de la tarea o una persona digan explícitamente que hay que detener toda la jerarquía: las ramas de las condiciones y los límites de los bucles los respeta el sistema."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000046",
+      "code": "AI2P.Tasks.FromTemplate",
+      "tool": "create_tasks_from_template",
+      "title": "Tareas de la rama desde un nodo de plantilla",
+      "hint": "El agente despliega un nodo de plantilla del proyecto como subtarea de su tarea (o de una tarea de su subárbol) — lo mismo que el botón «desde plantilla» de la ficha (T-300-S0). Lo necesita una rama de la condición sin tarea con la casilla «crear tareas»: el trabajo típico de la rama se mantiene mejor como plantilla. Los ejecutores se eligen «primero IA». Así el agente no hace crecer un árbol ajeno. Para un agente CLI: el comando «ai2p from-template <código del nodo>» y el marcador AI2P_FROM_TEMPLATE.",
+      "prompt": "Crear tareas desde un NODO DE PLANTILLA del proyecto: parámetro template — código del nodo (T-5) o su título; parent — código de la tarea padre de tu subárbol (por defecto, la tarea actual). El nodo se despliega con todos sus descendientes y los ejecutores se eligen automáticamente. Úsalo cuando una rama de la condición indique «crear tareas» y exista una plantilla adecuada; si no, create_task."
     }
   ]
 }

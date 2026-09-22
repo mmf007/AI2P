@@ -105,23 +105,77 @@ Se editan en el perfil del modelo (botón «Perfil de conexión»):
 | `negative` | vacío | prompt negativo (a diferencia de Turbo, aquí sí tiene efecto) |
 | `timeoutMinutes` | 60 | cuánto esperar el resultado |
 
-**Sobre la duración.** El campo `length` de este registro significa segundos y se va a dos sitios
-del grafo a la vez: al tamaño del latente vacío y al campo `duration` del planificador. En el
-resumen del encargo aparece rotulado con la palabra «fotogramas», porque así están rotulados todos
-los modelos de medios; léalo como «segundos». El modelo está pensado para pistas de hasta unos
-diez minutos.
+**Sobre la duración.** La duración de cada pista la indica el **modelo apuntador**
+a partir de la descripción de la tarea («minuto y medio» se convierte en `duration: 90`).
+El campo `length` del perfil queda como reserva: actúa cuando no hay apuntador elegido,
+cuando no ha respondido o cuando la tarea no dice nada sobre la duración. El valor se va a
+dos sitios del grafo a la vez — al tamaño del latente vacío y al campo `duration` del
+planificador — y sus límites son duros: de 1 a 1000 segundos (comprobado contra un ComfyUI
+vivo). En el resumen del encargo `length` aparece rotulado «fotogramas», porque así están
+rotulados todos los modelos de medios; léalo como «segundos».
 
-**Sobre el idioma de la voz.** En el grafo, el campo `language` está puesto en `unknown`: el
-modelo determina el idioma por su texto. En las plantillas oficiales de ComfyUI ahí está `en`, lo
-que con letras en ruso habría dado una pronunciación inglesa. Si usted canta siempre en un mismo
-idioma, ponga su código (`ru`, `en`, `es`, `zh`, …) directamente en la plantilla del workflow del
-modelo.
+**Sobre el idioma de la voz.** El idioma lo indica el apuntador con un código de
+la lista del nodo (`ru`, `en`, `zh`, `ja`, …: 51 valores en total). Si nadie lo indica,
+queda `unknown` y el modelo determina el idioma por la letra; en las plantillas oficiales
+de ComfyUI ahí está `en`, lo que con letras no inglesas daría pronunciación inglesa. Un
+idioma fijo también puede ponerse sin apuntador: con su código en la plantilla del workflow
+del modelo.
 
-La descripción entera de la tarea se va al prompt (el campo `tags` del modelo). Una indicación del
+Sin apuntador, la descripción entera de la tarea se va al prompt (el campo `tags` del modelo); con apuntador, a `tags` llegan las etiquetas de estilo que él ha compuesto. Una indicación del
 tipo «результат положить в файл X.mp3» la ejecuta el conector: el archivo se copia a la carpeta
 del proyecto y la propia línea se recorta del prompt. Las palabras de la indicación se reconocen
 **sólo en ruso y en inglés** (en inglés, `Save the result to the file X.mp3`): están incrustadas
 en el código y no dependen del idioma de la instalación.
+
+## El apuntador
+
+Este registro lleva en su perfil la marca **«necesita apuntador»**. El apuntador es OTRO
+EJECUTOR: antes de la generación lee la descripción de la tarea y prepara el json de control
+para ACE-Step en un encargo aparte. Sirve cualquier ejecutor de IA: una suscripción CLI, un
+modelo local, una API en la nube; trabaja con su propio conector, igual que en una tarea
+normal. Se asigna de dos maneras: con el campo **«Apuntador»** de la ficha del ejecutor de
+IA (valor por defecto para todas sus tareas) y con el campo **«Apuntador»** del formulario
+de la tarea, junto a la lista **«Pueden sustituir al apuntador»**, para cuando el asignado
+está ocupado con otro trabajo.
+
+El apuntador rellena siete campos del nodo `TextEncodeAceStepAudio1.5`:
+
+| Campo | Qué es | Si no se indica |
+|---|---|---|
+| `tags` | etiquetas de estilo: género, tempo, instrumentos, ambiente, voz | la descripción entera de la tarea |
+| `lyrics` | la letra de la canción | vacío: el modelo la compone él mismo |
+| `duration` | duración en segundos (1…1000) | el `length` del perfil |
+| `language` | código del idioma de la voz, de la lista del nodo | `unknown` |
+| `bpm` | tempo, pulsaciones por minuto (10…300) | 120 |
+| `keyscale` | tonalidad y modo (`C major` … `B minor`) | `C major` |
+| `timesignature` | compás: 2, 3, 4 o 6 | 4 |
+
+**Qué pasa si no se pone apuntador.** La tarea NO ARRANCA: se detiene con un error que
+dice que el ejecutor necesita apuntador y no lo hay ni en la tarea ni en el propio ejecutor.
+El sistema no puede seguir en silencio «como siempre»: los parámetros de la pista saldrían
+de la nada y se vería media hora después, cuando la pista lista no sea la pedida. Lo mismo
+ocurre con una respuesta sin json y con un encargo del apuntador caído. Los otros dos
+desenlaces son más suaves: si el apuntador asignado está ocupado, el trabajo lo toma el
+primero libre de «pueden sustituir al apuntador», y si todos están ocupados la tarea espera
+en pausa hasta que alguien se libere; si el apuntador hizo una pregunta a la persona, la
+tarea también queda en pausa y sigue con la respuesta.
+
+**Nuevo arranque.** Una tarea en pausa o con error que ya tiene su json pasa directamente a
+la generación: no se pregunta al apuntador dos veces. Una tarea en borrador, en espera o en
+revisión empieza de cero: el apuntador prepara un json nuevo.
+
+**Cómo influir en el resultado desde la descripción.** Escriba lo que debe llegar a los
+campos: la duración («un minuto», «90 segundos»), el idioma de la voz, el tempo, el modo, el
+compás; y la letra de la canción, palabra por palabra, que el apuntador la traslada tal cual.
+El estilo descríbalo con palabras: de ellas saldrán las etiquetas. Lo que finalmente indicó
+se ve en la consola del encargo y en el archivo `prompter.json` entre los archivos de la
+tarea.
+
+**Las reglas por las que trabaja** están junto al perfil del modelo: el archivo
+`models/prompter_<identificador del registro>.md` del directorio de datos. Puede editarlo:
+el texto se va entero al prompt del apuntador y el cambio actúa desde el encargo siguiente.
+El archivo lo reescribe la instalación cuando sube su versión, y la replicación no lo lleva
+a otros servidores.
 
 ## Cómo escribir la tarea
 
@@ -139,31 +193,51 @@ distintas. Si necesita un resultado repetible, escriba `seed` como número en el
 En Base la dispersión entre lanzamientos es bastante más amplia que en SFT: es una propiedad
 suya, no un fallo.
 
+La descripción la lee el apuntador, así que escriba en ella los números y el
+idioma directamente: «90 segundos», «voz en ruso», «120 pulsaciones por minuto», «en modo
+menor». Lo que ha entendido se ve en la consola del encargo.
+
 ## Entrenamiento de LoRA
 
-**La aplicación, sí; el entrenamiento, no.**
+**Aplicar — sí; entrenar desde AI2P — no.**
 
-Un adaptador ya hecho el modelo lo acepta: ComfyUI conoce el formato oficial de LoRA de ACE-Step,
-y AI2P inserta el nodo `LoraLoaderModelOnly` en el grafo sobre la marcha. Ponga el archivo en
-`<repositorio de modelos>/loras/` y nombre el objeto adaptador en la descripción de la tarea con
-una referencia `@obj:`.
+El modelo acepta un adaptador ya entrenado: AI2P inserta el nodo `LoraLoaderModelOnly` en
+el grafo sobre la marcha. Coloque el archivo en `<repositorio de modelos>/loras/` y
+mencione el objeto-adaptador en la descripción de la tarea con `@obj:`.
 
-En cambio, **entrenar un adaptador desde AI2P no se puede**, y en el perfil está señalado
-honestamente (`lora.train.kind: external`). Hay dos motivos:
+Entrenar un adaptador desde AI2P no se puede, y el perfil lo dice con honestidad:
+`lora.train.kind: external` con el comando vacío — el botón «Entrenar» rechaza de
+inmediato en vez de gastar media hora. Verificado el 14.09.2026 sobre los archivos de los
+repositorios:
 
-* [musubi-tuner](https://github.com/kohya-ss/musubi-tuner), con el que AI2P entrena LoRA para los
-  demás modelos locales, no sabe nada de ACE-Step: no tiene ni un solo script de acestep
-  (comprobado el 27.08.2026);
-* el entrenador oficial de ACE-Step (<https://github.com/ace-step/ACE-Step-1.5>, `train.py`)
-  aprende con **grabaciones de audio**, y el conjunto de datos de LoRA en AI2P son fotogramas, es
-  decir, imágenes.
+* **el modelo sí tiene entrenador** — el oficial
+  [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5), licencia MIT, y funciona en
+  Windows con UNA sola tarjeta: `python -m acestep.training_v2.cli.train_fixed`, sin
+  `torchrun`, `--num-devices` es 1 por defecto y los workers del DataLoader son 0 en
+  Windows a propósito. Requiere 16 GB de VRAM como mínimo, 20 GB o más recomendados;
+* **pero necesita pesos distintos de los que instalamos.** El entrenador lee un directorio
+  de checkpoints en formato HuggingFace (`config.json` +
+  `model-0000N-of-00004.safetensors`, unos 19,9 GB por variante, más el VAE y el modelo de
+  lenguaje de etiquetado), mientras que AI2P instala el reempaquetado de Comfy-Org: otros
+  archivos y otra disposición. La instalación no descarga una segunda copia;
+* **y el formato del archivo entrenado no está verificado**: el entrenador produce un
+  adaptador peft sobre su propio DiT, y la rama del «formato oficial de ACE-Step» en
+  `comfy/lora.py` está bajo la clase `ACEStep`, mientras que 1.5 es la clase aparte
+  `ACEStep15`;
+* [musubi-tuner](https://github.com/kohya-ss/musubi-tuner), con el que AI2P entrena LoRA
+  para los demás modelos locales, no conoce ACE-Step en absoluto (verificado el
+  27.08.2026).
 
-Por eso el adaptador se entrena fuera de AI2P con el entrenador oficial y aquí se pone ya como
-archivo terminado.
+**Aun así los límites del conjunto están declarados**: AI2P compara el conjunto con ellos y
+usted lo arma para un entrenamiento externo. El conjunto es de AUDIO (`media: audio`):
+grabaciones de hasta 240 s, 48 000 Hz, 2 canales, formatos WAV, MP3, FLAC, OGG y Opus,
+desde 10 grabaciones, con las descripciones en un archivo `.txt` junto a la grabación
+(transcripción o etiquetas). El editor muestra justamente esos campos y guarda la
+grabación tal cual: el audio no pasa por la compresión de imágenes.
 
-De las tres variantes, los autores señalan como aptas para el entrenamiento Base y SFT (en Turbo
-los pesos están destilados), y el propio Base está marcado en su tabla como el más cómodo para el
-ajuste fino.
+Orden de trabajo del entrenador oficial: preparar las grabaciones con `<nombre>.lyrics.txt`
+y sus descripciones → preprocesar a tensores → lanzar el entrenamiento (LoRA o LoKr, unas
+diez veces más rápido). Detalles — [LoRA Training Tutorial](https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/LoRA_Training_Tutorial.md).
 
 ## Errores frecuentes
 
@@ -172,9 +246,11 @@ ajuste fino.
 * **«El modelo no está instalado»**: los archivos no se han terminado de descargar; abra
   «Instalar» y la ventana mostrará el volumen que queda.
 * **Tarda demasiado**: son 50 pasos con CFG; para borradores coja Turbo.
-* **La voz canta en otro idioma**: ponga el código del idioma en el campo `language` de la
-  plantilla del workflow en lugar de `unknown`.
-* **La pista es más corta o más larga de lo esperado**: es el `length` del perfil, y va en
-  segundos.
+* **La voz canta en otro idioma**: indique el idioma en la descripción de la
+  tarea, el apuntador lo transmitirá; sin apuntador, ponga el código del idioma en el campo
+  `language` de la plantilla del workflow en lugar de `unknown`.
+* **La pista es más corta o más larga de lo esperado**: indique la duración en la
+  descripción de la tarea (el apuntador la entrega en segundos); sin apuntador actúa el
+  `length` del perfil, que también va en segundos.
 * **ComfyUI está ocupado por un proceso ajeno**: AI2P sólo descarga el servidor que ha arrancado
   él mismo; un ComfyUI ajeno que ya esté funcionando en el 8188 no lo toca.

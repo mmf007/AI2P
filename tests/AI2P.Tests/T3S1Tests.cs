@@ -282,6 +282,12 @@ public sealed class T3S1Tests : IDisposable
         return Sql.Scalar<long>(conn, null, "SELECT COUNT(*) FROM skills");
     }
 
+    private static long ActionCount(Database db)
+    {
+        using var conn = db.Open();
+        return Sql.Scalar<long>(conn, null, "SELECT COUNT(*) FROM actions");
+    }
+
     [Fact]
     public void The_Conductor_Seeds_The_Reference_Books()
     {
@@ -303,6 +309,21 @@ public sealed class T3S1Tests : IDisposable
         var org = registry.Orgs.Create("Организация", "org", null);
 
         Assert.Equal(0, SkillCount(registry.Context(org).Db));
+    }
+
+    [Fact]
+    public void A_Rank_And_File_Server_Still_Seeds_The_Action_Catalog()
+    {
+        // ИСКЛЮЧЕНИЕ из правила выше (T-280-S0): у действий дистрибутива идентификаторы
+        // ФИКСИРОВАННЫЕ, второй комплект невозможен — а под общим замком рядовой сервер
+        // и реплика оставались без НОВЫХ действий версии до обновления дирижёра, и жалоба
+        // «в справочнике не появилось AI2P.Experience.Search» была ровно про это
+        using var registry = Registry("plain-actions", conductor: false);
+        var org = registry.Orgs.Create("Организация", "org", null);
+        var ctx = registry.Context(org);
+
+        Assert.True(ActionCount(ctx.Db) > 0);
+        Assert.Contains(ctx.Actions.List("ru"), a => a.Code == "AI2P.Experience.Search");
     }
 
     // --- 5. состав команды ---

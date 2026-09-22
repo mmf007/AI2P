@@ -6,9 +6,11 @@ rem  "edit", so from Explorer or FAR it opens in Notepad instead of running.
 rem
 rem  RUN IT FROM THE RELEASE FOLDER (builds\<os>\release or releasefull).
 rem  The result is one installer file in ..\..\packages:
-rem      releasefull -> AI2P_full_v_1_NN_win64.exe
-rem      release     -> AI2P_v_1_NN_win64.exe
-rem  The build number NN is taken from version.json of the release by itself.
+rem      releasefull -> AI2P_v_1_NN_full_windows_x64.exe
+rem      release     -> AI2P_v_1_NN_windows_x64.exe
+rem  The build number NN is taken from version.json of the release by itself,
+rem  the architecture comes from the runtime of the release (or from the current
+rem  compiler when the release was built without a RID).
 rem
 rem  Usage:
 rem    MakePackage.cmd                 build the installer

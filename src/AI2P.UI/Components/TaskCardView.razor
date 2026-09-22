@@ -14,6 +14,24 @@
 <MudMessageBox @ref="_splitBox" Title="@L["task.split"]"
                Message="@(_details?.Task.IsTemplate == true ? L["task.split.confirmTemplate"] : L["task.split.confirm"])"
                YesText="@L["task.split.yes"]" CancelText="@L["common.cancel"]" />
+@* ПЕРЕСПРОС ПЕРЕД ЗАПУСКОМ ОДНОЙ ЗАДАЧИ (T-274-S0): единственная галочка — «автоматически
+   выполнять новых потомков», по умолчанию включена. Подзадачи агент заводит ПРЯМО В ХОДЕ
+   работы, и до этой галочки сказать «этих не запускать» человеку было негде: указание в
+   описании задачи ничего не решало — автозапуск делает система, а не агент. Снятая галочка
+   ставит задаче пометку noAutoStart (T-54-S0), она же действует на всё поддерево.
+   У запуска ИЕРАРХИИ такого вопроса нет намеренно: там человек уже сказал «беги всё дерево» *@
+<MudMessageBox @ref="_startBox" Title="@L["task.start"]"
+               YesText="@L["task.start"]" CancelText="@L["common.cancel"]">
+    <MessageContent>
+        <MudText Typo="Typo.body2" data-task-start-confirm="1">@L["task.start.confirm"]</MudText>
+        <MudCheckBox T="bool" @bind-Value="_startAutoChildren" Dense="true" Class="mt-2"
+                     Color="Color.Primary" Label="@L["task.start.autoChildren"]"
+                     data-task-start-autochildren="1" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @L["task.start.autoChildren.hint"]
+        </MudText>
+    </MessageContent>
+</MudMessageBox>
 @* переспрос перед запуском всей иерархии (T-159): за одной кнопкой уходит в работу
    всё поддерево задачи. Галочки — перезапускать и подзадачи, вставшие с ошибкой (T-186),
    и запускать подзадачи в состоянии «доработка» (T-210): без них очередь такие задачи
@@ -399,6 +417,19 @@ else
                 </MudText>
             </MudTooltip>
         }
+        @* СУФЛЁР (T-292-S0): кто готовит управляющий json для медиа-модели — без него такая
+           задача не запускается вовсе, поэтому его видно в карточке, а не только в форме *@
+        @if (task.PrompterExecutorId is { Length: > 0 } prompter)
+        {
+            <MudTooltip Text="@L["task.prompter.hint"]">
+                <MudText Typo="Typo.body2" data-task-prompter="1">
+                    @L["task.prompter"]: <b>@Nick(prompter)</b>@(task.PrompterAltExecutorIds.Count > 0
+                        ? " (" + L["task.prompterAlt"] + ": "
+                          + string.Join(", ", task.PrompterAltExecutorIds.Select(Nick)) + ")"
+                        : "")
+                </MudText>
+            </MudTooltip>
+        }
         <MudText Typo="Typo.body2">@L["task.responsible"]: <b>@Nick(task.ResponsibleId)</b></MudText>
         @if (task.DueDate is { } due)
         {
@@ -482,15 +513,18 @@ else
                 {
                     @* иерархия: то же дерево, что у задач проекта (T-132-S0). Перенос мышкой
                        работает так же, но полос «в корень» здесь нет — из подзадач задачу
-                       вытаскивают в корень из общего списка задач *@
+                       вытаскивают в корень из общего списка задач. Вместо них вверху
+                       якорь самой задачи (T-309-S0) — сброс на него делает прямой подзадачей *@
                     <div data-subtasks-view="tree">
-                        <TaskTreeView Tasks="_subtree" AllowRoot="false" OnReload="ReloadAsync" />
+                        <TaskTreeView Tasks="_subtree" AllowRoot="false" RootTask="task" OnReload="ReloadAsync" />
                     </div>
                 }
                 else if (_subtasksView == "diagram")
                 {
+                    @* Version — подпись поддерева (T-305-S0): карточка перечитала подзадачи
+                       (новая из шаблона, правка, смена статуса) — диаграмма перечитывает себя *@
                     <TaskDiagramView TaskId="@TaskId" OnAction="RunSubtaskActionAsync"
-                                     OnReload="ReloadAsync" />
+                                     OnReload="ReloadAsync" Version="@SubtreeVersion" />
                 }
                 else
                 {
@@ -942,6 +976,20 @@ else
             </div>
         </MudTabPanel>
 
+        @* ИСПОЛЬЗОВАННЫЙ ОПЫТ (T-266-S0, ветка T-318): какие записи опыта система реально
+           подставила агенту в текст задания. Вкладка ПОЯВЛЯЕТСЯ ТОЛЬКО когда список не пуст:
+           у задачи, которую ещё не запускали, показывать в ней нечего.
+           Счётчика-кружка в заголовке больше нет (T-293-S0): число записей стоит итогом
+           в самой вкладке, вместе с числом знаков и долей от предела подстановки *@
+        @if (_usedExperience.Count > 0)
+        {
+            <MudTabPanel Text="@L["task.card.usedexp"]">
+                <UsedExperienceTab Records="@_usedExperience" CanEdit="@CanEditTask"
+                                   LimitChars="@ExperienceLimitChars"
+                                   Changed="@ReloadUsedExperienceAsync" />
+            </MudTabPanel>
+        }
+
         @if (task.IsTemplate)
         {
         @* опыт по узлам шаблона (ТЗ п. 2.11, todo32): записи поддерева, правка руками;
@@ -1025,6 +1073,13 @@ else
 
     private MudMessageBox _splitBox = default!;
     private MudMessageBox _hierarchyBox = default!;
+    /// <summary>Переспрос кнопки «запустить задачу» (T-274-S0).</summary>
+    private MudMessageBox _startBox = default!;
+    /// <summary>Галочка переспроса «автоматически выполнять новых потомков» (T-274-S0).
+    /// Перед каждым показом ставится по нынешнему состоянию задачи: у обычной задачи это
+    /// «включено», у задачи с уже выключенным автозапуском — «выключено», иначе запуск
+    /// кнопкой молча снимал бы запрет, поставленный раньше.</summary>
+    private bool _startAutoChildren = true;
     /// <summary>Переспрос кнопки «выключить автозапуск подзадач» (T-54-S0).</summary>
     private MudMessageBox _autoStartBox = default!;
     /// <summary>Переспрос кнопки «обновить» у задачи со ссылкой импорта (T-246).</summary>
@@ -1042,12 +1097,49 @@ else
     private List<EventRecord> _events = [];
     /// <summary>Вкладка шаблона «Статистика» (ТЗ п. 2.11, todo32); опыт ведёт ExperienceTab.</summary>
     private List<TemplateStatusStatDto> _stats = [];
+
+    /// <summary>ИСПОЛЬЗОВАННЫЙ ОПЫТ задачи (T-266-S0): записи, реально ушедшие в текст
+    /// задания. Пусто — вкладки нет вовсе: у задачи, которую ещё не запускали, показывать
+    /// в ней нечего.</summary>
+    private List<ExperienceUsedDto> _usedExperience = [];
+
+    /// <summary>
+    /// ПРЕДЕЛ ПОДСТАНОВКИ ОПЫТА (T-293-S0), знаков: настройка проекта, от неё вкладка
+    /// «Использованный опыт» считает долю занятого. Проекта нет под рукой (список ещё не
+    /// прочитан, задача без проекта) — умолчание, то же, что берёт <c>ExperienceBudget</c>.
+    /// </summary>
+    private int ExperienceLimitChars => ProjectSettings.ExperienceLimitChars(
+        State.Projects.FirstOrDefault(p => p.Id == _details?.Task.ProjectId)?.SettingsJson);
+
+    /// <summary>
+    /// Перечитать использованный опыт (T-266-S0): зовётся при загрузке карточки и после
+    /// правки записи прямо во вкладке (T-293-S0) — в списке лежит ТЕКСТ записи, а он
+    /// только что стал другим. Сервер прежней версии такой вкладки не знает — тогда пусто.
+    /// </summary>
+    private async Task ReloadUsedExperienceAsync()
+    {
+        try
+        {
+            _usedExperience = await Api.GetUsedExperienceAsync(TaskId);
+        }
+        catch (ApiException)
+        {
+            _usedExperience = [];
+        }
+    }
+
     private List<ChatMessage> _chat = [];
     private List<TaskItem> _subtasks = [];
 
     /// <summary>ВСЁ ПОДДЕРЕВО задачи (T-132-S0): нужно представлению «иерархия» — таблица
     /// показывает только прямых потомков, а дерево строится по всей ветке.</summary>
     private List<TaskItem> _subtree = [];
+
+    /// <summary>Подпись поддерева для диаграммы (T-305-S0): диаграмма грузит данные сама и
+    /// раньше не знала, что карточка завела подзадачу (например из шаблона), — новая задача
+    /// на ней не появлялась до ручного «обновить».</summary>
+    private string SubtreeVersion => string.Join("|", _subtree.Select(t =>
+        $"{t.Id}:{t.ParentId}:{t.Status}:{string.Join(",", t.ExecutorIds)}:{t.UpdatedAt.Ticks}"));
 
     /// <summary>Вид списка подзадач (T-132-S0): table / tree / diagram.</summary>
     private string _subtasksView = "table";
@@ -1450,6 +1542,10 @@ else
                 // вкладка шаблона «Статистика» (ТЗ п. 2.11, todo32); опыт грузит ExperienceTab
                 _stats = await Api.GetTemplateStatsAsync(TaskId);
             }
+            // ИСПОЛЬЗОВАННЫЙ ОПЫТ (T-266-S0): что система подставила агенту в задание.
+            // Список короткий (до десятков строк), поэтому грузится вместе с карточкой —
+            // от него зависит, показывать ли вкладку и что стоит в её итоге
+            await ReloadUsedExperienceAsync();
             // подзадачи: серверный список по проекту, отбор по parent_id
             var candidates = await Api.GetTasksAsync(projectId: _details.Task.ProjectId, includeTemplates: true);
             _subtasks = candidates.Where(t => t.ParentId == TaskId).ToList();
@@ -1514,7 +1610,8 @@ else
     }
 
     /// <summary>
-    /// Запуск задачи. Перед запуском спрашивается остаток лимита исполнителя (T-121):
+    /// Запуск задачи. Сначала переспрос с галочкой «автоматически выполнять новых потомков»
+    /// (T-274-S0), затем спрашивается остаток лимита исполнителя (T-121):
     /// мало — окно с выбором «перенести старт / разбить на подзадачи / запустить сейчас».
     /// Лимиты у исполнителя не указаны — вычисление игнорируется, запуск идёт сразу.
     /// </summary>
@@ -1530,6 +1627,15 @@ else
                 await RequestRunAsync(RunRequestKinds.Task, withErrors: false);
                 return;
             }
+            // переспрос с галочкой «автоматически выполнять новых потомков» (T-274-S0):
+            // ответ уходит вместе с запуском и решает судьбу подзадач, которые агент заведёт
+            // в ходе работы. Показывается ДО вопроса о лимите: отказ здесь — отказ от запуска
+            _startAutoChildren = !AutoStartOff;
+            if (await _startBox.ShowAsync() != true)
+            {
+                return;
+            }
+            var autoChildren = _startAutoChildren;
             var force = false;
             if (await Api.GetTaskLimitAsync(TaskId) is { IsLow: true } limit)
             {
@@ -1556,7 +1662,7 @@ else
                 }
                 force = true; // «запустить сейчас» — остаток лимита не смотрим
             }
-            await Api.StartTaskAsync(TaskId, force);
+            await Api.StartTaskAsync(TaskId, force, autoChildren);
             await ReloadAsync();
             State.NotifyChanged();
         }

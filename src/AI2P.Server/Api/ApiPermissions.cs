@@ -39,6 +39,13 @@ public static class ApiPermissions
         {
             return ClusterWide(method, rest) ? SystemRole.Owner : SystemRole.Admin;
         }
+        // ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208) закрыто целиком, включая чтение: проверка ходит
+        // в сеть от имени этого компьютера, а сама установка перезапускает сервер и снимает
+        // агентов ВСЕХ организаций. Это работа хозяина машины — та же полка, что настройки
+        if (section is "update")
+        {
+            return SystemRole.Admin;
+        }
         if (method is "GET" or "HEAD" or "OPTIONS")
         {
             return SystemRole.Reader;
@@ -59,7 +66,7 @@ public static class ApiPermissions
             // роль admin (хозяин одного компьютера кластера, b26391b3); owner проходит по рангу
             "settings" or "models" or "actions" or "skills" or "roles" or "ioformats"
                 or "task-statuses" or "imports" or "executors" or "notifications"
-                or "archives" or "plugins"
+                or "archives" or "plugins" or "packs"
                 => SystemRole.Admin,
             // проекты, команды, расписания и правила безопасности — администратор проектов
             "projects" or "teams" or "schedules" or "security-rules" => SystemRole.ProjectAdmin,

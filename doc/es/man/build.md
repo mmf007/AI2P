@@ -223,15 +223,15 @@ va a `../../packages` (es decir, `builds/packages`).
 ```powershell
 # Windows: hace falta Inno Setup 6 (lo instala install_required.bat)
 cd builds\windows\releasefull
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_full_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_full_windows_x64.exe
 cd ..\release
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_windows_x64.exe
 ```
 
 ```sh
 # Linux / macOS: hace falta makeself (lo instala install_required.sh)
 cd builds/linux/releasefull
-./MakePackage.sh                     # -> ../../packages/AI2P_full_v_1_99_Linux.run
+./MakePackage.sh                     # -> ../../packages/AI2P_v_1_99_full_linux_x64.run
 ```
 
 El nombre del archivo se compone solo a partir del `version.json` de la publicación: el número de
@@ -239,8 +239,14 @@ compilación `NN` no hay que preguntarlo:
 
 | publicación | Windows | Linux | macOS |
 |---|---|---|---|
-| `releasefull` | `AI2P_full_v_1_NN_win64.exe` | `AI2P_full_v_1_NN_Linux.run` | `AI2P_full_v_1_NN_MacOs.run` |
-| `release` | `AI2P_v_1_NN_win64.exe` | `AI2P_v_1_NN_Linux.run` | `AI2P_v_1_NN_MacOs.run` |
+| `releasefull` | `AI2P_v_1_NN_full_windows_x64.exe` | `AI2P_v_1_NN_full_linux_x64.run` | `AI2P_v_1_NN_full_macos_arm64.run` |
+| `release` | `AI2P_v_1_NN_windows_x64.exe` | `AI2P_v_1_NN_linux_x64.run` | `AI2P_v_1_NN_macos_arm64.run` |
+
+Las partes del nombre van en este orden: `AI2P_v_` + el número de versión + `_full` en la
+publicación completa + el sistema (`windows`, `linux`, `macos`) + la arquitectura (`x64`, `arm64`,
+`arm`, `x86`). En la publicación completa el sistema y la arquitectura los indica su runtime
+(`win-x64`, `linux-arm64`, `osx-arm64`); en la normal, la carpeta del SO y la arquitectura del
+compilador actual (T-234-S0).
 
 La extensión la fija el tipo de instalador: en Windows es Inno Setup (`.exe`), y en Linux y
 macOS, un archivo autoextraíble de makeself (`.run`) que por dentro ejecuta ese mismo

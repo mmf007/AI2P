@@ -11,7 +11,7 @@ are what you copy when moving to another computer, and they are the ones you mus
 
 | Way | What it is | When it is convenient |
 |---|---|---|
-| **Installation package** | a single file `AI2P_v_1_NN_…` (or `AI2P_full_v_1_NN_…` — with the runtime inside), installed by a double click | the usual case on Windows |
+| **Installation package** | a single file `AI2P_v_1_NN_…` (or `AI2P_v_1_NN_full_…` — with the runtime inside), installed by a double click | the usual case on Windows |
 | **Installation script** | `install.cmd` / `install.sh` from the release directory | when the release is already downloaded and the directory is chosen by hand |
 | **The release itself** | an unpacked directory, started by `AI2P.Server.exe` | a trial run, a portable installation on a flash drive |
 
@@ -123,6 +123,32 @@ AI2P_HOME= ./install.sh ~/ai/AI2P
 The same cure works for `makeAsServise.sh` of those versions.
 
 ---
+
+### Updating from the program itself
+
+«Settings → Main», next to the version number, has a **«Check for updates»** button. It goes to
+the releases repository (`https://github.com/mmf007/ai2p` by default, the address is edited right
+there) and looks for the file **for this installation**: the same system, the same architecture and
+the same installation kind — a full release (with the runtime inside) or an ordinary one. The
+installation kind is read from the `version.json` lying next to the program.
+
+If a newer version is out, an **«Update»** button lights up next to it. Before installing, the
+program asks who is busy right now: the update **restarts the server**, and the running agents of
+every open organisation will be stopped — the question shows their list. Then the package is
+downloaded, the program shuts down, and a separate script finishes the job: it waits for the
+process to end, installs the package silently and brings the server back (a service — with
+`net start` / `systemctl`, a console run — by starting the program again). The page in the browser
+will need a refresh.
+
+Two checkboxes next to it:
+
+* **automatic check** — only look whether a new version is out (the answer goes into the log);
+* **automatic update** — check and install straight away.
+
+When the program is run from a **console**, the automatic check happens at startup. When it works
+as an **OS service**, there is no startup for weeks — then the checkbox creates an entry in the
+**schedule** (once a day, 2:00 local time by default), and the settings show its code: the time is
+changed in the entry itself, like in any schedule. Clearing the checkbox deletes the entry.
 
 ## 4. The operating system service
 

@@ -39,6 +39,10 @@ está vazio, e este modelo não tem o botão «Definir a chave de API».
 | Leitura de outras tarefas | pelas ferramentas `get_task_by_code`, `get_task_by_url`, `get_task_chat` | pelo marcador `AI2P_GET_TASK` na resposta |
 | Arquivos externos da tarefa (imagens de anexos) | pela ferramenta `fetch_file` | pelo marcador `AI2P_GET_FILE` na resposta |
 | Movimentação da tarefa na hierarquia | pela ferramenta `move_task` | pelo marcador `AI2P_MOVE_TASK` na resposta |
+| Decisão de uma tarefa «Condição» | pela ferramenta `set_condition_result` | pelo marcador `AI2P_CONDITION` na resposta ou pelo comando `ai2p condition` |
+| Resultado da verificação de um ciclo | pela ferramenta `set_loop_result` | pelo marcador `AI2P_LOOP` na resposta ou pelo comando `ai2p loop` |
+| Tarefas do ramo a partir de um nó de modelo | pela ferramenta `create_tasks_from_template` | pelo marcador `AI2P_FROM_TEMPLATE` na resposta ou pelo comando `ai2p from-template` |
+| Concluir a execução da hierarquia | pela ferramenta `stop_hierarchy` | pelo marcador `AI2P_STOP_HIERARCHY` na resposta ou pelo comando `ai2p stop-hierarchy` |
 
 Uma consequência importante: na conexão pelo CLI as ferramentas do AI2P **não são publicadas**
 ao agente — ele usa as dele. As regras de segurança do AI2P (cap. 12 do ET) não se estendem às

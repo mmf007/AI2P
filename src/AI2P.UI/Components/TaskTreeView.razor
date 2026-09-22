@@ -36,6 +36,18 @@ else
         </div>
         }
 
+        @* якорь САМОЙ задачи в списке её подзадач (T-309-S0): без него поднять подзадачу
+           внука на верхний уровень поддерева было некуда. Та же липкая полоса, что «в корень»,
+           только сброс на неё делает задачу прямой подзадачей RootTask *@
+        @if (!AllowRoot && RootTask is not null)
+        {
+        <div class="ai2p-tree-root ai2p-tree-root-top" data-tree-drop="@RootTask.Id" data-tree-root="self">
+            <MudIcon Icon="@Icons.Material.Filled.VerticalAlignTop" Size="Size.Small" />
+            <b>@RootTask.DisplayId</b> @RootTask.Title
+            <span class="ai2p-tree-hint">@L["tasks.tree.dnd.self"]</span>
+        </div>
+        }
+
         @foreach (var (task, depth, hasChildren) in Flatten())
         {
             @* чужую задачу перетаскивать нельзя: иерархию между серверами меняет дирижёр
@@ -127,6 +139,10 @@ else
     /// карточки — нет, там перенос идёт только внутри иерархии. Полосы «в корень»
     /// тогда не рисуются вовсе, а сброс с пустой целью отбрасывается.</summary>
     [Parameter] public bool AllowRoot { get; set; } = true;
+
+    /// <summary>Задача, чьи подзадачи показаны (T-309-S0): при AllowRoot=false вверху
+    /// дерева рисуется её полоса-якорь — сброс на неё делает задачу прямой подзадачей.</summary>
+    [Parameter] public TaskItem? RootTask { get; set; }
 
     private readonly HashSet<string> _collapsed = [];
     /// <summary>Свой id контейнера: в одном фрейме может жить несколько деревьев.</summary>

@@ -40,6 +40,10 @@ vacío, y este modelo no tiene el botón «Establecer la clave de API».
 | Lectura de otros encargos | con las herramientas `get_task_by_code`, `get_task_by_url`, `get_task_chat` | con el marcador `AI2P_GET_TASK` en la respuesta |
 | Archivos externos del encargo (imágenes adjuntas) | con la herramienta `fetch_file` | con el marcador `AI2P_GET_FILE` en la respuesta |
 | Traslado de una tarea por la jerarquía | con la herramienta `move_task` | con el marcador `AI2P_MOVE_TASK` en la respuesta |
+| Decisión de una tarea «Condición» | con la herramienta `set_condition_result` | con el marcador `AI2P_CONDITION` en la respuesta o el comando `ai2p condition` |
+| Resultado de la comprobación de un bucle | con la herramienta `set_loop_result` | con el marcador `AI2P_LOOP` en la respuesta o el comando `ai2p loop` |
+| Tareas de la rama desde un nodo de plantilla | con la herramienta `create_tasks_from_template` | con el marcador `AI2P_FROM_TEMPLATE` en la respuesta o el comando `ai2p from-template` |
+| Finalizar la ejecución de la jerarquía | con la herramienta `stop_hierarchy` | con el marcador `AI2P_STOP_HIERARCHY` en la respuesta o el comando `ai2p stop-hierarchy` |
 
 Una consecuencia importante: en la conexión por CLI las herramientas de AI2P **no se le publican**
 al agente, que usa las suyas. Las reglas de seguridad de AI2P (cap. 12 de la especificación) no se

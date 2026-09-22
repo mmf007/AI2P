@@ -205,23 +205,28 @@ chmod +x buildRelease.sh
 ```powershell
 # Windows：需要 Inno Setup 6（install_required.bat 会安装它）
 cd builds\windows\releasefull
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_full_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_full_windows_x64.exe
 cd ..\release
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_windows_x64.exe
 ```
 
 ```sh
 # Linux / macOS：需要 makeself（install_required.sh 会安装它）
 cd builds/linux/releasefull
-./MakePackage.sh                     # -> ../../packages/AI2P_full_v_1_99_Linux.run
+./MakePackage.sh                     # -> ../../packages/AI2P_v_1_99_full_linux_x64.run
 ```
 
 文件名会自己从部署包的 `version.json` 拼出来 — 不用去问构建号 `NN`：
 
 | 部署包 | Windows | Linux | macOS |
 |---|---|---|---|
-| `releasefull` | `AI2P_full_v_1_NN_win64.exe` | `AI2P_full_v_1_NN_Linux.run` | `AI2P_full_v_1_NN_MacOs.run` |
-| `release` | `AI2P_v_1_NN_win64.exe` | `AI2P_v_1_NN_Linux.run` | `AI2P_v_1_NN_MacOs.run` |
+| `releasefull` | `AI2P_v_1_NN_full_windows_x64.exe` | `AI2P_v_1_NN_full_linux_x64.run` | `AI2P_v_1_NN_full_macos_arm64.run` |
+| `release` | `AI2P_v_1_NN_windows_x64.exe` | `AI2P_v_1_NN_linux_x64.run` | `AI2P_v_1_NN_macos_arm64.run` |
+
+名称的各部分按此顺序排列：`AI2P_v_` + 版本号 + 完整部署包的 `_full` + 系统（`windows`、`linux`、
+`macos`）+ 架构（`x64`、`arm64`、`arm`、`x86`）。完整部署包的系统和架构由其运行时给出
+（`win-x64`、`linux-arm64`、`osx-arm64`），普通部署包则取自操作系统目录和当前编译器的架构
+（T-234-S0）。
 
 扩展名决定安装程序的种类：Windows 上是 Inno Setup（`.exe`），Linux 和 macOS 上是 makeself 自解压
 归档（`.run`），它内部运行的是同一个 `install.sh`。安装包要在与部署包相对应的系统上构建：在

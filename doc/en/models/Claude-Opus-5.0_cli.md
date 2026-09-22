@@ -109,6 +109,10 @@ the section above).
   `create_task` tool, which it does not have (see Claude-Fable-5_cli);
 * the agent moves a task along the hierarchy (another parent, or to the root) with the
   `AI2P_MOVE_TASK` marker — instead of the `move_task` tool;
+* in a Condition / Loop task the agent returns its decision with the `AI2P_CONDITION`
+  (`{"value": true}`) or `AI2P_LOOP` (`{"continue": false}`) marker — instead of the
+  `set_condition_result` / `set_loop_result` tools; branch tasks from a template — with
+  `AI2P_FROM_TEMPLATE`, stopping the hierarchy — with `AI2P_STOP_HIERARCHY` (or `ai2p` commands);
 * the texts of other jobs (description, result and the whole chat) are requested by the agent
   with the `AI2P_GET_TASK` marker — instead of the `get_task_by_code` / `get_task_by_url` /
   `get_task_chat` tools, which it does not have either.

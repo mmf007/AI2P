@@ -72,13 +72,33 @@ public static class TaskDiagram
     public static void Layout(List<TaskDiagramNodeDto> nodes, double minDuration = 0)
     {
         var ids = nodes.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
-        var deps = nodes.ToDictionary(
-            n => n.Id,
-            n => nodes.Where(c => c.ParentId == n.Id).Select(c => c.Id)
-                .Concat(n.BlockerIds.Where(ids.Contains))
-                .Distinct(StringComparer.Ordinal)
-                .ToList(),
-            StringComparer.Ordinal);
+        var byId = nodes.ToDictionary(n => n.Id, StringComparer.Ordinal);
+        // ВОСЬМОЕ ПРАВИЛО (T-305-S0): «Условие» и «Цикл до» очередь запускает РАНЬШЕ своих
+        // потомков (JobOrchestrator.RunIfNodeAsync/RunLoopNodeAsync), поэтому их потомки
+        // ждут саму задачу, а не наоборот. Родитель такой задачи ждёт всё её поддерево —
+        // иначе он встал бы сразу за условием, раньше выбранной ветки
+        var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var n in nodes)
+        {
+            var list = new List<string>();
+            if (!RunsFirst(n))
+            {
+                foreach (var c in nodes.Where(c => c.ParentId == n.Id))
+                {
+                    list.Add(c.Id);
+                    if (RunsFirst(c))
+                    {
+                        list.AddRange(Descendants(nodes, c.Id));
+                    }
+                }
+            }
+            if (n.ParentId is { } p && byId.TryGetValue(p, out var parent) && RunsFirst(parent))
+            {
+                list.Add(p);
+            }
+            list.AddRange(n.BlockerIds.Where(ids.Contains));
+            deps[n.Id] = list.Distinct(StringComparer.Ordinal).ToList();
+        }
 
         var finish = new Dictionary<string, double>(StringComparer.Ordinal);
         var laneFree = new Dictionary<string, double>(StringComparer.Ordinal);
@@ -120,6 +140,30 @@ public static class TaskDiagram
                 laneFree[node.ExecutorId] = end;
             }
         }
+    }
+
+    /// <summary>Задача запускается РАНЬШЕ своих потомков (T-305-S0): «Условие» и «Цикл до».
+    /// «Цикл после» идёт как обычная задача — его анализатор ждёт потомков.</summary>
+    public static bool RunsFirst(TaskDiagramNodeDto node) =>
+        TaskFlow.Normalize(node.Flow.Type) is TaskFlow.If or TaskFlow.Loop;
+
+    /// <summary>Все потомки задачи внутри набора узлов; кольцо в данных не вешает обход.</summary>
+    private static List<string> Descendants(List<TaskDiagramNodeDto> nodes, string id)
+    {
+        var found = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal) { id };
+        var queue = new Queue<string>();
+        queue.Enqueue(id);
+        while (queue.Count > 0)
+        {
+            var at = queue.Dequeue();
+            foreach (var child in nodes.Where(c => c.ParentId == at && seen.Add(c.Id)))
+            {
+                found.Add(child.Id);
+                queue.Enqueue(child.Id);
+            }
+        }
+        return found;
     }
 
     /// <summary>

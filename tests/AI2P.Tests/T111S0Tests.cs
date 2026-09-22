@@ -48,7 +48,7 @@ public sealed class T111S0Tests : IDisposable
     [Fact]
     public void The_Org_Schema_Is_V45_And_Has_The_Plugins_Table()
     {
-        Assert.Equal("46", _f.Db.Meta("schema_version"));
+        Assert.Equal("48", _f.Db.Meta("schema_version"));
         using var conn = _f.Db.Open();
         var tables = Sql.Query(conn, null,
             "SELECT name FROM sqlite_master WHERE type='table'", r => r.S("name"));
@@ -83,7 +83,7 @@ public sealed class T111S0Tests : IDisposable
         }
 
         db.Init();
-        Assert.Equal("46", db.Meta("schema_version"));
+        Assert.Equal("48", db.Meta("schema_version"));
         using (var check = db.Open())
         {
             var tables = Sql.Query(check, null,
@@ -95,7 +95,7 @@ public sealed class T111S0Tests : IDisposable
 
         // второй старт: номер тот же, таблица одна, данные целы
         db.Init();
-        Assert.Equal("46", db.Meta("schema_version"));
+        Assert.Equal("48", db.Meta("schema_version"));
         using var again = db.Open();
         Assert.Equal(1, Sql.Scalar<long>(again, null,
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plugins'"));

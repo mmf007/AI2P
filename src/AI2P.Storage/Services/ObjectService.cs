@@ -382,7 +382,12 @@ public sealed class ObjectService
             }
         }
         var parent = id.Length > 0 ? id : objectId;
-        return Children(parent).Where(c => c.Type == ObjectKinds.Image).ToList();
+        // ЗАПИСИ (T-250-S0) — такие же файлы датасета, как кадры: у звукового датасета
+        // дети имеют вид «эталонная запись», и не взять их значило бы показать пустой
+        // датасет. Прочие виды (вложенные датасеты, адаптеры) по-прежнему не берутся
+        return Children(parent)
+            .Where(c => c.Type is ObjectKinds.Image or ObjectKinds.Audio)
+            .ToList();
     }
 
     /// <summary>

@@ -359,6 +359,24 @@ public sealed class Todo36_4Tests : IDisposable
                 {
                     return;
                 }
+                // КАЖДОЕ соединение обслуживается СВОЕЙ задачей, а цикл сразу возвращается
+                // к приёму следующего (T-249-S0, второй круг). Раньше обслуживание шло прямо
+                // здесь, и «вежливое» закрытие ниже держало приём до ПЯТИ СЕКУНД на запрос:
+                // медиа-коннектор опрашивает /history раз в 3 с и консоль раз в 2 с, то есть
+                // запросы приходили чаще, чем освобождался цикл, очередь росла сама себя
+                // разгоняя, и через 5 минут запрос упирался в таймаут HttpClient — задание
+                // уходило в Failed вместо Done. Так падали Todo36_4Tests.Media_Task_Runs_…
+                // и T258Tests.Media_Job_Uploads_… — по 5–8 минут, в двух десятках полных
+                // прогонов начиная с 1.86 и задолго до правок этого выпуска.
+                _ = Task.Run(() => HandleAsync(client));
+            }
+        }
+
+        /// <summary>Обслужить одно соединение: разобрать запрос, ответить, закрыться.</summary>
+        private async Task HandleAsync(TcpClient client)
+        {
+            try
+            {
                 using (client)
                 {
                     // разбор запроса на уровне байтов: Content-Length — в байтах,
@@ -379,7 +397,7 @@ public sealed class Todo36_4Tests : IDisposable
                     }
                     if (headerEnd < 0)
                     {
-                        continue;
+                        return;
                     }
                     var headerText = Encoding.ASCII.GetString(raw.ToArray(), 0, headerEnd);
                     var lines = headerText.Split("\r\n");
@@ -433,6 +451,13 @@ public sealed class Todo36_4Tests : IDisposable
                         // клиент уже ушёл — закрываем соединение как есть
                     }
                 }
+            }
+            catch (Exception ex) when (ex is SocketException or IOException
+                                          or ObjectDisposedException or OperationCanceledException)
+            {
+                // сервер остановлен (Dispose) или соединение оборвалось — это не беда теста:
+                // задача обслуживания фоновая, и необработанное исключение в ней никому
+                // не достаётся, кроме финализатора задачи
             }
         }
 

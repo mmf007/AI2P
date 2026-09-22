@@ -111,6 +111,10 @@ la sección anterior).
   la herramienta `create_task`, que no tiene (véase Claude-Fable-5_cli);
 * trasladar una tarea por la jerarquía (cambiar de padre, sacarla a la raíz) el agente lo puede
   hacer con el marcador `AI2P_MOVE_TASK`, en lugar de con la herramienta `move_task`;
+* en una tarea «Condición» / de bucle el agente devuelve la decisión con el marcador
+  `AI2P_CONDITION` (`{"value": true}`) o `AI2P_LOOP` (`{"continue": false}`), en lugar de las
+  herramientas `set_condition_result` / `set_loop_result`; tareas de la rama desde plantilla —
+  `AI2P_FROM_TEMPLATE`, detener la jerarquía — `AI2P_STOP_HIERARCHY` (o comandos `ai2p`);
 * los textos de otros encargos (descripción, resultado y todo el chat) el agente los pide con el
   marcador `AI2P_GET_TASK`, en lugar de con las herramientas `get_task_by_code` /
   `get_task_by_url` / `get_task_chat`, que tampoco tiene.

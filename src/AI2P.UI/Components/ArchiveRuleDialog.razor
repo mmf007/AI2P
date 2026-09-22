@@ -72,7 +72,12 @@
                     <MudSelectItem T="string" Value="@kind">@L["arcrules.age." + kind]</MudSelectItem>
                 }
             </MudSelect>
-            @if (_rule.AgeKind == ArchiveRuleAges.Days)
+            @if (_rule.AgeKind == ArchiveRuleAges.Any)
+            {
+                @* «возраст не важен» (T-265-S0): числа у такого правила нет вовсе *@
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["arcrules.age.any.hint"]</MudText>
+            }
+            else if (_rule.AgeKind == ArchiveRuleAges.Days)
             {
                 <MudNumericField T="int" @bind-Value="_rule.AgeDays" Min="0" Max="36500"
                                  Label="@L["arcrules.days"]" data-arcrule-days="1"
@@ -174,9 +179,11 @@
 
     private bool SaveDisabled =>
         (ArchiveRuleTargets.HasTaskStatus(_rule.Target) && _rule.TaskStatus.Length == 0)
-        || (_rule.AgeKind == ArchiveRuleAges.Days
-            ? _rule.AgeDays <= 0
-            : _rule.AgeMonths + _rule.AgeYears <= 0);
+        // у срока «возраст не важен» (T-265-S0) числа нет — проверять нечего
+        || (_rule.AgeKind != ArchiveRuleAges.Any
+            && (_rule.AgeKind == ArchiveRuleAges.Days
+                ? _rule.AgeDays <= 0
+                : _rule.AgeMonths + _rule.AgeYears <= 0));
 
     private void Save() => Dialog.Close(DialogResult.Ok(_rule));
 }

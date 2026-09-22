@@ -169,6 +169,19 @@ public sealed class ClaudeCliConnector : AiConnectorBase
     /// </summary>
     public const string WaitRecheckMarker = "AI2P_WAIT_RECHECK:";
 
+    /// <summary>
+    /// Маркеры ВЕТВЛЕНИЯ И ЦИКЛА (T-300-S0, аналоги set_condition_result, set_loop_result,
+    /// create_tasks_from_template, stop_hierarchy): <c>AI2P_CONDITION: {"value": true}</c>,
+    /// <c>AI2P_LOOP: {"continue": false}</c>, <c>AI2P_FROM_TEMPLATE: {"template": "T-5"}</c>,
+    /// <c>AI2P_STOP_HIERARCHY: {"reason": "…"}</c>. Описываются в промпте задачи типа
+    /// «Условие»/«Цикл» (<c>JobOrchestrator.FlowSection</c>), а не в системном промпте:
+    /// линейной задаче они ни к чему, а налог на промпт платила бы каждая.
+    /// </summary>
+    public const string ConditionMarker = "AI2P_CONDITION:";
+    public const string LoopMarker = "AI2P_LOOP:";
+    public const string FromTemplateMarker = "AI2P_FROM_TEMPLATE:";
+    public const string StopHierarchyMarker = "AI2P_STOP_HIERARCHY:";
+
     /// <summary>Сколько файлов агент может запросить маркером за одно задание (T-255):
     /// защита и от зацикливания, и от выкачивания половины интернета в каталог данных.</summary>
     public const int MaxFileFetches = 20;
@@ -435,6 +448,15 @@ public sealed class ClaudeCliConnector : AiConnectorBase
                 _ => "set_task_status", text);
             text = await OneKindAsync(RestartTaskMarker, "перезапуска задач", Loc.In(lang, "prompt.cli.42"),
                 _ => "restart_task_for_recheck", text);
+            // ветвление и циклы (T-300-S0): задачи ветви — раньше решения, остановка — последней
+            text = await OneKindAsync(FromTemplateMarker, "задач из шаблона", Loc.In(lang, "prompt.cli.44"),
+                _ => "create_tasks_from_template", text);
+            text = await OneKindAsync(ConditionMarker, "решения условия", Loc.In(lang, "prompt.cli.45"),
+                _ => "set_condition_result", text);
+            text = await OneKindAsync(LoopMarker, "исхода цикла", Loc.In(lang, "prompt.cli.46"),
+                _ => "set_loop_result", text);
+            text = await OneKindAsync(StopHierarchyMarker, "остановки иерархии", Loc.In(lang, "prompt.cli.47"),
+                _ => "stop_hierarchy", text);
             var subtasks = ParseSubtaskMarkers(text, out var withoutSubtasks);
             if (subtasks.Count > 0)
             {

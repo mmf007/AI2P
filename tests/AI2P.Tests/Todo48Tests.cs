@@ -275,6 +275,6 @@ public sealed class Todo48Tests : IDisposable
         // v37 — заявки на остановку с другого сервера, stop_requests (T-263);
         // v38 — обучение адаптера LoRA под модель, object_loras (T-12-S1);
         // v39 — заявки на смену дирижёра, conductor_requests (T-21-S1)
-        Assert.Equal("46", version);
+        Assert.Equal("48", version);
     }
 }

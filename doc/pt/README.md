@@ -68,7 +68,7 @@ ao lado do programa.
 
 * Windows 10/11, Linux ou macOS; direitos de administrador apenas para a instalação.
 * O runtime **ASP.NET Core 8.x** — ou é instalado à parte, ou vem do pacote de instalação completo
-  (`AI2P_full_…`), que já o traz dentro.
+  (`AI2P_v_1_NN_full_…`), que já o traz dentro.
 * A chave de API da IA que você for usar, ou uma assinatura do Claude Code, ou uma placa de vídeo
   para os modelos locais. Sem modelo, o sistema funciona como um planejador comum para pessoas.
 
@@ -78,6 +78,10 @@ Para o primeiro início em poucos minutos veja [Início rápido](man/quickstart.
 
 ## Documentação
 Para a documentação detalhada veja [Documentação](index.md)
+
+Secções: [Manual](man/README.md) · [Modelos de IA](models/README.md) ·
+[Importação de tarefas](import/README.md) · [Plugins e MCP](plugins/README.md) ·
+[Conjuntos de experiência](packs/README.md)
 
 ## Para parceiros e investidores
 

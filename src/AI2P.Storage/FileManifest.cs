@@ -70,6 +70,71 @@ public static class FileManifest
         return false;
     }
 
+    /// <summary>Начало идентификаторов записей справочника моделей, которые приходят
+    /// С ДИСТРИБУТИВОМ: у них фиксированные id вида
+    /// <c>6f1a45e0-0d31-4c65-9a01-0000000000NN</c>. Кастомную запись человека от записи
+    /// дистрибутива отличает только это — по имени файла больше отличить нечем.</summary>
+    private const string DistributionIdPrefix = "6f1a45e0-0d31-4c65-9a01-";
+
+    /// <summary>Имена файлов моделей дистрибутива: профайл подключения, декларация
+    /// возможностей, workflow ComfyUI и правила составления управляющего json для
+    /// модели-суфлёра (<c>prompter_&lt;ID&gt;.md</c>, T-289-S0 — единственный из четырёх не
+    /// json, но пишет его тот же сид и по той же причине). Дальше в имени идёт
+    /// идентификатор записи.</summary>
+    private static readonly string[] ModelSeedKinds = ["profile_", "scope_", "workflow_", "prompter_"];
+
+    /// <summary>
+    /// ФАЙЛ, КОТОРЫЙ КАЖДЫЙ СЕРВЕР ПИШЕТ СЕБЕ САМ (T-261-S0) — и потому НЕ реплицируется:
+    /// профайлы, декларации и workflow записей справочника ДИСТРИБУТИВА
+    /// (<c>AiModelService.WriteSeedFile</c>), справочник пакетов
+    /// <c>models/packages.json</c>, манифесты плагинов <c>plugins/&lt;код&gt;/plugin.json</c>
+    /// (<see cref="AI2P.Storage.Services.PluginSeed"/>) и наборы опыта
+    /// <c>packs/&lt;код&gt;/pack.json</c> (<see cref="AI2P.Storage.Services.ExperiencePackSeed"/>).
+    ///
+    /// <para>ПОЧЕМУ. Такой файл не данные организации, а часть ПРОГРАММЫ: его кладёт сид при
+    /// открытии организации и перекладывает поверх, как только у файла поднялась его
+    /// собственная версия (<c>"_seed"</c>, <c>version</c>). Поэтому у двух серверов он
+    /// расходится ровно тогда, когда на них РАЗНЫЕ ВЕРСИИ ПРОГРАММЫ — то есть в обычном окне
+    /// обновления кластера, пока второй сервер ещё не обновился. Обе стороны при этом изменены
+    /// относительно базы сравнения, содержимое разное — сверка честно объявляет КОНФЛИКТ
+    /// (жалоба T-261-S0 на <c>models/profile_6f1a45e0-…-000000000008.json</c>), а выбрать в нём
+    /// нечего: любая из четырёх кнопок даёт бессмыслицу, потому что при следующем обновлении
+    /// каждый сервер всё равно положит свой файл заново.</para>
+    ///
+    /// <para>ВТОРАЯ ПРИЧИНА, ещё весомее: профайл ЛОКАЛЬНОЙ модели машинно-зависим.
+    /// <c>ModelInstallService.WriteLaunchCommand</c> прописывает в него команду запуска с
+    /// АБСОЛЮТНЫМИ путями этого компьютера (каталог пакетов, каталог весов). Перенос такого
+    /// файла партнёру не просто бесполезен — он ломает у него запуск локальной модели, подсовывая
+    /// чужие пути (та же беда, от которой заведена <c>Ai2pConfig.NormalizePlatformPaths</c>).</para>
+    ///
+    /// <para>КАСТОМНЫЕ записи человека (профайл, декларация, свой workflow) реплицируются
+    /// по-прежнему: их файл на партнёре взять больше НЕОТКУДА — строка в базе к нему приедет,
+    /// а файла у партнёра нет, и модель не заработает.</para>
+    /// </summary>
+    public static bool IsDistributionFile(string relativePath)
+    {
+        var parts = relativePath.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 2 && parts[0].Equals("models", StringComparison.OrdinalIgnoreCase))
+        {
+            var name = parts[1];
+            if (name.Equals("packages.json", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            return ModelSeedKinds.Any(kind =>
+                name.StartsWith(kind, StringComparison.OrdinalIgnoreCase)
+                && name.Length > kind.Length + DistributionIdPrefix.Length
+                && name.AsSpan(kind.Length).StartsWith(DistributionIdPrefix, StringComparison.OrdinalIgnoreCase));
+        }
+        // plugins/<код>/plugin.json и packs/<код>/pack.json: остальные файлы этих каталогов
+        // (например, свои файлы плагина) — обычные данные и едут как раньше
+        return parts.Length == 3
+               && ((parts[0].Equals(AI2P.Core.PluginManifest.Dir, StringComparison.OrdinalIgnoreCase)
+                    && parts[2].Equals(AI2P.Core.PluginManifest.FileName, StringComparison.OrdinalIgnoreCase))
+                   || (parts[0].Equals(AI2P.Core.ExperiencePack.Dir, StringComparison.OrdinalIgnoreCase)
+                       && parts[2].Equals(AI2P.Core.ExperiencePack.FileName, StringComparison.OrdinalIgnoreCase)));
+    }
+
     /// <summary>
     /// Обойти каталог и собрать записи БЕЗ хэшей (путь, размер, время). Хэши проставляются
     /// отдельно (<see cref="FillHashes"/>) — так их считают только для изменившихся файлов.

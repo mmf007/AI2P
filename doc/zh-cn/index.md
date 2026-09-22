@@ -23,8 +23,11 @@
 * [项目](man/progects.md)
 * [模板](man/templates.md) 
 * [任务](man/tasks.md)
+* [任务执行算法](man/TaskDo.md)
 * [项目对象](man/objects.md)
+* [经验](man/experience.md)
 * [LoRA 编辑器](man/LoRAEditor.md) 
+* [使用音频模型](man/audio.md)
 
 ## 使用示例
 * [按角色参考帧制作视频短片](man/sample_video1.md)
@@ -39,3 +42,5 @@
 
 
 ## [插件与 MCP](plugins/README.md)
+
+## [经验集：工作风格](packs/README.md)

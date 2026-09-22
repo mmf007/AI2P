@@ -25,9 +25,12 @@ builds/packages).
   ./MakePackage.sh --help           эта справка
 
 ИМЯ ФАЙЛА складывается само, из version.json выкладки:
-  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
-  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
-NN — номер билда (вторая часть версии), спрашивать его не надо. На Windows
+  releasefull -> AI2P_v_1_NN_full_windows_x64.exe / AI2P_v_1_NN_full_linux_x64.run
+  release     -> AI2P_v_1_NN_windows_x64.exe      / AI2P_v_1_NN_linux_x64.run
+NN — номер билда (вторая часть версии), спрашивать его не надо. Слово full стоит
+ПОСЛЕ номера версии, за ним — система (windows, linux, macos) и архитектура
+(x64, arm64, arm, x86): у полной выкладки их называет её рантайм, у обычной —
+каталог ОС и текущий компилятор. На Windows
 установщик собирается Inno Setup (ISCC.exe), и .exe — его вид результата; .run —
 вид результата makeself: самораспаковывающийся архив, который сам запускает
 install.sh.

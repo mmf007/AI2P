@@ -49,6 +49,17 @@ public static class AgentCliRunner
         ["wait"] = new("wait_for_recheck", "", "msg.agentCli.40"),
         ["experience"] = new("create_experience", "text", "msg.agentCli.30"),
         ["experience-update"] = new("update_experience", "id", "msg.agentCli.31"),
+        // ПОИСК ПО ОПЫТУ (T-268-S0): CLI-агенту маркер не годится — он заканчивает ход
+        // и стоит дорого, а команда отвечает в том же ходе
+        ["experience-find"] = new("search_experience", "query", "msg.agentCli.45"),
+        // ПЕРЕНОС записи между областями (T-269-S0): общие правила ↔ опыт проекта ↔ опыт
+        // узла шаблона. Маркера у переноса нет намеренно — команда отвечает в том же ходе
+        ["experience-move"] = new("move_experience", "id", "msg.agentCli.46"),
+        // РАЗБОР ОПЫТА (T-271-S0): погасить/оживить запись, перечислить область страницами
+        // и спросить статистику использования — этим работает шаблон «Анализ опыта»
+        ["experience-active"] = new("set_experience_active", "id", "msg.agentCli.47"),
+        ["experience-list"] = new("list_experience", "scope", "msg.agentCli.48"),
+        ["experience-usage"] = new("experience_usage", "id", "msg.agentCli.49"),
         ["templates"] = new("list_templates", "", "msg.agentCli.32"),
         ["template"] = new("create_template", "title", "msg.agentCli.33"),
         ["template-update"] = new("update_template", "code", "msg.agentCli.34"),
@@ -60,15 +71,22 @@ public static class AgentCliRunner
         ["media-add"] = new("media_add", "path", "msg.agentCli.41"),
         ["media-list"] = new("media_list", "", "msg.agentCli.42"),
         ["media-remove"] = new("media_remove", "code", "msg.agentCli.43"),
+        // ветвление и циклы (T-300-S0). value/continue намеренно НЕ в BoolParams: там
+        // любое слово, кроме «0/false/no», стало бы true, а третьего исхода быть не должно —
+        // строку проверяет само действие и на «да»/«1» отвечает ошибкой
+        ["condition"] = new("set_condition_result", "value", "msg.agentCli.50"),
+        ["loop"] = new("set_loop_result", "continue", "msg.agentCli.51"),
+        ["from-template"] = new("create_tasks_from_template", "template", "msg.agentCli.52"),
+        ["stop-hierarchy"] = new("stop_hierarchy", "reason", "msg.agentCli.53"),
     };
 
     /// <summary>Параметры-числа: в JSON вызова уходят числом, а не строкой.</summary>
     private static readonly HashSet<string> IntParams = new(StringComparer.OrdinalIgnoreCase)
-        { "priority", "startAfterMinutes", "depth", "minutes", "take", "order" };
+        { "priority", "startAfterMinutes", "depth", "minutes", "take", "order", "limit", "offset" };
 
     /// <summary>Параметры-флаги: «--restart» без значения означает true.</summary>
     private static readonly HashSet<string> BoolParams = new(StringComparer.OrdinalIgnoreCase)
-        { "restart", "wait" };
+        { "restart", "wait", "includeInactive", "active", "alwaysLoad" };
 
     /// <summary>Параметры-списки: «--skills a --skills b» либо «--skills a,b».</summary>
     private static readonly HashSet<string> ListParams = new(StringComparer.OrdinalIgnoreCase)

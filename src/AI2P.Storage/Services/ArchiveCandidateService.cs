@@ -153,8 +153,10 @@ public sealed class ArchiveCandidateService
                 false, true, null, " AND is_template=1 AND parent_id IS NULL"),
             ArchiveRuleTargets.Objects => new("objects", "display_id", "name",
                 true, true, null, ""),
+            // у записи опыта с T-265-S0 есть СВОЙ признак активности, поэтому «только
+            // неактивные» означает у неё и погашенные записи, а не одни удалённые
             ArchiveRuleTargets.Experience => new("experience", "''", "substr(text, 1, 80)",
-                false, true, null, ""),
+                true, true, null, ""),
             ArchiveRuleTargets.Security => new("security_rules", "''", "kind",
                 false, true, null, ""),
             // журнал событий пишется один раз и не правится: даты изменения у него нет

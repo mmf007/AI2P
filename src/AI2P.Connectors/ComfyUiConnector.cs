@@ -52,6 +52,16 @@ public sealed class ComfyUiConnector : IAgentConnector
     /// <summary>prompt_id очереди ComfyUI по id задания — для отмены (/interrupt + очередь).</summary>
     private readonly ConcurrentDictionary<string, (string BaseUrl, string PromptId)> _queued = new();
 
+    /// <summary>
+    /// РЕЗУЛЬТАТ МОДЕЛИ-СУФЛЁРА по id задания (T-288-S0): управляющий json и расход вызова.
+    /// Кладёт его сюда <see cref="JobOrchestrator"/> ДО постановки задания — суфлёр отрабатывает
+    /// полностью и освобождается раньше, чем стартует генерация. Своего поля у коннектора быть
+    /// не может: он один на все задания сразу (та же причина, по которой в toolset подставляется
+    /// таймаут вызова). Запись читается ОДИН раз и снимается: повторный запуск задания без
+    /// суфлёра не должен подставить прошлые значения.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, PrompterOutcome> _prompter = new();
+
     private static readonly ILogger Logger = Log.ForContext<ComfyUiConnector>();
 
     /// <param name="console">Консоль задания (ТЗ v1.45, todo37_3): сюда сливается вывод самого
@@ -95,6 +105,12 @@ public sealed class ComfyUiConnector : IAgentConnector
     }
 
     public string Kind => Provider;
+
+    /// <summary>
+    /// Принять управляющий json МОДЕЛИ-СУФЛЁРА для задания (T-288-S0). Зовётся до
+    /// <see cref="SubmitJobAsync"/>, поэтому гонки с чтением в <c>RunAsync</c> нет.
+    /// </summary>
+    public void UsePrompter(string jobId, PrompterOutcome outcome) => _prompter[jobId] = outcome;
 
     public Task SubmitJobAsync(Job job, string requestText, CancellationToken ct = default)
     {
@@ -174,6 +190,10 @@ public sealed class ComfyUiConnector : IAgentConnector
         var project = task.ProjectId is null ? null : _projects.Get(task.ProjectId);
         var slug = project?.Slug;
         var sw = Stopwatch.StartNew();
+        // МОДЕЛЬ-СУФЛЁР (T-288-S0) отработала ДО запуска этой генерации: её управляющий json
+        // берётся один раз и снимается с полки. null — суфлёра не было (модели он не нужен либо
+        // не сработал): шаблон соберётся умолчаниями, ровно как до T-287-S0
+        _prompter.TryRemove(job.Id, out var prompter);
         try
         {
             var executor = _executors.Get(job.ExecutorId)
@@ -199,7 +219,7 @@ public sealed class ComfyUiConnector : IAgentConnector
             // под конкретные веса (T-12-S1), и «обучен ли он» — вопрос про эту запись справочника
             var plan = _objectLoads?.Plan(task.ProjectId, rawDescription, profile.Lora,
                 profile.RefImage, ModelTitle(executor, profile), ProjectFolder(project),
-                executor.ModelId);
+                executor.ModelId, profile.RefAudio);
             if (plan is not null)
             {
                 foreach (var note in plan.Notes)
@@ -220,7 +240,11 @@ public sealed class ComfyUiConnector : IAgentConnector
             // refs/hero.png») и строки-пути раскрытой ссылки на объект уходят из промпта
             // раньше, чем описание попадёт в разбор указания о результате — иначе строка
             // «исходный файл refs/hero.png» досталась бы разбору результата по слову «файл»
-            var (afterInput, inputRel) = MediaInputDirective.Parse(description);
+            var (afterImage, inputRel) = MediaInputDirective.Parse(description);
+            // ЭТАЛОННАЯ ЗАПИСЬ (T-249-S0) разбирается сразу за кадром и тем же правилом:
+            // наборы расширений не пересекаются, поэтому одно описание спокойно несёт и
+            // стартовый кадр, и образец голоса
+            var (afterInput, audioRel) = MediaInputDirective.ParseAudio(afterImage);
             var (prompt, outputRel) = MediaOutputDirective.Parse(afterInput);
             if (prompt.Length == 0)
             {
@@ -232,6 +256,10 @@ public sealed class ComfyUiConnector : IAgentConnector
             if (plan is { Images.Count: > 0 })
             {
                 inputRel = plan.Images[0].Path;
+            }
+            if (plan is { Audios.Count: > 0 })
+            {
+                audioRel = plan.Audios[0].Path;
             }
             // модель «изображение → видео» узнаётся по плейсхолдеру картинки в её workflow
             // (имя плейсхолдера — из справочника моделей, T-13-S1): стартовый кадр заливается
@@ -253,19 +281,39 @@ public sealed class ComfyUiConnector : IAgentConnector
                 // со стороны это выглядело бы как «картинку взяли, а персонаж другой»
                 _console.Write(job.Id, Loc.T("msg.comfyUiConnector.46", inputRel));
             }
+            // ЭТАЛОННАЯ ЗАПИСЬ (T-249-S0) — тем же порядком, что кадр: модель узнаётся по
+            // плейсхолдеру звука в её workflow, файл заливается в движок, в граф идёт имя
+            string? audioName = null;
+            if (NeedsRefAudio(template, profile.RefAudio))
+            {
+                if (audioRel is null)
+                {
+                    throw new InvalidOperationException(Loc.T("msg.comfyUiConnector.47"));
+                }
+                audioName = await UploadInputFileAsync(profile, project, audioRel, job.DisplayId,
+                    profile.RefAudio.Field.Length > 0 ? profile.RefAudio.Field : "image",
+                    profile.RefAudio.UploadPath, ct);
+                _console.Write(job.Id, Loc.T("msg.comfyUiConnector.48", audioName));
+            }
+            else if (audioRel is not null)
+            {
+                _console.Write(job.Id, Loc.T("msg.comfyUiConnector.49", audioRel));
+            }
             // АДАПТЕРЫ LoRA (T-14-S1): файл кладётся в каталог, из которого его видит ComfyUI,
             // и подставляется в граф — узлом настройки либо плейсхолдером шаблона
             var adapters = PlaceAdapters(plan, job.Id);
             // seed: пусто в профайле — случайный (как было), число — этот же у всех кадров
             // (одинаковость персонажа, разбор T-251 п. 2.2)
             var seed = profile.MediaSeed ?? Random.Shared.NextInt64(0, uint.MaxValue);
-            var workflow = BuildWorkflow(profile, prompt, seed, job.DisplayId, imageName, adapters);
+            var workflow = BuildWorkflow(profile, prompt, seed, job.DisplayId, imageName, adapters,
+                audioName, prompter?.Json);
 
             var startLine =
                 Loc.T("msg.comfyUiConnector.6", BaseUrl(profile), profile.Model,
                     profile.MediaWidth, profile.MediaHeight, profile.MediaLength,
                     profile.MediaSteps, seed, prompt.Length) +
                 (inputRel is null ? "" : Loc.T("msg.comfyUiConnector.43", inputRel)) +
+                (audioRel is null ? "" : Loc.T("msg.comfyUiConnector.50", audioRel)) +
                 (outputRel is null ? "" : Loc.T("msg.comfyUiConnector.7", outputRel));
             Logger.Information("Задание {JobDisplayId} по задаче {TaskDisplayId}: {Line}",
                 job.DisplayId, task.DisplayId, startLine);
@@ -286,7 +334,12 @@ public sealed class ComfyUiConnector : IAgentConnector
                 steps = profile.MediaSteps,
                 negative = profile.MediaNegative,
                 startImage = inputRel,
+                refAudio = audioRel,
                 loras = adapters.Select(a => new { a.ObjectCode, file = Path.GetFileName(a.File), a.Strength }),
+                // управляющий json суфлёра (T-288-S0) — в дампе запроса рядом с промптом:
+                // «почему у трека этот язык и эта длительность» иначе не восстановить
+                prompterModel = prompter?.Model,
+                prompterFields = prompter?.Fields,
                 prompt,
                 workflow = JsonDocument.Parse(workflow).RootElement,
             }, DumpOptions);
@@ -305,6 +358,8 @@ public sealed class ComfyUiConnector : IAgentConnector
                 startImage = inputRel,
                 loras = adapters.Select(a => a.ObjectCode),
                 outputFile = outputRel,
+                prompterModel = prompter?.Model,
+                prompterFields = prompter?.Fields,
             });
 
             var promptId = await SubmitPromptAsync(profile, workflow, job.Id, ct);
@@ -382,6 +437,13 @@ public sealed class ComfyUiConnector : IAgentConnector
             summary.AppendLine(Loc.T("msg.comfyUiConnector.13", profile.MediaWidth,
                 profile.MediaHeight, profile.MediaLength, profile.MediaSteps));
             summary.AppendLine(Loc.T("msg.comfyUiConnector.14", seed));
+            if (prompter is not null)
+            {
+                // чем управлял суфлёр — в сводке задания: параметры трека взяты не из профайла,
+                // и без этой строки непонятно, откуда они взялись (T-288-S0)
+                summary.AppendLine(Loc.T("msg.prompter.16", prompter.Model,
+                    string.Join(", ", prompter.Fields)));
+            }
             summary.AppendLine(Loc.T("msg.comfyUiConnector.15", sw.Elapsed));
             summary.AppendLine();
             summary.AppendLine(Loc.T("msg.comfyUiConnector.16"));
@@ -397,9 +459,13 @@ public sealed class ComfyUiConnector : IAgentConnector
             var resultPath = _files.WriteTaskArtifact(slug, task.DisplayId,
                 $"{job.DisplayId}-result.md", summary.ToString());
 
-            // биллинг: локальная генерация бесплатна (cost по декларации — нули), токенов нет
-            _jobs.SetState(job.Id, JobState.Done, actorId: job.ExecutorId, resultPath, cost: 0,
-                inputTokens: 0, outputTokens: 0, "USD");
+            // биллинг: локальная генерация бесплатна (cost по декларации — нули), токенов нет —
+            // но ВЫЗОВ СУФЛЁРА (T-288-S0) это отдельный вызов текстовой модели, и его токены
+            // с ценой относятся к расходу ЭТОГО задания: другого задания у них нет
+            _jobs.SetState(job.Id, JobState.Done, actorId: job.ExecutorId, resultPath,
+                cost: prompter?.Cost ?? 0,
+                inputTokens: prompter?.InputTokens ?? 0, outputTokens: prompter?.OutputTokens ?? 0,
+                "USD");
             if (!task.IsTemplate)
             {
                 // статус по готовности (T-250): по умолчанию «проверка» — прежнее поведение;
@@ -447,6 +513,9 @@ public sealed class ComfyUiConnector : IAgentConnector
         finally
         {
             _queued.TryRemove(job.Id, out _);
+            // на случай, если до чтения дело не дошло вовсе (задание сняли между постановкой
+            // суфлёром и запуском): полка не должна хранить чужой json до следующего раза
+            _prompter.TryRemove(job.Id, out _);
             if (_active.TryRemove(job.Id, out var cts))
             {
                 cts.Dispose();
@@ -459,10 +528,17 @@ public sealed class ComfyUiConnector : IAgentConnector
     /// (JSON-экранируется), "{seed}"/"{width}"/"{height}"/"{length}"/"{steps}" — числа
     /// вместе с кавычками, {job} — код задания (имя выходного файла ComfyUI),
     /// {image} — имя стартового кадра в каталоге input ComfyUI (T-258; у t2v-шаблона
-    /// такого плейсхолдера нет вовсе).
+    /// такого плейсхолдера нет вовсе), {audio} — имя эталонной записи там же (T-249-S0).
+    ///
+    /// ИМЕНОВАННЫЕ значения МОДЕЛИ-СУФЛЁРА (T-287-S0) — <c>{p:&lt;имя&gt;}</c>: их приносит
+    /// <paramref name="prompterJson"/>, управляющий json от текстовой модели-суфлёра
+    /// (T-286-S0, T-288-S0). Всё, чего суфлёр не назвал, остаётся значением профайла или
+    /// умолчанием шаблона, поэтому шаблон собирается и БЕЗ суфлёра — см.
+    /// <see cref="ComfyPrompterGraph"/>.
     /// </summary>
     public string BuildWorkflow(ModelProfile profile, string prompt, long seed, string jobDisplayId,
-        string? imageName = null, IReadOnlyList<ObjectLoadLora>? adapters = null)
+        string? imageName = null, IReadOnlyList<ObjectLoadLora>? adapters = null,
+        string? audioName = null, string? prompterJson = null)
     {
         var template = ReadWorkflow(profile);
         // шаблон хранится обёрткой {"_seed": N, "prompt": {…}} (версии сида, п. 2.9) —
@@ -476,16 +552,22 @@ public sealed class ComfyUiConnector : IAgentConnector
         }
         graph = ApplyLoras(graph, profile, adapters ?? []);
         var imagePlaceholder = ImagePlaceholder(profile.RefImage);
-        return graph
+        var audioPlaceholder = AudioPlaceholder(profile.RefAudio);
+        // обычные плейсхолдеры — те же, что были; отдельной функцией они стали потому, что
+        // их надо применять и к УМОЛЧАНИЯМ именованных плейсхолдеров ({p:duration|{length}}),
+        // и к тексту шаблона между ними — но НЕ к тексту, пришедшему от суфлёра
+        string Classic(string part) => part
             .Replace("{prompt}", JsonEscape(prompt))
             .Replace("{negative}", JsonEscape(profile.MediaNegative))
             .Replace("{job}", JsonEscape(jobDisplayId))
             .Replace(imagePlaceholder, JsonEscape(imageName ?? ""))
+            .Replace(audioPlaceholder, JsonEscape(audioName ?? ""))
             .Replace("\"{seed}\"", seed.ToString())
             .Replace("\"{width}\"", profile.MediaWidth.ToString())
             .Replace("\"{height}\"", profile.MediaHeight.ToString())
             .Replace("\"{length}\"", profile.MediaLength.ToString())
             .Replace("\"{steps}\"", profile.MediaSteps.ToString());
+        return ComfyPrompterGraph.Apply(graph, profile.Prompter, prompterJson, Classic);
     }
 
     /// <summary>Текст workflow-шаблона профайла (файл хранилища); пустой шаблон — ошибка.</summary>
@@ -519,6 +601,19 @@ public sealed class ComfyUiConnector : IAgentConnector
     /// <summary>Плейсхолдер картинки: из настройки, а нет её — прежний {image}.</summary>
     private static string ImagePlaceholder(RefImageSettings refImage) =>
         refImage.Placeholder.Length > 0 ? refImage.Placeholder : "{image}";
+
+    /// <summary>
+    /// Модель ждёт ЭТАЛОННУЮ ЗАПИСЬ (T-249-S0): в её шаблоне есть плейсхолдер звука.
+    /// Плейсхолдер намеренно НЕ вписывается в поставляемые шаблоны заранее — с пустым
+    /// именем файла ComfyUI откажется считать граф, и генерация без образца стала бы
+    /// невозможной (та же наука, что с узлом LoRA, T-13-S1).
+    /// </summary>
+    public static bool NeedsRefAudio(string workflowTemplate, RefAudioSettings refAudio) =>
+        workflowTemplate.Contains(AudioPlaceholder(refAudio), StringComparison.Ordinal);
+
+    /// <summary>Плейсхолдер записи: из настройки, а нет её — {audio}.</summary>
+    private static string AudioPlaceholder(RefAudioSettings refAudio) =>
+        refAudio.Placeholder.Length > 0 ? refAudio.Placeholder : "{audio}";
 
     /// <summary>
     /// Подключить адаптеры LoRA к графу (T-14-S1). Шаблон с плейсхолдером обслуживается
@@ -573,8 +668,22 @@ public sealed class ComfyUiConnector : IAgentConnector
     /// уходит POST /upload/image в каталог input и возвращается ИМЕНЕМ, которое
     /// подставляется в узел LoadImage графа.
     /// </summary>
-    private async Task<string> UploadStartImageAsync(ModelProfile profile,
-        Core.Entities.Project? project, string inputRel, string jobDisplayId, CancellationToken ct)
+    private Task<string> UploadStartImageAsync(ModelProfile profile,
+        Core.Entities.Project? project, string inputRel, string jobDisplayId, CancellationToken ct) =>
+        UploadInputFileAsync(profile, project, inputRel, jobDisplayId,
+            profile.RefImage.Field.Length > 0 ? profile.RefImage.Field : "image",
+            profile.RefImage.UploadPath, ct);
+
+    /// <summary>
+    /// Залить ВХОДНОЙ ФАЙЛ в ComfyUI — стартовый кадр либо эталонную запись (T-249-S0).
+    /// Механика у них одна: узлы <c>LoadImage</c> и <c>LoadAudio</c> берут файл из одного
+    /// и того же каталога <c>input</c> и кладётся он туда одним и тем же запросом, поэтому
+    /// адрес загрузки по умолчанию общий (<c>/upload/image</c>), а своё значение задаётся
+    /// в справочнике (<c>refAudio.uploadPath</c>) — движок вправе принимать звук иначе.
+    /// </summary>
+    private async Task<string> UploadInputFileAsync(ModelProfile profile,
+        Core.Entities.Project? project, string inputRel, string jobDisplayId,
+        string field, string uploadPathSetting, CancellationToken ct)
     {
         string source;
         if (ObjectFiles.IsStore(inputRel))
@@ -604,10 +713,9 @@ public sealed class ComfyUiConnector : IAgentConnector
         // а повторный запуск того же задания перезаписывает свой (overwrite)
         var name = $"ai2p_{jobDisplayId}{Path.GetExtension(source).ToLowerInvariant()}";
         // ИМЯ ПОЛЯ и АДРЕС ЗАГРУЗКИ — из справочника моделей (T-13-S1/T-14-S1), а не зашиты:
-        // свой движок вправе принимать картинку иначе. Пусто в настройке — прежние значения.
-        var field = profile.RefImage.Field.Length > 0 ? profile.RefImage.Field : "image";
-        var uploadPath = profile.RefImage.UploadPath.Length > 0
-            ? "/" + profile.RefImage.UploadPath.TrimStart('/')
+        // свой движок вправе принимать файл иначе. Пусто в настройке — прежние значения.
+        var uploadPath = uploadPathSetting.Length > 0
+            ? "/" + uploadPathSetting.TrimStart('/')
             : "/upload/image";
         // тело — как у браузера (T-277: штатный Add() добавляет ещё и filename*, из-за
         // которого ComfyUI получал имя файла вместе с кавычками и отвечал HTTP 500)
@@ -620,7 +728,7 @@ public sealed class ComfyUiConnector : IAgentConnector
             throw new InvalidOperationException(
                 Loc.T("msg.comfyUiConnector.44", inputRel, (int)response.StatusCode, ErrorText(text)));
         }
-        Logger.Information("Задание {JobDisplayId}: стартовый кадр {Path} загружен в ComfyUI",
+        Logger.Information("Задание {JobDisplayId}: входной файл {Path} загружен в ComfyUI",
             jobDisplayId, inputRel);
         // ComfyUI отвечает {"name":…,"subfolder":…,"type":"input"}; LoadImage ждёт имя
         // вместе с подкаталогом, если тот не пуст
@@ -632,14 +740,16 @@ public sealed class ComfyUiConnector : IAgentConnector
         return subfolder.Length > 0 ? $"{subfolder}/{uploaded}" : uploaded;
     }
 
-    /// <summary>Тип содержимого стартового кадра по расширению файла.</summary>
+    /// <summary>Тип содержимого входного файла по расширению (кадр либо запись, T-249-S0).
+    /// Умолчание осталось картинкой: неизвестное расширение к нам попадает только из кадра —
+    /// звук разбирается по закрытому списку расширений.</summary>
     private static string ContentTypeOf(string path) =>
         Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "image/jpeg",
             ".webp" => "image/webp",
             ".bmp" => "image/bmp",
-            _ => "image/png",
+            _ => ObjectLoadPlanner.AudioMimeOf(path) ?? "image/png",
         };
 
     /// <summary>Текст для подстановки внутрь JSON-строки шаблона (кавычки остаются в шаблоне);
@@ -687,9 +797,19 @@ public sealed class ComfyUiConnector : IAgentConnector
         while (DateTime.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            using var response = await Http.GetAsync($"{BaseUrl(profile)}/history/{promptId}", ct);
-            var text = await response.Content.ReadAsStringAsync(ct);
-            if (response.IsSuccessStatusCode)
+            // ответ закрывается СРАЗУ, до паузы: «using var» жил бы до конца витка цикла и
+            // держал соединение все три секунды ожидания (T-249-S0, второй круг). Для самого
+            // ComfyUI это лишний открытый сокет, а поддельный сервер тестов обслуживает
+            // соединения по очереди — на нём такой захват копился в очередь и через пять
+            // минут упирался в таймаут HttpClient
+            string text;
+            bool ok;
+            using (var response = await Http.GetAsync($"{BaseUrl(profile)}/history/{promptId}", ct))
+            {
+                text = await response.Content.ReadAsStringAsync(ct);
+                ok = response.IsSuccessStatusCode;
+            }
+            if (ok)
             {
                 using var doc = JsonDocument.Parse(text);
                 if (doc.RootElement.TryGetProperty(promptId, out var entry))
@@ -760,18 +880,23 @@ public sealed class ComfyUiConnector : IAgentConnector
         {
             try
             {
-                using var response = await Http.GetAsync($"{BaseUrl(profile)}/internal/logs/raw", ct);
-                if (!response.IsSuccessStatusCode)
+                // ответ закрывается сразу, до паузы опроса — та же причина, что и у /history
+                string text;
+                using (var response = await Http.GetAsync($"{BaseUrl(profile)}/internal/logs/raw", ct))
                 {
-                    if (!reported)
+                    if (!response.IsSuccessStatusCode)
                     {
-                        reported = true;
-                        _console.Write(jobId,
-                            Loc.T("msg.comfyUiConnector.30", (int)response.StatusCode));
+                        if (!reported)
+                        {
+                            reported = true;
+                            _console.Write(jobId,
+                                Loc.T("msg.comfyUiConnector.30", (int)response.StatusCode));
+                        }
+                        return;
                     }
-                    return;
+                    text = await response.Content.ReadAsStringAsync(ct);
                 }
-                foreach (var line in tail.Advance(ParseLogEntries(await response.Content.ReadAsStringAsync(ct))))
+                foreach (var line in tail.Advance(ParseLogEntries(text)))
                 {
                     _console.Write(jobId, line);
                 }

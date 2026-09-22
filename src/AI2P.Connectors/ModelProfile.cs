@@ -108,6 +108,21 @@ public sealed class ModelProfile
     /// </summary>
     public RefImageSettings RefImage { get; set; } = new();
 
+    /// <summary>
+    /// Настройка референсного АУДИО (T-249-S0, ключ <c>refAudio</c>): чем образец голоса
+    /// или звука попадает в модель. У аудио-моделей это и есть замена адаптера — постоянный
+    /// тембр даётся записью, а не обучением.
+    /// </summary>
+    public RefAudioSettings RefAudio { get; set; } = new();
+
+    /// <summary>
+    /// Настройка МОДЕЛИ-СУФЛЁРА (T-286-S0, ключ <c>prompter</c>): нужен ли модели суфлёр и
+    /// какие поля несёт его управляющий json. Коннектору отсюда нужна СХЕМА (T-287-S0): по
+    /// ней значение приводится к виду поля узла — «90» в поле duration уходит числом, а
+    /// значение не из перечня не уходит вовсе.
+    /// </summary>
+    public PrompterSettings Prompter { get; set; } = new();
+
     public static ModelProfile Parse(string json)
     {
         var profile = new ModelProfile();
@@ -132,6 +147,8 @@ public sealed class ModelProfile
         // читается коннектором один раз, и настройка едет вместе с остальным подключением
         profile.Lora = LoraSettings.FromProfile(root);
         profile.RefImage = RefImageSettings.FromProfile(root);
+        profile.RefAudio = RefAudioSettings.FromProfile(root);
+        profile.Prompter = PrompterSettings.FromProfile(root);
 
         if (root.TryGetProperty("params", out var p) && p.ValueKind == JsonValueKind.Object)
         {

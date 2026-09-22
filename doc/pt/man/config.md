@@ -105,6 +105,13 @@ Os códigos das ações (`AI2P.Files.Write`, `AI2P.Tasks.Create`, …) são hier
 por ponto. É com eles que as regras de segurança operam, por isso vale dar uma olhada aqui antes
 de escrever uma regra.
 
+Para ramificações e ciclos (tarefas «Condição», «Ciclo antes», «Ciclo depois») o catálogo
+tem quatro ações: `AI2P.Tasks.ConditionResult` (`set_condition_result` — decisão da condição,
+estritamente true/false), `AI2P.Tasks.LoopResult` (`set_loop_result` — resultado da
+verificação do ciclo), `AI2P.Tasks.FromTemplate` (`create_tasks_from_template` — tarefas do
+ramo a partir de um nó de modelo) e `AI2P.Tasks.StopHierarchy` (`stop_hierarchy` — concluir a
+execução da hierarquia). As duas primeiras o agente só vê numa tarefa do tipo correspondente.
+
 ### Segurança
 
 As regras de «o que o agente pode»: **permitir / perguntar / proibir** para uma ação (ou para um

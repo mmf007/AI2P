@@ -225,7 +225,9 @@ public sealed class T11S0Tests : IDisposable
         var request = (string)typeof(JobOrchestrator)
             .GetMethod("BuildAiRequest", System.Reflection.BindingFlags.NonPublic
                                          | System.Reflection.BindingFlags.Instance)!
-            .Invoke(_f.Orchestrator, [task])!;
+            // второй параметр — список использованного опыта (T-266-S0); рефлексия значения
+            // по умолчанию сама не подставляет, поэтому его надо передавать явно
+            .Invoke(_f.Orchestrator, [task, null])!;
 
         Assert.Contains("## Общие правила работы", request);
         Assert.Contains("правило для всех задач", request);

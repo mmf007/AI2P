@@ -33,8 +33,18 @@ public sealed class ActionCatalogTests : IDisposable
         // + правка полей чужой задачи (v20, T-160-S0) — инструмент update_task
         // + запуск задачи «авто ПО» (v21, T-155-S0) — действие-политика, инструмента нет:
         //   решение спрашивается перед запуском задания исполнителя «авто ПО»
-        Assert.Equal(33, ru.Count);
-        Assert.Equal(33, en.Count);
+        // + проверка и установка обновления приложения (v22, T-208) — два действия расписания,
+        //   инструментов у них нет: их ставят флажки автообновления в настройках
+        // + ПОИСК ПО ОПЫТУ (v23, T-268-S0) — инструмент search_experience: без записи
+        //   справочника правила безопасности его не закрывали бы вовсе (наука 2d3af8da)
+        // + РАЗГОВОР АГЕНТОВ (v24, T-280-S0) — send_task_message и wait_task_reply (T-185):
+        //   записи у них не было с самого появления, поэтому переписка родственных задач
+        //   ничем не закрывалась, а описание инструмента приходило агенту пустым
+        // + ВЕТВЛЕНИЕ И ЦИКЛ (v25, T-300-S0) — set_condition_result, set_loop_result,
+        //   create_tasks_from_template, stop_hierarchy: решение условия, исход проверки
+        //   цикла, задачи ветви из узла шаблона, остановка иерархии агентом
+        Assert.Equal(46, ru.Count);
+        Assert.Equal(46, en.Count);
         Assert.Null(ru.Single(a => a.Code == "AI2P.Archives.AutoRun").ToolName);
         // действие заданий-соседей есть на обоих языках и привязано к инструменту
         Assert.Equal("get_sibling_tasks", ru.Single(a => a.Code == "AI2P.Tasks.GetSiblings").ToolName);
@@ -141,7 +151,7 @@ public sealed class ActionCatalogTests : IDisposable
         actions.Seed();
 
         var de = actions.List("de");
-        Assert.Equal(33, de.Count); // все действия видны и на новом языке
+        Assert.Equal(46, de.Count); // все действия видны и на новом языке
         Assert.Equal("Projektdatei lesen", de.Single(a => a.Code == "AI2P.Files.Read").Title);
         // непереведённые — фолбэк на en
         Assert.Contains("List files", de.Single(a => a.Code == "AI2P.Files.List").Prompt);

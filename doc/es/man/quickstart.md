@@ -17,11 +17,11 @@ aparte»:
 
 | Archivo | Qué lleva dentro | Cuándo cogerlo |
 |---|---|---|
-| `AI2P_full_v_1_NN_win64.exe` | el programa **junto con el runtime** | el caso normal: no hay que añadir nada |
-| `AI2P_v_1_NN_win64.exe` | sólo el programa | si en el ordenador ya está instalado el runtime **ASP.NET Core 8.x** |
+| `AI2P_v_1_NN_full_windows_x64.exe` | el programa **junto con el runtime** | el caso normal: no hay que añadir nada |
+| `AI2P_v_1_NN_windows_x64.exe` | sólo el programa | si en el ordenador ya está instalado el runtime **ASP.NET Core 8.x** |
 
 En Linux y macOS es lo mismo, pero con la extensión `.run`
-(`AI2P_full_v_1_NN_Linux.run`). `NN` es el número de versión; coja el mayor.
+(`AI2P_v_1_NN_full_linux_x64.run`). `NN` es el número de versión; coja el mayor.
 
 > Si duda, coja el **`full`**. Es más grande, pero no necesita nada más que a sí mismo.
 
@@ -36,8 +36,8 @@ probar vale «sólo para mí»: no harán falta permisos de administrador.
 ### Linux
 
 ```sh
-chmod +x AI2P_full_v_1_NN_Linux.run
-./AI2P_full_v_1_NN_Linux.run
+chmod +x AI2P_v_1_NN_full_linux_x64.run
+./AI2P_v_1_NN_full_linux_x64.run
 ```
 
 Se instala en `~/ai/AI2P`. No hacen falta permisos de `root`: el servidor funciona con un
@@ -46,8 +46,8 @@ usuario normal.
 ### macOS
 
 ```sh
-chmod +x AI2P_full_v_1_NN_macos.run
-./AI2P_full_v_1_NN_macos.run
+chmod +x AI2P_v_1_NN_full_macos_arm64.run
+./AI2P_v_1_NN_full_macos_arm64.run
 ```
 
 Se instala en `~/ai/AI2P`. No hacen falta permisos de `root`: el servidor funciona con un

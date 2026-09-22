@@ -69,8 +69,22 @@
                 </MudPaper>
             }
 
+            @* --- ЗАПИСЬ (T-250-S0): резать и пережимать нечем и незачем --- *@
+            @if (Frame is null && _stage is not null && IsAudio)
+            {
+                <MudStack Spacing="1" data-loraframe-audio="1">
+                    <audio controls preload="metadata" src="@_stageUrl" style="width: 100%;"></audio>
+                    <MudTextField T="string" @bind-Value="_name" Label="@L["objects.name"]"
+                                  data-loraframe-name="1" />
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary"
+                             data-loraframe-audio-hint="1">
+                        @L["lora.frame.audio.hint"]
+                    </MudText>
+                </MudStack>
+            }
+
             @* --- РАМКА КРОПА: тянутся левый верхний и правый нижний углы --- *@
-            @if (Frame is null && _stage is not null)
+            @if (Frame is null && _stage is not null && !IsAudio)
             {
                 <MudStack Spacing="1">
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["lora.frame.crop.hint"]</MudText>
@@ -92,8 +106,16 @@
             @if (Frame is not null)
             {
                 <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
-                    <img src="@FrameUrl" alt="@Frame.Name" data-loraframe-preview="1"
-                         style="max-width: 160px; max-height: 160px; object-fit: contain;" />
+                    @if (Frame.Type == ObjectKinds.Audio)
+                    {
+                        <audio controls preload="none" src="@FrameUrl"
+                               data-loraframe-preview="1" style="max-width: 240px;"></audio>
+                    }
+                    else
+                    {
+                        <img src="@FrameUrl" alt="@Frame.Name" data-loraframe-preview="1"
+                             style="max-width: 160px; max-height: 160px; object-fit: contain;" />
+                    }
                     <MudText Typo="Typo.caption" Class="mud-text-secondary">@Frame.PathOrUrl</MudText>
                 </MudStack>
                 <MudTextField T="string" @bind-Value="_name" Label="@L["objects.name"]"
@@ -131,6 +153,15 @@
 
     /// <summary>Датасет, в который ложится кадр (T-274); пусто — текущий датасет объекта.</summary>
     [Parameter] public string DatasetId { get; set; } = "";
+
+    /// <summary>
+    /// ИЗ ЧЕГО СОБРАН ДАТАСЕТ (T-250-S0): «image» либо «audio». Запись идёт мимо пережатия
+    /// целиком — холст браузера умеет только картинки, — поэтому у звукового датасета нет
+    /// ни рамки кропа, ни перевода формата: файл кладётся как есть.
+    /// </summary>
+    [Parameter] public string Media { get; set; } = LoraDatasetMedia.Image;
+
+    private bool IsAudio => LoraDatasetMedia.Normalize(Media) == LoraDatasetMedia.Audio;
 
     private readonly string _cropId = "lora-crop-" + Guid.NewGuid().ToString("N")[..8];
     private string _source = "url";
@@ -177,7 +208,7 @@
     /// </summary>
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_stage is not null && !_cropReady)
+        if (_stage is not null && !_cropReady && !IsAudio)
         {
             _cropReady = await Js.InvokeAsync<bool>("ai2p.initLoraCrop", _cropId);
         }
@@ -247,7 +278,8 @@
         {
             _stage = await Api.StageLoraImageAsync(
                 _source == "url" ? _url.Trim() : null,
-                _source == "local" ? _localPath.Trim() : null);
+                _source == "local" ? _localPath.Trim() : null,
+                LoraDatasetMedia.Normalize(Media));
             _cropReady = false;
             if (_name.Trim().Length == 0)
             {
@@ -274,6 +306,21 @@
         _busy = true;
         try
         {
+            // ЗАПИСЬ: пережимать нечего — файл уже лежит в хранилище исходником, и сервер
+            // переносит его в датасет как есть, по пути StagePath
+            if (IsAudio)
+            {
+                var record = await Api.AddLoraFrameAsync(Owner.Id, new LoraDatasetAddDto
+                {
+                    FileName = _name.Trim().Length > 0 ? _name.Trim() : _stage!.Name,
+                    Description = _description,
+                    DataBase64 = "",
+                    StagePath = _stage!.Path,
+                    DatasetId = DatasetId,
+                });
+                Dialog.Close(DialogResult.Ok(record));
+                return;
+            }
             var crop = await Js.InvokeAsync<CropResult?>("ai2p.loraCropResult", _cropId,
                 _limits.MaxWidth, _limits.MaxHeight, _limits.MaxKb, _limits.Format);
             if (crop is null || crop.Data.Length == 0)

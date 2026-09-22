@@ -23,8 +23,11 @@
 * [Проекты](man/progects.md)
 * [Шаблоны](man/templates.md) 
 * [Задачи](man/tasks.md)
+* [Алгоритм выполнения задач](man/TaskDo.md)
 * [Объекты проекта](man/objects.md)
+* [Опыт](man/experience.md)
 * [Редактор LoRA](man/LoRAEditor.md) 
+* [Работа со звуковыми моделями](man/audio.md)
 
 ## Примеры работы
 * [Видео ролик по эталонному кадру персонажа](man/sample_video1.md)
@@ -39,3 +42,5 @@
 
 
 ## [Плагины и MCP](plugins/README.md)
+
+## [Наборы опыта: стили работы](packs/README.md)

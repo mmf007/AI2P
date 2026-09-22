@@ -23,8 +23,11 @@
 * [Projetos](man/progects.md)
 * [Modelos de processo](man/templates.md)
 * [Tarefas](man/tasks.md)
+* [Algoritmo de execução das tarefas](man/TaskDo.md)
 * [Objetos do projeto](man/objects.md)
+* [Experiência](man/experience.md)
 * [Editor de LoRA](man/LoRAEditor.md)
+* [Trabalho com modelos de áudio](man/audio.md)
 
 ## Exemplos de trabalho
 * [Vídeo a partir do quadro de referência de um personagem](man/sample_video1.md)
@@ -38,3 +41,5 @@
 ## [Importação de tarefas de sistemas externos](import/README.md)
 
 ## [Plugins e MCP](plugins/README.md)
+
+## [Conjuntos de experiência: estilos de trabalho](packs/README.md)

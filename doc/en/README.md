@@ -69,7 +69,7 @@ The data goes nowhere: the database, the project files and the keys lie next to 
 
 * Windows 10/11, Linux or macOS; administrator rights only for the installation.
 * The **ASP.NET Core 8.x** runtime — either installed separately or taken from the full installation
-  package (`AI2P_full_…`), which already holds it inside.
+  package (`AI2P_v_1_NN_full_…`), which already holds it inside.
 * An API key of the AI you are going to use — or a Claude Code subscription, or a video card for
   local models. Without a model the system works as an ordinary planner for people.
 
@@ -79,6 +79,10 @@ For the first run in a few minutes see [Quick start](man/quickstart.md)
 
 ## Documentation
 For the detailed documentation see [Documentation](index.md)
+
+Sections: [User guide](man/README.md) · [AI models](models/README.md) ·
+[Task import](import/README.md) · [Plugins and MCP](plugins/README.md) ·
+[Experience packs](packs/README.md)
 
 ## For partners and investors
 

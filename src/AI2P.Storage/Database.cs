@@ -133,6 +133,16 @@ public sealed class Database
             cmd.ExecuteNonQuery();
         }
 
+        // ЛЕКСИЧЕСКИЙ ИНДЕКС ПО ОПЫТУ (T-268-S0) — после схемы и миграций, по той же причине,
+        // что и индексы выше: он строится по колонке text таблицы experience. Таблица
+        // производная и НЕ реплицируется (в ChangeLog.OrgTables её нет — это белый список);
+        // FTS5 в сборке нет — установка молча работает без индекса, поиск деградирует
+        // до подстрочного сравнения
+        if (Kind == DatabaseKind.Org)
+        {
+            ExperienceIndex.Install(conn);
+        }
+
         nodeId ??= Sql.Scalar<string>(conn, null, "SELECT value FROM meta WHERE key='node_id'")
                    ?? Guid.NewGuid().ToString();
         Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('node_id', @v)", ("@v", nodeId));
@@ -512,7 +522,70 @@ public sealed class Database
         // и потому задаче не нужно ни одного своего поля с параметрами запуска. Переносить
         // нечего: у прежних обучений задачи не было, поле остаётся пустым
         EnsureColumn(conn, "object_loras", "train_task_id", "TEXT NOT NULL DEFAULT ''");
-        Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '46')");
+        // v46 → v47 (T-265-S0, ветка T-318 «Проект опыта»): ПРИЗНАК АКТИВНОСТИ У ЗАПИСИ ОПЫТА.
+        // До этого запись можно было только удалить; неактивная нужна промежуточным состоянием:
+        // её не видит агент (ExperienceService.GoesToPrompt), но человек видит и может вернуть,
+        // а правило архивации «опыт + только неактивные» потом уносит такие записи в архив.
+        // Умолчание 1 — ВСЕ накопленные записи остаются активными, поэтому переносить данные
+        // не нужно и шага обновления билда у этой версии схемы нет.
+        //
+        // НОМЕР СХЕМЫ У ВСЕЙ ВЕТКИ T-318 ОБЩИЙ — v47: соседи по выпуску свои колонки и
+        // таблицы дописывают рядом с пометкой «тот же номер v47», НЕ поднимая его ещё раз.
+        // Номер отмечает состояние базы целиком, миграции безусловны и идемпотентны, а два
+        // подъёма подряд означали бы правку тестов с вбитым номером дважды и красное у всех
+        // параллельных агентов ветки
+        EnsureColumn(conn, "experience", "is_active", "INTEGER NOT NULL DEFAULT 1");
+        // v46 → v47 (T-266-S0, ТОТ ЖЕ номер v47, что и у правки выше): ИСПОЛЬЗОВАННЫЙ ОПЫТ
+        // ЗАДАЧИ — таблица task_experience_used. Здесь делать нечего: таблицу заводит сама
+        // схема (CREATE TABLE IF NOT EXISTS в OrgSchema), переносить нечего — у прежних
+        // заданий следа использования не осталось вовсе, набор накопится со следующих запусков
+        // v46 → v47 (T-268-S0, ТОТ ЖЕ номер v47): ЛЕКСИЧЕСКИЙ ИНДЕКС ПО ТЕКСТУ ОПЫТА —
+        // виртуальная таблица experience_fts. Здесь делать нечего и номер не поднимается:
+        // таблица ПРОИЗВОДНАЯ, её заводит ExperienceIndex.Install в конце Init (FTS5 может
+        // быть не собран, тогда её нет вовсе), наполняет — догоняющий проход при открытии
+        // организации. Реплицировать её нельзя, и в ChangeLog.OrgTables она не добавлена
+        // v47 → v48 (T-286-S0, ветка T-285-S0 «Вызов comfyUI для музыкальной модели»):
+        // МОДЕЛЬ-СУФЛЁР У ИСПОЛНИТЕЛЯ. У медиа-модели, которой параметры задаются ОТДЕЛЬНЫМИ
+        // полями графа (длительность трека, язык вокала, слова песни у ACE-Step 1.5), одного
+        // текстового промпта мало: управляющий json для неё готовит вторая, ТЕКСТОВАЯ модель.
+        // Колонка без NOT NULL и без REFERENCES: пусто — суфлёра нет (так у всех уже заведённых
+        // исполнителей, переносить данные не нужно и шага обновления билда нет), а внешнего
+        // ключа нет намеренно — строка исполнителя и строка модели приезжают репликацией
+        // независимо, и порядок их приезда не гарантирован.
+        //
+        // Колонка РЕПЛИЦИРУЕТСЯ САМА: триггеры журнала изменений строятся по ФАКТИЧЕСКОМУ
+        // составу колонок (ChangeLog.Install → ColumnsOf), правки ChangeLog не нужно.
+        //
+        // НОМЕР СХЕМЫ У ВСЕЙ ВЕТКИ T-285-S0 ОБЩИЙ — v48: соседи по выпуску свои колонки и
+        // таблицы дописывают рядом с пометкой «тот же номер v48», НЕ поднимая его ещё раз.
+        // Номер отмечает состояние базы целиком, миграции безусловны и идемпотентны, а два
+        // подъёма подряд означали бы правку девяти тестов с вбитым номером дважды и красное
+        // у всех параллельных агентов ветки
+        // v47 → v48 (T-292-S0, ветка T-285-S0 — ТОТ ЖЕ номер v48): СУФЛЁР СТАЛ ИСПОЛНИТЕЛЕМ.
+        // Прежняя колонка prompter_model_id (T-286-S0) держала МОДЕЛЬ, и звал её свой
+        // маленький HTTP-клиент — поэтому CLI-подписка и локальные модели суфлёрами работать
+        // не могли вовсе. Теперь суфлёр — обычный исполнитель, и его задание идёт обычным
+        // коннектором. Прежняя колонка больше не заводится и данные из неё не переносятся:
+        // значение в ней было ровно одно на всю систему (та версия в продакшен не пошла —
+        // решение заказчика T-292-S0). У баз, где она уже появилась, колонка остаётся
+        // пустовать: DROP COLUMN у SQLite тянет перестройку таблицы и правку триггеров журнала
+        EnsureColumn(conn, "executors", "prompter_executor_id", "TEXT");
+        // суфлёр и его замена У ЗАДАЧИ: основной исполнитель даёт лишь умолчание, а назначить
+        // по задаче можно другого. Список замены — отдельной таблицей, как у task_alt_executors
+        EnsureColumn(conn, "tasks", "prompter_executor_id", "TEXT");
+        Sql.Exec(conn, null, """
+            CREATE TABLE IF NOT EXISTS task_prompter_alt_executors (
+              task_id     TEXT NOT NULL,
+              executor_id TEXT NOT NULL,
+              ord         INTEGER NOT NULL DEFAULT 0,
+              PRIMARY KEY (task_id, executor_id)
+            )
+            """);
+        // РОЛЬ ЗАДАНИЯ (T-292-S0): пусто — работа по задаче, "prompter" — подготовка json.
+        // Без неё завершение задания суфлёра выглядело бы как завершение самой задачи —
+        // результат ушёл бы на проверку человеку, а генерация не запустилась бы никогда
+        EnsureColumn(conn, "jobs", "role", "TEXT NOT NULL DEFAULT ''");
+        Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '48')");
     }
 
     /// <summary>
@@ -1151,6 +1224,13 @@ public sealed class Database
           PRIMARY KEY (task_id, executor_id)
         );
 
+        CREATE TABLE IF NOT EXISTS task_prompter_alt_executors (  -- «могут заменить суфлёра»,
+          task_id     TEXT NOT NULL,       -- T-292-S0: назначенный суфлёр занят — json готовит
+          executor_id TEXT NOT NULL,       -- первый свободный отсюда; внешних ключей нет по той
+          ord         INTEGER NOT NULL DEFAULT 0,  -- же причине, что у prompter_executor_id:
+          PRIMARY KEY (task_id, executor_id)       -- строки приезжают репликацией в любом порядке
+        );
+
         CREATE TABLE IF NOT EXISTS task_skills (
           task_id  TEXT NOT NULL REFERENCES tasks(id),
           skill_id TEXT NOT NULL REFERENCES skills(id),
@@ -1540,6 +1620,11 @@ public sealed class Database
           always_load      INTEGER NOT NULL DEFAULT 0, -- «загружать всегда» (T-24-S0): запись
                                                        -- идёт в промпт независимо от отбора
                                                        -- по навыкам и тэгам
+          is_active        INTEGER NOT NULL DEFAULT 1, -- АКТИВНА (T-265-S0): неактивную запись
+                                                       -- агент не получает НИ ПРИ КАКОМ
+                                                       -- раскладе (в том числе с пометкой
+                                                       -- «загружать всегда»), а человек видит
+                                                       -- её в списке и может вернуть
           created_by       TEXT REFERENCES executors(id),
           updated_by       TEXT REFERENCES executors(id),
           server_id        TEXT,                       -- сервер, создавший запись: только он
@@ -1553,6 +1638,26 @@ public sealed class Database
           experience_id TEXT NOT NULL REFERENCES experience(id), -- слова, что у задач и
           tag           TEXT NOT NULL,                           -- шаблонов — справочника
           PRIMARY KEY (experience_id, tag)                       -- у них нет (task_tags)
+        );
+
+        -- ИСПОЛЬЗОВАННЫЙ ОПЫТ ЗАДАЧИ (T-266-S0, ветка T-318 «Проект опыта»): какие записи
+        -- опыта РЕАЛЬНО ушли в текст задания. Нужен для двух вещей — вкладка «Использованный
+        -- опыт» карточки задачи (сегодня это видно только в тексте задания, и то не всегда)
+        -- и статистика «что берут, а что не брали ни разу», по которой шаблон «Анализ опыта»
+        -- гасит записи, а правило архивации уносит их в архив.
+        --
+        -- Хранятся ТОЛЬКО идентификаторы: текст записи не копируется (требование заказчика) —
+        -- иначе журнал использования превратился бы во вторую копию всего опыта.
+        -- Ссылки на experience(id) НЕТ намеренно: запись могли удалить или унести в архив,
+        -- а след использования нужен и после этого (в выдаче она показывается строкой
+        -- «запись недоступна»). Набор ДОПОЛНЯЕТСЯ при каждом запуске задания (перезапуск,
+        -- доработка): ключ «задача + запись», у известной пары обновляется used_at и job_id
+        CREATE TABLE IF NOT EXISTS task_experience_used (
+          task_id       TEXT NOT NULL REFERENCES tasks(id),
+          experience_id TEXT NOT NULL,   -- id записи опыта; FK нет — см. выше
+          job_id        TEXT,            -- задание ПОСЛЕДНЕГО использования; пусто — неизвестно
+          used_at       TEXT NOT NULL,
+          PRIMARY KEY (task_id, experience_id)
         );
 
         -- РЕЕСТР АРХИВОВ ОРГАНИЗАЦИИ (T-40-S0, выпуск 1.105). Архивация уменьшает оперативный
@@ -1734,6 +1839,9 @@ public sealed class Database
         CREATE INDEX IF NOT EXISTS ix_objects_parent    ON objects(parent_id);
         CREATE INDEX IF NOT EXISTS ix_object_tags_tag   ON object_tags(tag);
         CREATE INDEX IF NOT EXISTS ix_exp_tags_tag      ON experience_tags(tag);
+        -- статистика использования записи опыта (T-266-S0): «сколько раз и когда последний
+        -- раз» спрашивается ПО ЗАПИСИ, а ключ таблицы начинается с задачи
+        CREATE INDEX IF NOT EXISTS ix_exp_used_record   ON task_experience_used(experience_id);
         CREATE INDEX IF NOT EXISTS ix_object_loras_obj  ON object_loras(object_id);
         CREATE INDEX IF NOT EXISTS ix_tasks_status      ON tasks(status);
         CREATE INDEX IF NOT EXISTS ix_tasks_is_template ON tasks(is_template);

@@ -236,11 +236,36 @@ public sealed class LoraDataset
     /// <summary>Способ: <see cref="LoraDatasetKinds"/>.</summary>
     public string Kind { get; set; } = LoraDatasetKinds.None;
 
+    /// <summary>
+    /// ИЗ ЧЕГО СОБИРАЕТСЯ ДАТАСЕТ (T-250-S0): <see cref="LoraDatasetMedia"/> — картинки
+    /// либо звуковые записи. У звука пределы СВОИ (длительность, частота дискретизации,
+    /// число каналов), и сверять у него ширину с высотой бессмысленно: их нет вовсе.
+    /// Ключа в профайле нет — «картинки», то есть все прежние записи справочника ведут
+    /// себя ровно как раньше.
+    /// </summary>
+    public string Media { get; set; } = LoraDatasetMedia.Image;
+
     /// <summary>Куда собирается датасет; <c>{object}</c> — код объекта LoRA (OBJ-3).</summary>
     public string Path { get; set; } = "";
 
-    /// <summary>Подписи кадров: «txt» (файл рядом с кадром), «json» (один файл), «none».</summary>
+    /// <summary>
+    /// Подписи: «txt» (файл рядом с файлом датасета), «json» (один файл), «none».
+    /// У картинок это описание кадра, у звука — транскрипт речи либо теги музыки
+    /// (тренеры звука читают их тем же способом — одноимённым .txt либо одним .json).
+    /// </summary>
     public string Captions { get; set; } = "none";
+
+    /// <summary>Наименьшая длительность записи в секундах; 0 — модель не сказала (звук).</summary>
+    public int MinSeconds { get; set; }
+
+    /// <summary>Наибольшая длительность записи в секундах; 0 — не сказано (звук).</summary>
+    public int MaxSeconds { get; set; }
+
+    /// <summary>Частота дискретизации, к которой приводятся записи (Гц); 0 — не сказано.</summary>
+    public int SampleRate { get; set; }
+
+    /// <summary>Каналов в записи: 1 — моно, 2 — стерео; 0 — не сказано.</summary>
+    public int Channels { get; set; }
 
     /// <summary>Куда уходит датасет при облачном обучении (адрес загрузки архива).</summary>
     public string UploadUrl { get; set; } = "";
@@ -275,6 +300,7 @@ public sealed class LoraDataset
     internal static LoraDataset FromJson(JsonElement e) => new()
     {
         Kind = JsonRead.Str(e, "kind", LoraDatasetKinds.None),
+        Media = LoraDatasetMedia.Normalize(JsonRead.Str(e, "media", LoraDatasetMedia.Image)),
         Path = JsonRead.Str(e, "path"),
         Captions = JsonRead.Str(e, "captions", "none"),
         UploadUrl = JsonRead.Str(e, "uploadUrl"),
@@ -283,16 +309,44 @@ public sealed class LoraDataset
         Width = JsonRead.Int(e, "width", 0),
         Height = JsonRead.Int(e, "height", 0),
         MaxKb = JsonRead.Int(e, "maxKb", 0),
+        MinSeconds = JsonRead.Int(e, "minSeconds", 0),
+        MaxSeconds = JsonRead.Int(e, "maxSeconds", 0),
+        SampleRate = JsonRead.Int(e, "sampleRate", 0),
+        Channels = JsonRead.Int(e, "channels", 0),
         Formats = JsonRead.Strings(e, "formats"),
     };
 
+    /// <summary>Датасет этой модели собирается из ЗВУКОВЫХ ЗАПИСЕЙ, а не из картинок.</summary>
+    public bool IsAudio => LoraDatasetMedia.Normalize(Media) == LoraDatasetMedia.Audio;
+
     /// <summary>
-    /// У модели заполнены КОНТРОЛЬНЫЕ НАСТРОЙКИ картинок — есть что подставлять в датасет
+    /// У модели заполнены КОНТРОЛЬНЫЕ НАСТРОЙКИ файлов датасета — есть что подставлять
     /// (T-274). Путь сбора датасета и способ подписей сюда не входят: это «куда складывать»,
-    /// а не «какими быть кадрам».
+    /// а не «какими быть файлам». У звукового датасета (T-250-S0) считаются свои поля:
+    /// ширины с высотой у записи нет, и по ним «есть настройки» не определить.
     /// </summary>
-    public bool HasLimits => Width > 0 || Height > 0 || MaxKb > 0
-                             || MinItems > 0 || MaxItems > 0 || Formats.Count > 0;
+    public bool HasLimits => IsAudio
+        ? MinSeconds > 0 || MaxSeconds > 0 || SampleRate > 0 || Channels > 0
+          || MaxKb > 0 || MinItems > 0 || MaxItems > 0 || Formats.Count > 0
+        : Width > 0 || Height > 0 || MaxKb > 0
+          || MinItems > 0 || MaxItems > 0 || Formats.Count > 0;
+}
+
+/// <summary>
+/// ИЗ ЧЕГО СОБРАН ДАТАСЕТ ОБУЧЕНИЯ (T-250-S0). Видов ровно два, и третьего не
+/// предвидится: обучают либо на картинках (кадры персонажа, стиль), либо на записях
+/// (голос, инструмент, манера исполнения). Незнакомое значение — «картинки»: так вели
+/// себя все датасеты до появления этого поля.
+/// </summary>
+public static class LoraDatasetMedia
+{
+    public const string Image = "image";
+    public const string Audio = "audio";
+
+    public static readonly string[] All = [Image, Audio];
+
+    public static string Normalize(string? value) =>
+        (value ?? "").Trim().ToLowerInvariant() == Audio ? Audio : Image;
 }
 
 /// <summary>

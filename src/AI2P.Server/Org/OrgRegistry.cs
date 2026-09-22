@@ -118,6 +118,13 @@ public sealed class OrgRegistry : IDisposable
         return false;
     }
 
+    /// <summary>
+    /// ОТКРЫТЫЕ СЕЙЧАС организации (T-208): их контексты подняты, их сторожа работают,
+    /// их агенты заняты. Ровно они и отвечают на вопрос «кого снесёт перезапуск сервера»:
+    /// организация, в которую с этого старта никто не заходил, заданий не выполняет.
+    /// </summary>
+    public IReadOnlyList<OrgContext> OpenContexts => _contexts.Values.ToList();
+
     /// <summary>Перечитать коды организаций (после создания или переименования).</summary>
     public void RefreshCodes() =>
         _codes = Orgs.List(includeInactive: false).Select(o => o.Code).ToArray();

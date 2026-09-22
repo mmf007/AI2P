@@ -59,13 +59,27 @@ done
 # ТЕКСТЫ СООБЩЕНИЙ ЛЕЖАТ СНАРУЖИ (T-65-S0). Каталога рядом может не оказаться (кто-то
 # унёс один install.sh из выкладки) — тогда L отдаёт сам ключ, и скрипт всё равно
 # работает: из-за отсутствия перевода установка падать не должна
+# ГОДНОСТЬ ЗАГРУЗЧИКА ПРОВЕРЯЕТСЯ ПО ФУНКЦИЯМ, А НЕ ПО НАЛИЧИЮ ФАЙЛА (T-319): пустой или
+# обрезанный при копировании loc.sh проверку «-f» проходит, но не задаёт ни одной функции,
+# и ветка «else» при этом не срабатывает — каждая строка вывода становится «L: not found»
 AI2P_LOC_DIR="$SOURCE/i18n"
+LOC_FILE=0
 if [ -f "$AI2P_LOC_DIR/loc.sh" ]; then
+    LOC_FILE=1
     . "$AI2P_LOC_DIR/loc.sh"
+fi
+if command -v ai2p_set_lang >/dev/null 2>&1; then
     ai2p_set_lang "$LANG_OPT"
-else
-    L() { printf '%s\n' "$1"; }
+elif [ "$LOC_FILE" -eq 1 ]; then
+    printf 'AI2P: %s/loc.sh defines no messages (empty or truncated file) - texts are printed as keys\n' "$AI2P_LOC_DIR" >&2
+fi
+if ! command -v ai2p_text >/dev/null 2>&1; then
     ai2p_text() { printf '%s' "$1"; }
+fi
+if ! command -v L >/dev/null 2>&1; then
+    L() { ai2p_text "$@"; printf '\n'; }
+fi
+if ! command -v ai2p_help >/dev/null 2>&1; then
     ai2p_help() { printf 'No i18n folder next to install.sh\n'; }
 fi
 
@@ -297,6 +311,16 @@ if [ "$TARGET_DIR" = "$SOURCE" ]; then
     L scr.inst.21
     exit 1
 fi
+# КАТАЛОГ УСТАНОВКИ НЕ СМЕЕТ ЛЕЖАТЬ ВНУТРИ ВЫКЛАДКИ, А ВЫКЛАДКА — ВНУТРИ НЕГО (todo133).
+# Сравнения на равенство мало: при вложенности выкладка копируется сама в себя, а уборка
+# $WIPE_DIRS сносит каталоги не у того из них. На Windows этот же промах стоил 4 ГБ мусора
+# и 126 уровней вложенности прямо в выкладке — сторож поставлен на обеих платформах разом
+case "$TARGET_DIR/" in
+    "$SOURCE"/*) L scr.inst.75; L scr.inst.76; exit 1 ;;
+esac
+case "$SOURCE/" in
+    "$TARGET_DIR"/*) L scr.inst.75; L scr.inst.76; exit 1 ;;
+esac
 
 # то, без чего скопированные файлы не запустятся, проверяем ДО копирования (T-211)
 confirm_runtime

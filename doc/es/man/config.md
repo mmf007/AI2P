@@ -110,6 +110,14 @@ Los códigos de las acciones (`AI2P.Files.Write`, `AI2P.Tasks.Create`, …) son 
 separados por puntos. Es con ellos con lo que operan las reglas de seguridad, así que conviene
 asomarse aquí antes de escribir una regla.
 
+Para las ramificaciones y los bucles (tareas «Condición», «Bucle antes», «Bucle después») el
+catálogo tiene cuatro acciones: `AI2P.Tasks.ConditionResult` (`set_condition_result` —
+decisión de la condición, estrictamente true/false), `AI2P.Tasks.LoopResult`
+(`set_loop_result` — resultado de la comprobación del bucle), `AI2P.Tasks.FromTemplate`
+(`create_tasks_from_template` — tareas de la rama desde un nodo de plantilla) y
+`AI2P.Tasks.StopHierarchy` (`stop_hierarchy` — finalizar la ejecución de la jerarquía). Las
+dos primeras el agente solo las ve en una tarea del tipo correspondiente.
+
 ### Seguridad
 
 Las reglas de «qué puede hacer el agente»: **permitido / preguntar / prohibido** para una acción

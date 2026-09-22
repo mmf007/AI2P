@@ -80,6 +80,15 @@ public sealed class ScheduleRunner : IDisposable
     /// </summary>
     public AutoArchiveService? AutoArchive { get; set; }
 
+    /// <summary>
+    /// АВТООБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208): «проверить» (false) и «проверить и поставить»
+    /// (true), в ответе — строка для журнала. Делегатом, а не сервисом: обновляется
+    /// установка целиком, а это уровень СЕРВЕРА, про который организация не знает
+    /// (там же и config.json с флажками). null — действие честно отказывается строкой
+    /// в журнале, расписание задач при этом работает как работало.
+    /// </summary>
+    public Func<bool, string>? AppUpdate { get; set; }
+
     /// <summary>Список просроченных срабатываний (по расписанию — последний пропуск и счётчик).</summary>
     public List<ScheduleOverdueDto> Overdue()
     {
@@ -203,6 +212,29 @@ public sealed class ScheduleRunner : IDisposable
     /// </summary>
     private void RunAction(Core.Entities.Schedule schedule, string? actorId)
     {
+        // ОБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208) — второе и третье действие расписания. Задач оно
+        // не заводит и базы организации не трогает вовсе: работа идёт над самой установкой
+        if (schedule.Action is ScheduleActions.AppCheck or ScheduleActions.AppUpdate)
+        {
+            var summary = AppUpdate is null
+                ? Loc.T("msg.update.9")
+                : AppUpdate(schedule.Action == ScheduleActions.AppUpdate);
+            Logger.Information("Расписание {Schedule}: {Summary}", schedule.DisplayId, summary);
+            _events.Append(new EventRecord
+            {
+                ActorId = actorId,
+                EventType = EventTypes.ScheduleTriggered,
+                EntityType = "schedule",
+                EntityId = schedule.Id,
+                PayloadJson = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    schedule.DisplayId,
+                    action = schedule.Action,
+                    summary,
+                }),
+            });
+            return;
+        }
         if (schedule.Action != ScheduleActions.AutoArchive || AutoArchive is null)
         {
             Logger.Warning("Расписание {Schedule}: действие «{Action}» выполнять нечем",

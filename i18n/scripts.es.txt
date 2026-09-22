@@ -79,6 +79,8 @@ scr.inst.71=Obsoleto y se habría eliminado: {0}
 scr.inst.72=[WARN] El servicio {0} no ha levantado. Los archivos están actualizados.
 scr.inst.73=       Motivo: los registros de {0} y el estado del propio servicio.
 scr.inst.74=desconocida
+scr.inst.75=[ERROR] La carpeta de destino está DENTRO de la carpeta de la distribución (o al revés).
+scr.inst.76=        Copiar una carpeta dentro de sí misma alimenta su propio recorrido y llena el disco. Indique una carpeta fuera de la distribución.
 
 # ---------- makeAsServise.ps1 / makeAsServise.sh ----------
 scr.svc.1=AI2P: servidor de tareas y agentes de IA. Interfaz web: el puerto del config.json de la carpeta de instalación.

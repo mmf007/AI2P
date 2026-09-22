@@ -56,7 +56,7 @@ AI2P 就是通常意义上的 Trello 或 Jira：项目、任务、执行者、�
 ## 需要什么
 
 * Windows 10/11、Linux 或 macOS；只有安装时需要管理员权限。
-* **ASP.NET Core 8.x** 运行时 — 要么单独安装，要么使用完整安装包（`AI2P_full_…`），
+* **ASP.NET Core 8.x** 运行时 — 要么单独安装，要么使用完整安装包（`AI2P_v_1_NN_full_…`），
   其中已经内含它。
 * 您要使用的那种 AI 的 API 密钥 — 或者 Claude Code 订阅，或者用于本地模型的显卡。
   没有模型时，系统就是一个普通的、供人使用的任务规划器。
@@ -67,6 +67,10 @@ AI2P 就是通常意义上的 Trello 或 Jira：项目、任务、执行者、�
 
 ## 文档
 详细文档请看[文档目录](index.md)
+
+各节：[使用手册](man/README.md) · [AI 模型](models/README.md) ·
+[任务导入](import/README.md) · [插件与 MCP](plugins/README.md) ·
+[经验套件](packs/README.md)
 
 ## 面向合作伙伴与投资人
 

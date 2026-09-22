@@ -495,7 +495,17 @@ public sealed class AgentToolset
         .Concat(TaskToolset.Specs.Where(s => s.Name switch
         {
             "create_task" => Tasks.CanCreate,
-            "create_experience" or "update_experience" => Tasks.CanExperience,
+            // ПЕРЕНОС записи между областями (T-269-S0) — там же, где правка: переносит агент
+            // только записи своего проекта и общие правила, прочитанные в задании
+            "create_experience" or "update_experience" or "move_experience" => Tasks.CanExperience,
+            // ПОИСК по опыту (T-268-S0) — условие шире: искать есть что и у задачи, которой
+            // писать опыт некуда (общие правила работы получает каждая задача)
+            "search_experience" => Tasks.CanSearchExperience,
+            // РАЗБОР ОПЫТА (T-271-S0): перечислить область и спросить статистику использования
+            // может любая задача — это чтение; гасить и оживлять записи разрешено там же,
+            // где правка (условие CanExperience)
+            "list_experience" or "experience_usage" => Tasks.CanSearchExperience,
+            "set_experience_active" => Tasks.CanExperience,
             "list_templates" or "create_template" or "update_template" => Tasks.CanTemplates,
             "import_task_from_url" => Tasks.CanImport,
             "fetch_file" => Tasks.CanFetch, // внешние файлы задания (T-255)
@@ -506,6 +516,11 @@ public sealed class AgentToolset
             "update_task" => Tasks.CanUpdate, // поля чужой задачи (T-160-S0)
             // перезапуск чужой задачи для повторной проверки и ожидание (T-31-S0)
             "restart_task_for_recheck" or "wait_for_recheck" => Tasks.CanRecheck,
+            // ветвление и циклы (T-300-S0): решать агенту есть что только в задаче своего типа
+            "set_condition_result" => Tasks.FlowType == TaskFlow.If,
+            "set_loop_result" => TaskFlow.IsLoop(Tasks.FlowType),
+            "create_tasks_from_template" => Tasks.CanFromTemplate,
+            "stop_hierarchy" => Tasks.CanStopHierarchy,
             _ => true,
         }))
         // медиатека проекта (T-113-S0): у задачи без проекта складывать ролик некуда,

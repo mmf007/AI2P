@@ -171,7 +171,7 @@ launchctl load   ~/Library/LaunchAgents/AI2P.plist
 
 * `install.cmd` / `install.ps1`（Windows）和 `./install.sh`（Linux、macOS） — 会在复制文件前自己
   停止服务，之后再把它启动回来；
-* **安装包**（`AI2P_v_1_NN_win64.exe`）做的是同样的事，而且在卸载程序时还会移除服务。
+* **安装包**（`AI2P_v_1_NN_windows_x64.exe`）做的是同样的事，而且在卸载程序时还会移除服务。
 
 服务是**按系统**查找的 — 按服务管理器中的记录、systemd 单元或 launchd 任务 — 并且只找**正好指向
 这个安装**的那一个：指向别的文件夹的别人的服务，任何脚本都不会去动。

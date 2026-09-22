@@ -12,6 +12,7 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 
 **Em nuvem (é preciso uma chave de API)**
 
+* [Chatterbox-TTS](Chatterbox-TTS.md) — texto + amostra de voz → fala com esse timbre, habilidades `audio-speech` 88
 * [Claude-Fable-5](Claude-Fable-5.md) — API do fornecedor Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API do fornecedor Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API da Anthropic
@@ -56,6 +57,7 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [Veo-3.1](Veo-3.1.md) — texto → vídeo com som, 4 a 8 segundos, até 4K, habilidades `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — texto → vídeo de até 30 segundos com som, habilidades `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Rússia; compatível com OpenAI
+* [Zonos-2-TTS](Zonos-2-TTS.md) — texto + amostra de voz → fala com esse timbre (a amostra é obrigatória), habilidades `audio-speech` 86
 
 **Pelo Claude CLI (por assinatura, sem chave)**
 

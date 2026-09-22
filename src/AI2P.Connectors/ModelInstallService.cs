@@ -412,6 +412,7 @@ public sealed class ModelInstallService
             status.Files.Add(new ModelInstallFileDto
             {
                 Name = file.Name,
+                Url = file.Url,
                 Size = file.Size,
                 Downloaded = done,
                 State = onDisk == file.Size ? "done" : onDisk > 0 ? "partial" : "missing",
@@ -496,6 +497,58 @@ public sealed class ModelInstallService
             Downloaded = installed && size > 0 ? size : downloaded,
             State = installed ? "done" : downloaded > 0 ? "partial" : "missing",
             Running = run is { Finished: false } && run.CurrentPackage == package.Id,
+            Dists = DistList(package),
+        };
+    }
+
+    /// <summary>
+    /// ДИСТРИБУТИВЫ ПАКЕТА ДЛЯ ПОДСКАЗКИ «i» (T-238-S0): точное имя файла, размер и виден
+    /// ли он в каталоге дистрибутивов. Имена берутся из разбора последнего запроса к серверу
+    /// раздачи, а пока его не было — из самого справочника пакетов (у прямой ссылки имя
+    /// известно без сети; у ассета релиза GitHub — маска, и точное имя появится после
+    /// <see cref="ResolveSizesAsync"/>).
+    /// </summary>
+    private List<ModelPackageDistDto> DistList(ModelPackage package)
+    {
+        var distDir = DistRoot();
+        var list = new List<ModelPackageDistDto>();
+        if (_distCache.TryGetValue(DistCacheKey(package), out var dists))
+        {
+            foreach (var dist in dists)
+            {
+                list.Add(DistDto(dist.Name, dist.Url, dist.Size, distDir));
+            }
+            return list;
+        }
+        var flavor = BuildFlavor();
+        foreach (var file in package.Files.Where(f => f.MatchesFlavor(flavor)))
+        {
+            var name = file.Name.Length > 0
+                ? file.Name
+                : file.Url.Length > 0
+                    ? Path.GetFileName(new Uri(file.Url).LocalPath)
+                    : file.AssetPattern.Replace("{flavor}", flavor);
+            // у ассета релиза точной ссылки до разбора нет — источник его страница релизов
+            var url = file.Url.Length > 0 ? file.Url
+                : file.GitHubRepo.Length > 0 ? $"https://github.com/{file.GitHubRepo}/releases/latest"
+                : "";
+            list.Add(DistDto(name, url, file.Size, distDir));
+        }
+        return list;
+    }
+
+    private static ModelPackageDistDto DistDto(string name, string url, long size, string distDir)
+    {
+        var onDisk = name.Length > 0 && !name.Contains('*')
+            ? LengthOf(Path.Combine(distDir, name))
+            : 0;
+        return new ModelPackageDistDto
+        {
+            Name = name,
+            Url = url,
+            Size = size,
+            Downloaded = size > 0 ? Math.Clamp(onDisk, 0, size) : onDisk,
+            Present = onDisk > 0,
         };
     }
 

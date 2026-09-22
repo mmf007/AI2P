@@ -18,7 +18,19 @@ public static class ScheduleActions
     /// <summary>Запустить автоматическую архивацию по правилам текущего архива.</summary>
     public const string AutoArchive = "auto_archive";
 
-    public static readonly string[] All = [AutoArchive];
+    /// <summary>
+    /// ПРОВЕРИТЬ, ВЫШЛА ЛИ НОВАЯ ВЕРСИЯ (T-208) — только проверить и записать в журнал.
+    /// Заводится флажком «автоматическая проверка» в настройках при СЕРВИСНОМ запуске:
+    /// служба работает сутками, и проверять ей, в отличие от консоли, негде, кроме
+    /// расписания. Время по умолчанию — 2:00 местного, дальше его правит человек.
+    /// </summary>
+    public const string AppCheck = "app_check";
+
+    /// <summary>Проверить и ПОСТАВИТЬ новую версию (T-208): флажок «автоматическое
+    /// обновление». Обновление перезапускает сервер — работающие агенты будут сняты.</summary>
+    public const string AppUpdate = "app_update";
+
+    public static readonly string[] All = [AutoArchive, AppCheck, AppUpdate];
 
     public static bool IsKnown(string? value) => value is not null && All.Contains(value);
 
@@ -30,6 +42,8 @@ public static class ScheduleActions
     public static string CatalogCodeOf(string? action) => action switch
     {
         AutoArchive => "AI2P.Archives.AutoRun",
+        AppCheck => "AI2P.Update.Check",
+        AppUpdate => "AI2P.Update.Run",
         _ => "",
     };
 

@@ -45,6 +45,15 @@ public sealed class JobOrchestrator : IDisposable
     private readonly Func<bool> _isConductor;
     /// <summary>Обработка подзадач разбиения сериализована (гонка завершений, ТЗ v1.26).</summary>
     private readonly SemaphoreSlim _splitLock = new(1, 1);
+    /// <summary>
+    /// БРОНИ ЗАПУСКА (T-304-S0): задачи и исполнители, для которых прямо сейчас идёт
+    /// <see cref="StartTaskAsync"/>, а задание ещё не заведено. Автоматических проходов
+    /// несколько (очередь иерархии, авторазбиение, автозапуск потомков, сторож), у каждого
+    /// свой замок или нет никакого, и между «исполнитель свободен» и заведением задания
+    /// лежит сборка промпта. Без брони два прохода видели одного исполнителя свободным и
+    /// запускали ему две задачи разом (T-298-S0 и T-299-S0), а одну задачу — дважды.
+    /// </summary>
+    private readonly HashSet<string> _starting = new(StringComparer.Ordinal);
 
     public JobOrchestrator(TaskService tasks, JobService jobs, ExecutorService executors,
         ProjectService projects, TeamService teams, FileStore files, ChatService chat,
@@ -72,6 +81,9 @@ public sealed class JobOrchestrator : IDisposable
         _tasks.StatusChanged += OnTaskStatusChanged;
         // подзадача, заведённая ВО ВРЕМЯ работы над задачей идущей иерархии (T-16-S0)
         _tasks.Created += OnTaskCreated;
+        // задание СУФЛЁРА завершилось (T-292-S0): разобрать управляющий json и запустить
+        // основного исполнителя. Подписка одна на все ИИ-коннекторы: суфлёром работает любой
+        _connectors.OnPrompterFinished(PrompterFinishedAsync);
     }
 
     /// <summary>Объекты проекта (T-259): ссылки <c>@obj:</c> в описании задачи разворачиваются
@@ -145,18 +157,13 @@ public sealed class JobOrchestrator : IDisposable
             var selfId = task.Id;
             _ = Task.Run(() => ProcessSplitParentAsync(selfId, actorId));
         }
-        // блокирующая задача переведена в «готово» (ТЗ п. 2.12): ждавшие её задачи можно
-        // запускать — в том числе те, что стоят в открытой очереди иерархии (T-6-S1)
-        if (task.Status == TaskStatuses.Done)
+        // блокирующая задача переведена в «готово» или «отменена» (ТЗ п. 2.12, T-299-S0):
+        // ждавшие её задачи можно запускать — в том числе те, что стоят в открытой очереди
+        // иерархии (T-6-S1). С T-299-S0 отмена блокирующей очередь больше НЕ останавливает:
+        // отменённая ветка условия иначе намертво стопорила бы всю иерархию
+        if (task.Status is TaskStatuses.Done or TaskStatuses.Cancelled)
         {
             _ = Task.Run(() => AutoStartUnblockedAsync(task, actorId));
-        }
-        // блокирующая ОТМЕНЕНА (T-6-S1): работы по этой ветке не будет, ждать больше нечего —
-        // ждущие задачи не запускаются, а открытая иерархия останавливается. Делается
-        // СИНХРОННО и до прохода очереди ниже: иначе тот же переход успел бы её продвинуть
-        if (task.Status == TaskStatuses.Cancelled)
-        {
-            StopHierarchiesBlockedBy(task);
         }
         // завершение подзадачи авторазбиения (ТЗ v1.26): освободился исполнитель — запустить
         // следующую по приоритету; все подзадачи готовы — финальный анализ родителя
@@ -209,6 +216,16 @@ public sealed class JobOrchestrator : IDisposable
                                + "автозапуск (T-54-S0)", parent.DisplayId, off.DisplayId);
             return;
         }
+        // потомков условия и циклов (T-299-S0) ведёт очередь иерархии: анализатор завершается
+        // РАНЬШЕ потомков, и автозапуск «родитель выполнен» пустил бы обе ветки условия и тело
+        // цикла, которое агент велел пропустить
+        if (TaskFlow.Read(parent.LaunchJson).Type != TaskFlow.Linear)
+        {
+            Logger.Information("Автозапуск потомков {Parent} не идёт: задача типа «{Type}», потомков "
+                               + "ведёт очередь иерархии (T-299-S0)", parent.DisplayId,
+                TaskFlow.Read(parent.LaunchJson).Type);
+            return;
+        }
         foreach (var child in _tasks.ListChildren(parent.Id))
         {
             try
@@ -228,14 +245,11 @@ public sealed class JobOrchestrator : IDisposable
                         child.DisplayId, child.ServerCode);
                     continue;
                 }
-                if (_tasks.BlockersStateOf(child) is var blockers && blockers != BlockersState.Done)
+                if (!_tasks.BlockersDone(child))
                 {
                     // блокирующие задачи не готовы (ТЗ п. 2.12): автозапуск отложен — сработает
-                    // при завершении последней блокирующей. Отменённая блокирующая (T-6-S1)
-                    // не сработает никогда: работы, которой ждал потомок, не будет
-                    Logger.Information(blockers == BlockersState.Cancelled
-                            ? "Автозапуск {Child} отменён: блокирующая задача отменена (T-6-S1)"
-                            : "Автозапуск {Child} отложен: блокирующие задачи не завершены",
+                    // при завершении (готово/отмена, T-299-S0) последней блокирующей
+                    Logger.Information("Автозапуск {Child} отложен: блокирующие задачи не завершены",
                         child.DisplayId);
                     continue;
                 }
@@ -373,40 +387,6 @@ public sealed class JobOrchestrator : IDisposable
         }
     }
 
-    /// <summary>
-    /// Блокирующая задача ОТМЕНЕНА (T-6-S1) — остановить иерархические запуски, в которых
-    /// её кто-то ждёт. Работы по этой ветке не будет: ждущие задачи так и останутся
-    /// в «ожидает», и держать открытой очередь всей иерархии не за чем — иначе сторож
-    /// раз в минуту ходил бы по ней вечно, а человек видел бы пометку «идёт запуск
-    /// иерархии» у задач, которые никогда не стартуют.
-    /// <para>Останавливается ровно то, что задело: иерархии тех задач, которые ждут именно
-    /// эту блокирующую. Отменённая блокирующая может лежать и ВНЕ иерархии — тогда
-    /// останавливается иерархия ждущей задачи, а не её собственная.</para>
-    /// </summary>
-    public void StopHierarchiesBlockedBy(TaskItem blocker)
-    {
-        try
-        {
-            foreach (var blocked in _tasks.ListBlockedBy(blocker.Id))
-            {
-                if (blocked.IsTemplate || !_tasks.CanWrite(blocked) || HierarchyDone(blocked.Status))
-                {
-                    continue; // задачу уже не запускать — отмена блокирующей ей безразлична
-                }
-                if (HierarchyRootOf(blocked) is { } root)
-                {
-                    StopHierarchyRun(root,
-                        $"блокирующая {blocker.DisplayId} задачи {blocked.DisplayId} отменена");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Warning(ex, "Остановка иерархий по отменённой {Blocker} не удалась: {Error}",
-                blocker.DisplayId, ex.Message);
-        }
-    }
-
     /// <summary>Снять с корня пометку открытой очереди иерархии (T-6-S1): вместе с ней
     /// снимаются и галочки переспроса — новое нажатие кнопки задаст их заново.</summary>
     private void StopHierarchyRun(TaskItem root, string reason)
@@ -418,8 +398,37 @@ public sealed class JobOrchestrator : IDisposable
         _tasks.SetHierarchyRun(root.Id, false);
         _tasks.SetLaunchFlag(root.Id, TaskService.HierarchyErrorsFlag, false);
         _tasks.SetLaunchFlag(root.Id, TaskService.HierarchyNeedsFixFlag, false);
-        Logger.Information("Иерархический запуск {Root} остановлен: {Reason} (T-6-S1)",
-            root.DisplayId, reason);
+        var released = ReleaseLoopWaits(root, 0);
+        Logger.Information("Иерархический запуск {Root} остановлен: {Reason} (T-6-S1); "
+                           + "циклов снято с паузы «ждёт окончания цикла»: {Released} (T-338-S0)",
+            root.DisplayId, reason, released);
+    }
+
+    /// <summary>
+    /// Остановленная очередь (T-338-S0): анализаторы циклов, стоявшие на паузе «ждёт окончания
+    /// цикла», возвращаются в «ожидает». Иначе цикл ДРУГОЙ ветки, чей круг прервала остановка,
+    /// висит на паузе навсегда, и диаграмма показывает его цепочку «в работе». Отметка круга
+    /// (loopBody) остаётся: новый запуск иерархии продолжит прерванный круг, а не начнёт заново.
+    /// </summary>
+    private int ReleaseLoopWaits(TaskItem node, int depth)
+    {
+        if (depth > MaxHierarchyDepth || node.IsTemplate || node.DeletedAt is not null)
+        {
+            return 0;
+        }
+        var count = 0;
+        var current = _tasks.Get(node.Id) ?? node;
+        if (current.Status == TaskStatuses.Paused && TaskFlowRun.InLoopBody(current.LaunchJson)
+            && _tasks.CanWrite(current))
+        {
+            _tasks.ChangeStatus(current.Id, TaskStatuses.Pending, actorId: null);
+            count++;
+        }
+        foreach (var child in _tasks.ListChildren(current.Id))
+        {
+            count += ReleaseLoopWaits(child, depth + 1);
+        }
+        return count;
     }
 
     /// <summary>Режим запуска из launch_json задачи: manual / auto / schedule (ТЗ п. 2.1).</summary>
@@ -446,14 +455,25 @@ public sealed class JobOrchestrator : IDisposable
     /// остаток проверяется: если его слишком мало, задание не запускается, старт задачи
     /// переносится на момент сброса окна, а в чат идёт предупреждение
     /// (<see cref="AgentLimitLowException"/>). Лимиты у исполнителя не указаны — проверки нет.
+    ///
+    /// autoChildren (T-274-S0) — ответ человека на переспрос «автоматически выполнять новых
+    /// потомков»: true снимает с задачи пометку <see cref="TaskService.NoAutoStartFlag"/>,
+    /// false ставит её. null — решения нет, пометка остаётся как была (так идут все
+    /// автоматические запуски: очередь иерархии, автозапуск потомков, сторож). Спрашивается
+    /// именно здесь, потому что подзадачи заводит сам агент ПРЯМО В ХОДЕ работы, и другого
+    /// момента сказать «этих не запускать» у человека нет.
     /// </summary>
-    public async Task<Job> StartTaskAsync(string taskId, string? actorId, bool force = false)
+    public async Task<Job> StartTaskAsync(string taskId, string? actorId, bool force = false,
+        bool? autoChildren = null)
     {
         var task = _tasks.Get(taskId) ?? throw new InvalidOperationException(Loc.T("msg.apiEndpoints.15", taskId));
         if (task.IsTemplate)
         {
             throw new InvalidOperationException(Loc.T("msg.jobOrchestrator.1"));
         }
+        // СОСТОЯНИЕ ЗАДАЧИ НА ВХОДЕ (T-292-S0): по нему решается, переделывать ли работу
+        // суфлёра. Запоминается здесь, потому что ниже задача переводится «в работу»
+        var statusOnStart = task.Status;
         // задание ВСЕГДА выполняется на сервере-владельце задачи (ТЗ гл. 6, этап 42): там же
         // лежат её файлы и туда же ложится результат. Межсерверного запуска в системе нет
         _tasks.EnsureCanWrite(task);
@@ -465,7 +485,10 @@ public sealed class JobOrchestrator : IDisposable
         {
             throw new InvalidOperationException(Loc.T("msg.jobOrchestrator.3"));
         }
-        if (_jobs.HasActive(taskId))
+        // бронь задачи (T-304-S0): проверка «задание уже есть» и сама бронь — под одним
+        // замком, иначе два прохода заводят одной задаче два задания
+        using var hold = new StartHold(this);
+        if (!hold.Take("t:" + taskId, () => _jobs.HasActive(taskId)))
         {
             throw new InvalidOperationException(Loc.T("msg.jobOrchestrator.4"));
         }
@@ -481,6 +504,11 @@ public sealed class JobOrchestrator : IDisposable
         // ПРОГРАММА СТОИТ НА КОНКРЕТНОМ КОМПЬЮТЕРЕ (T-153-S0): исполнитель «авто ПО» работает
         // только на своём сервере — здесь его программы нет вовсе, и запускать нечего
         EnsureSoftwareIsHere(assigned);
+        // СУФЛЁР (T-292-S0): рабочая модель назначенного исполнителя требует управляющего
+        // json. У такой задачи ДВЕ фазы (сначала суфлёр, потом генерация), и «исполнитель
+        // занят» для неё не отказ, а ожидание: json уже может быть готов, и терять его,
+        // отказав в запуске, нельзя
+        var needsPrompter = NeedsPrompter(assigned);
         // каждый ИИ-исполнитель работает над одним заданием (ТЗ v1.26): одна модель может
         // вести несколько заданий одновременно только через разных исполнителей
         var busy = IsBusy(assigned);
@@ -500,6 +528,13 @@ public sealed class JobOrchestrator : IDisposable
             {
                 if (busy)
                 {
+                    if (needsPrompter)
+                    {
+                        // «основной исполнитель и те, кто могут заменить, заняты — ждём,
+                        // поставив задачу на паузу» (T-292-S0): поднимет её сторож
+                        // отложенных стартов, как только кто-нибудь освободится
+                        throw WaitForFree(task, Loc.T("msg.prompter.22", assigned.Nick));
+                    }
                     throw new InvalidOperationException(
                         Loc.T("msg.jobOrchestrator.7", assigned.Nick));
                 }
@@ -514,6 +549,16 @@ public sealed class JobOrchestrator : IDisposable
             _chat.Add(task.Id, substitute.Id, task.ResponsibleId,
                 Loc.T(busy ? "msg.jobOrchestrator.24" : "msg.jobOrchestrator.25",
                     assigned.Nick, substitute.Nick));
+        }
+        // БРОНЬ ИСПОЛНИТЕЛЯ (T-304-S0): занятость переспрашивается под замком брони — между
+        // проверкой выше и заведением задания ниже другой проход мог отдать ему свою задачу
+        if (executor.Kind != ExecutorKind.Human && !hold.Take("e:" + executor.Id, () => IsBusy(executor)))
+        {
+            if (needsPrompter)
+            {
+                throw WaitForFree(task, Loc.T("msg.prompter.22", executor.Nick));
+            }
+            throw new InvalidOperationException(Loc.T("msg.jobOrchestrator.7", executor.Nick));
         }
         // ПРАВИЛА БЕЗОПАСНОСТИ ДО ЗАПУСКА ПРОГРАММЫ (T-155-S0): запуск задачи «авто ПО» — это
         // работа внешней программы на этом компьютере, и заводить её могут не только люди, но
@@ -541,19 +586,11 @@ public sealed class JobOrchestrator : IDisposable
             return continued;
         }
 
-        // «АГЕНТ» (T-153-S0), а не «не человек»: собранный промпт задания (заголовок, критерии,
-        // опыт) нужен ИМЕННО агенту. Человек получает описание задачи как есть (Inbox), и
-        // «авто ПО» — тоже: промпта программа не читает, ей нужны параметры операции
-        var requestText = executor.Kind == ExecutorKind.Ai
-            ? BuildAiRequest(task)
-            : _tasks.ReadDescription(task);
-
-        var job = _jobs.Create(taskId, executor.Id, task.DescriptionPath, actorId);
-        // кто РЕАЛЬНО ведёт задачу (T-221): пишется при каждом запуске, а не только при
-        // замене — иначе по задаче, которую один раз выполнил запасной, а потом снова
-        // назначенный, осталась бы неверная запись
-        _tasks.SetActualExecutor(taskId, executor.Id);
-        // задача пошла в работу — отложенный старт (T-121) больше не нужен; лишней записи
+        // ПОМЕТКИ ЗАПУСКА СНИМАЮТСЯ ДО ФАЗЫ СУФЛЁРА (T-292-S0): суфлёр — это отдельное
+        // задание той же задачи, и запуск генерации будет ВТОРЫМ заходом в этот же метод.
+        // Сними мы их только вместе с генерацией, отложенный старт и ожидание входа в CLI
+        // успели бы сработать ещё раз, пока суфлёр считает.
+        // Задача пошла в работу — отложенный старт (T-121) больше не нужен; лишней записи
         // в задачу не делаем: у большинства задач переноса нет
         if (TaskService.LaunchStartAfter(task.LaunchJson) is not null)
         {
@@ -569,7 +606,70 @@ public sealed class JobOrchestrator : IDisposable
         {
             _tasks.SetLaunchFlag(taskId, TaskService.WaitAuthFlag, false);
         }
+        // АВТОЗАПУСК НОВЫХ ПОТОМКОВ (T-274-S0): человек ответил на переспрос запуска —
+        // ставим или снимаем пометку ветки. Пишем только при РАСХОЖДЕНИИ: у большинства
+        // задач ответ совпадает с тем, что уже стоит, и лишняя правка launch_json уехала бы
+        // репликацией. Запуск иерархии эту пометку снимает сам (StartHierarchyAsync)
+        if (autoChildren is { } auto
+            && TaskService.HasLaunchFlag(task.LaunchJson, TaskService.NoAutoStartFlag) == auto)
+        {
+            _tasks.SetLaunchFlag(taskId, TaskService.NoAutoStartFlag, !auto);
+            Logger.Information("Задача {Task}: автозапуск новых потомков {State} при запуске "
+                               + "(T-274-S0)", task.DisplayId, auto ? "включён" : "выключен");
+        }
         _tasks.ChangeStatus(taskId, TaskStatuses.InProgress, actorId);
+
+        // ФАЗА СУФЛЁРА (T-292-S0). Управляющий json для медиа-модели готовит ОТДЕЛЬНЫЙ
+        // ИСПОЛНИТЕЛЬ отдельным заданием — обычным, со своим коннектором, своими правилами
+        // безопасности и своей занятостью. Поэтому суфлёром работает кто угодно: подписка
+        // CLI, локальная модель, облачное API. Закончив, он освобождается, а генерацию
+        // система запускает сама, зайдя в этот же метод второй раз (PrompterFinishedAsync).
+        //
+        // ПОВТОРНЫЙ ЗАПУСК смотрит на СОСТОЯНИЕ задачи: «пауза»/«ошибка» с готовым json —
+        // фаза суфлёра пропускается (переделывать нечего, это продолжение начатого); а
+        // «черновик»/«ожидание»/«доработка» означают новую работу, и json готовится заново
+        string? prompterJson = null;
+        if (needsPrompter && connector is ComfyUiConnector)
+        {
+            prompterJson = ReadyPrompterJson(task, statusOnStart);
+            if (prompterJson is null)
+            {
+                return await StartPrompterJobAsync(task, executor, actorId);
+            }
+            Logger.Information("Задача {Task}: управляющий json суфлёра уже готов (состояние «{Status}») — "
+                               + "фазу суфлёра пропускаю (T-292-S0)", task.DisplayId, statusOnStart);
+        }
+
+        // «АГЕНТ» (T-153-S0), а не «не человек»: собранный промпт задания (заголовок, критерии,
+        // опыт) нужен ИМЕННО агенту. Человек получает описание задачи как есть (Inbox), и
+        // «авто ПО» — тоже: промпта программа не читает, ей нужны параметры операции
+        // ИСПОЛЬЗОВАННЫЙ ОПЫТ (T-266-S0): какие записи ушли в текст — их собирает сборка
+        // промпта, а номер задания проставляется ниже, когда задание заведено
+        var usedExperience = new List<string>();
+        var requestText = executor.Kind == ExecutorKind.Ai
+            ? BuildAiRequest(task, usedExperience)
+            : _tasks.ReadDescription(task);
+
+        var job = _jobs.Create(taskId, executor.Id, task.DescriptionPath, actorId);
+        // задание заведено — теперь занятость видна по базе, бронь больше не нужна (T-304-S0)
+        hold.Dispose();
+        if (usedExperience.Count > 0)
+        {
+            _experience?.NoteUsed(taskId, usedExperience, job.Id);
+        }
+        // кто РЕАЛЬНО ведёт задачу (T-221): пишется при каждом запуске, а не только при
+        // замене — иначе по задаче, которую один раз выполнил запасной, а потом снова
+        // назначенный, осталась бы неверная запись
+        _tasks.SetActualExecutor(taskId, executor.Id);
+        if (prompterJson is not null && connector is ComfyUiConnector comfy)
+        {
+            // значения суфлёра — в граф (T-287-S0). Токены и цена здесь нулевые НАМЕРЕННО:
+            // их уже записало на себя задание суфлёра, а сложить их сюда значило бы посчитать
+            // один и тот же вызов модели дважды
+            comfy.UsePrompter(job.Id, new PrompterOutcome(prompterJson, 0, 0, 0,
+                PrompterNickOf(task), ComfyPrompterGraph.Values(prompterJson).Keys
+                    .OrderBy(k => k, StringComparer.Ordinal).ToList()));
+        }
         try
         {
             await connector.SubmitJobAsync(job, requestText);
@@ -584,6 +684,262 @@ public sealed class JobOrchestrator : IDisposable
         // команды «не подключен» до перезапуска всей команды (T-129)
         _teamWork?.NoteConnection(executor, null);
         return _jobs.Get(job.Id)!; // коннектор уже сменил состояние (ИИ — running, человек — waiting_human)
+    }
+
+    /// <summary>Имя файла-артефакта с управляющим json суфлёра (T-292-S0). Имя ПОСТОЯННОЕ,
+    /// без номера задания: по нему система и узнаёт, что json готов, — а номер задания у
+    /// повторного запуска будет уже другой.</summary>
+    public const string PrompterArtifact = "prompter.json";
+
+    /// <summary>
+    /// РАБОЧЕЙ МОДЕЛИ ИСПОЛНИТЕЛЯ НУЖЕН СУФЛЁР (T-292-S0): в профайле стоит
+    /// <c>prompter.required</c> (T-286-S0). Профайл не читается или его нет вовсе — «не
+    /// нужен»: про испорченный профайл скажет сам коннектор своей понятной ошибкой, и
+    /// подменять её жалобой на суфлёра незачем.
+    /// </summary>
+    private bool NeedsPrompter(Executor executor)
+    {
+        if (executor.Kind != ExecutorKind.Ai)
+        {
+            return false;
+        }
+        try
+        {
+            return _connectors.ProfileOf(executor).Prompter.Required;
+        }
+        catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException)
+        {
+            Logger.Warning("Задача: профайл исполнителя «{Nick}» не прочитан — считаю, что суфлёр "
+                           + "не нужен ({Error})", executor.Nick, ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// ГОТОВЫЙ УПРАВЛЯЮЩИЙ JSON ЗАДАЧИ (T-292-S0) или null — «фазу суфлёра надо пройти».
+    ///
+    /// <para>Решает СОСТОЯНИЕ ЗАДАЧИ НА МОМЕНТ ЗАПУСКА. «Пауза» и «ошибка» означают, что
+    /// работа уже начиналась и её продолжают: готовый json переделывать незачем — суфлёр
+    /// свою часть отработал, и второй его запуск стоил бы денег и времени, дав тот же ответ.
+    /// «Черновик», «ожидание» и «доработка» — это НОВАЯ работа (задачу поправили, вернули,
+    /// запустили заново), и json готовится заново, что бы ни лежало в артефактах.</para>
+    /// </summary>
+    private string? ReadyPrompterJson(TaskItem task, string statusOnStart)
+    {
+        if (statusOnStart is TaskStatuses.Draft or TaskStatuses.Pending or TaskStatuses.NeedsFix)
+        {
+            return null;
+        }
+        var text = _files.ReadText(PrompterArtifactRel(task));
+        return text.Trim().Length > 0 ? text : null;
+    }
+
+    /// <summary>Путь артефакта с управляющим json задачи — без записи и без проверки, что
+    /// файл есть (T-292-S0).</summary>
+    private string PrompterArtifactRel(TaskItem task) =>
+        _files.TaskArtifactRel(task.ProjectId is null ? null : _projects.Get(task.ProjectId)?.Slug,
+            task.DisplayId, PrompterArtifact);
+
+    /// <summary>Ник суфлёра задачи для сводки задания; не назначен — пусто.</summary>
+    private string PrompterNickOf(TaskItem task) =>
+        task.PrompterExecutorId is { Length: > 0 } id && _executors.Get(id) is { } e ? e.Nick : "";
+
+    /// <summary>
+    /// ЗАПУСТИТЬ ФАЗУ СУФЛЁРА (T-292-S0) — отдельное задание отдельного исполнителя, которое
+    /// по описанию задачи готовит управляющий json для медиа-модели.
+    ///
+    /// <para>ПОЧЕМУ ИСПОЛНИТЕЛЬ, А НЕ МОДЕЛЬ. До T-292-S0 суфлёра звал свой маленький
+    /// HTTP-клиент (T-288-S0), и подписка CLI с локальными моделями работать суфлёрами не
+    /// могли вовсе — «можно использовать только api модели». Исполнитель приносит с собой
+    /// всё нужное: коннектор своего вида, профайл, ключи, правила безопасности, таймауты,
+    /// занятость и умение задать вопрос человеку.</para>
+    ///
+    /// <para>ТРИ ИСХОДА, и все три — обычная механика заданий, своего кода не требующая:
+    /// ошибка задания ставит задаче «ошибку», вопрос человеку — «паузу», а нормальное
+    /// завершение приходит сюда же обратно (<see cref="PrompterFinishedAsync"/>) и запускает
+    /// генерацию.</para>
+    ///
+    /// <para>Промпт суфлёра получает описание с УЖЕ РАСКРЫТЫМИ ссылками <c>@obj:</c> (T-259) —
+    /// так же, как его получает сам коннектор: иначе суфлёр увидел бы «@obj:OBJ-3» вместо
+    /// паспорта персонажа и не смог бы назвать ни тембр вокала, ни стиль.</para>
+    /// </summary>
+    private async Task<Job> StartPrompterJobAsync(TaskItem task, Executor main, string? actorId)
+    {
+        // 1. КТО СУФЛЁР. Поле задачи главнее: оно заполняется из исполнителя при подборе,
+        // но человек вправе назначить по этой задаче другого
+        var prompterId = task.PrompterExecutorId is { Length: > 0 } own
+            ? own
+            : main.PrompterExecutorId;
+        if (prompterId is not { Length: > 0 })
+        {
+            // «нуждается в суфлёре, а его нет — писать ошибку запуска и останавливаться»
+            throw PrompterFailed(task, main, Loc.T("msg.prompter.17", main.Nick));
+        }
+        if (task.PrompterExecutorId is not { Length: > 0 })
+        {
+            // подставили из исполнителя — пусть это будет видно в карточке задачи, а не
+            // только в логе: иначе «кто готовил json» взять человеку неоткуда
+            _tasks.SetPrompter(task.Id, prompterId);
+            task.PrompterExecutorId = prompterId;
+        }
+
+        // 2. СВОБОДНЫЙ СУФЛЁР: назначенный, а занят — первый свободный из «могут заменить
+        // суфлёра». Живых нет вовсе (выключены, удалены) — это ошибка запуска; все живые
+        // заняты — ЖДЁМ: суфлёр освободится через минуты, а работа никуда не денется
+        var live = new[] { prompterId }.Concat(task.PrompterAltExecutorIds)
+            .Distinct(StringComparer.Ordinal)
+            .Select(_executors.Get)
+            .Where(e => e is { IsActive: true, DeletedAt: null } && e.Kind != ExecutorKind.Human)
+            .Select(e => e!)
+            .ToList();
+        if (live.Count == 0)
+        {
+            throw PrompterFailed(task, main, Loc.T("msg.prompter.23", main.Nick));
+        }
+        // свободный суфлёр бронируется так же, как основной исполнитель (T-304-S0)
+        using var hold = new StartHold(this);
+        var chosen = live.FirstOrDefault(e => hold.Take("e:" + e.Id, () => IsBusy(e)));
+        if (chosen is null)
+        {
+            throw WaitForFree(task, Loc.T("msg.prompter.18",
+                string.Join(", ", live.Select(e => e.Nick))));
+        }
+
+        // 3. ПРОМПТ: правила составления json (файл профайла РАБОЧЕЙ модели), перечень полей
+        // со границами и сама задача — ровно тот же текст, что собирал прежний суфлёр
+        var settings = _connectors.ProfileOf(main).Prompter;
+        var language = AgentLanguageOf(task);
+        var description = _tasks.ReadDescription(task);
+        if (_objects is not null)
+        {
+            description = _objects.Expand(task.ProjectId, description,
+                kind => ObjectKinds.Title(kind, language));
+        }
+        var requestText = PrompterService.BuildPrompt(settings, _files.ReadText(settings.Rules),
+            task, description, _tasks.ReadAcceptance(task), language);
+
+        IAgentConnector connector;
+        try
+        {
+            connector = _connectors.Resolve(chosen);
+        }
+        catch (Exception ex)
+        {
+            _teamWork?.NoteConnection(chosen, ex.Message);
+            throw PrompterFailed(task, main, Loc.T("msg.prompter.5", chosen.Nick, ex.Message));
+        }
+        var job = _jobs.Create(task.Id, chosen.Id, task.DescriptionPath, actorId, JobRoles.Prompter);
+        hold.Dispose();
+        Logger.Information("Задача {Task}: фаза суфлёра — задание {Job} исполнителю «{Nick}», "
+                           + "промпт {Length} симв. (T-292-S0)",
+            task.DisplayId, job.DisplayId, chosen.Nick, requestText.Length);
+        _chat.Add(task.Id, chosen.Id, task.ResponsibleId, Loc.T("msg.prompter.19", chosen.Nick));
+        try
+        {
+            await connector.SubmitJobAsync(job, requestText);
+        }
+        catch (Exception ex)
+        {
+            _teamWork?.NoteConnection(chosen, ex.Message);
+            throw;
+        }
+        _teamWork?.NoteConnection(chosen, null);
+        return _jobs.Get(job.Id)!;
+    }
+
+    /// <summary>
+    /// ЗАДАНИЕ СУФЛЁРА ЗАВЕРШИЛОСЬ НОРМАЛЬНО (T-292-S0) — зовётся коннектором из фоновой
+    /// работы агента. Управляющий json вырезается из ответа, ложится в артефакты задачи
+    /// постоянным именем (<see cref="PrompterArtifact"/>) и запускается основной исполнитель.
+    ///
+    /// <para>JSON НЕ НАШЁЛСЯ — это ошибка задачи, а не молчаливый запуск генерации по
+    /// умолчаниям: человек просил песню на русском длиной 90 секунд, и «сделаю как обычно»
+    /// он увидит только через полчаса счёта, когда трек уже готов не тот.</para>
+    ///
+    /// <para>ОСНОВНОЙ ИСПОЛНИТЕЛЬ МОЖЕТ БЫТЬ ЗАНЯТ — тогда <see cref="StartTaskAsync"/> сам
+    /// поставит задачу на паузу с отложенным стартом, и генерацию поднимет сторож. Потерять
+    /// работу суфлёра при этом нельзя: json уже лежит в артефактах, и второй заход его
+    /// возьмёт готовым.</para>
+    /// </summary>
+    public async Task PrompterFinishedAsync(Job job, TaskItem task, string answerText)
+    {
+        try
+        {
+            var json = PrompterService.ExtractJson(answerText);
+            if (json is null)
+            {
+                var text = Loc.T("msg.prompter.21", answerText.Length <= 300
+                    ? answerText
+                    : answerText[..300] + "…");
+                Logger.Warning("Задание {Job}: суфлёр задачи {Task} не вернул json — задача встаёт "
+                               + "с ошибкой (T-292-S0)", job.DisplayId, task.DisplayId);
+                _chat.Add(task.Id, job.ExecutorId, task.ResponsibleId, text);
+                _tasks.ChangeStatus(task.Id, TaskStatuses.Error, actorId: job.ExecutorId);
+                return;
+            }
+            var path = PrompterArtifactRel(task);
+            _files.WriteText(path, json);
+            Logger.Information("Задание {Job}: управляющий json задачи {Task} готов ({Path}) — "
+                               + "запускаю основного исполнителя (T-292-S0)",
+                job.DisplayId, task.DisplayId, path);
+            var values = ComfyPrompterGraph.Values(json);
+            _chat.Add(task.Id, job.ExecutorId, task.ResponsibleId,
+                Loc.T("msg.prompter.20", string.Join(", ",
+                    values.Keys.OrderBy(k => k, StringComparer.Ordinal))));
+            // что суфлёр не назвал и что будет поправлено границей схемы — в чат: иначе
+            // «взяли 1000 секунд вместо названных 2000» не видно нигде (T-288-S0)
+            if (_executors.Get(task.ExecutorIds.FirstOrDefault() ?? "") is { } main)
+            {
+                foreach (var note in PrompterService.Notes(_connectors.ProfileOf(main).Prompter, values))
+                {
+                    _chat.Add(task.Id, job.ExecutorId, task.ResponsibleId, note);
+                }
+            }
+            await StartTaskAsync(task.Id, actorId: null);
+        }
+        catch (Exception ex)
+        {
+            // «занят / жду» сюда приходит обычным исключением: задача уже переведена в паузу
+            // с отложенным стартом, и поднимет её сторож — ругаться в журнал не о чем
+            Logger.Warning("Задача {Task}: генерация после суфлёра не началась: {Error}",
+                task.DisplayId, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// ЗАДАЧА ЖДЁТ ОСВОБОЖДЕНИЯ ИСПОЛНИТЕЛЯ (T-292-S0): «пауза» плюс отложенный старт на
+    /// минуту вперёд. Поднимет её тот же сторож, что и перенос по лимиту
+    /// (<see cref="StartDeferredOnce"/>), — и так каждую минуту, пока кто-нибудь не
+    /// освободится. Это не отказ: у медиа-задачи с суфлёром работа могла быть уже наполовину
+    /// сделана, и «исполнитель занят, запустите позже» означало бы выбросить её.
+    /// <para>В чат ничего не пишется намеренно: сторож ходит раз в минуту, и одинаковые
+    /// сообщения засорили бы переписку (то же правило, что у переноса по лимиту).</para>
+    /// </summary>
+    private InvalidOperationException WaitForFree(TaskItem task, string message)
+    {
+        _tasks.SetStartAfter(task.Id, DateTime.UtcNow.AddMinutes(1));
+        if (task.Status != TaskStatuses.Paused)
+        {
+            _tasks.ChangeStatus(task.Id, TaskStatuses.Paused, actorId: null);
+        }
+        Logger.Information("Задача {Task}: ждём освобождения — {Message} (T-292-S0)",
+            task.DisplayId, message);
+        return new InvalidOperationException(message);
+    }
+
+    /// <summary>
+    /// ФАЗА СУФЛЁРА НЕВОЗМОЖНА (T-292-S0): задача встаёт с ошибкой, причина — в чат и в
+    /// журнал. Ошибка, а не «пойдём без суфлёра»: модель сама объявила, что без управляющего
+    /// json её параметры берутся с потолка, и тихая генерация «как обычно» — это полчаса
+    /// счёта ради заведомо не того результата.
+    /// </summary>
+    private InvalidOperationException PrompterFailed(TaskItem task, Executor main, string message)
+    {
+        Logger.Warning("Задача {Task}: запуск остановлен — {Message} (T-292-S0)",
+            task.DisplayId, message);
+        _chat.Add(task.Id, main.Id, task.ResponsibleId, message);
+        _tasks.ChangeStatus(task.Id, TaskStatuses.Error, actorId: null);
+        return new InvalidOperationException(message);
     }
 
     /// <summary>
@@ -661,8 +1017,55 @@ public sealed class JobOrchestrator : IDisposable
     /// </remarks>
     private bool IsBusy(Executor executor) =>
         executor.Kind != ExecutorKind.Human
-        && (_jobs.HasActiveByExecutor(executor.Id)
+        && (IsStarting("e:" + executor.Id)
+            || _jobs.HasActiveByExecutor(executor.Id)
             || _connectors.Software?.SingleInstanceBusy(executor) == true);
+
+    /// <summary>Для исполнителя или задачи прямо сейчас идёт запуск (бронь T-304-S0).</summary>
+    private bool IsStarting(string key)
+    {
+        lock (_starting)
+        {
+            return _starting.Contains(key);
+        }
+    }
+
+    /// <summary>
+    /// Брони одного запуска (T-304-S0). <see cref="Take"/> атомарно — под замком набора
+    /// броней — переспрашивает занятость и бронирует; снимаются брони при
+    /// <see cref="Dispose"/> (повторный вызов безопасен): сразу после заведения задания
+    /// либо на выходе из метода, если запуск сорвался.
+    /// </summary>
+    private sealed class StartHold(JobOrchestrator owner) : IDisposable
+    {
+        private readonly List<string> _keys = [];
+
+        public bool Take(string key, Func<bool> busy)
+        {
+            lock (owner._starting)
+            {
+                if (owner._starting.Contains(key) || busy())
+                {
+                    return false;
+                }
+                owner._starting.Add(key);
+                _keys.Add(key);
+                return true;
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (owner._starting)
+            {
+                foreach (var key in _keys)
+                {
+                    owner._starting.Remove(key);
+                }
+                _keys.Clear();
+            }
+        }
+    }
 
     /// <summary>
     /// Первый свободный из списка «могут заменить исполнителя» (T-221). Порядок списка —
@@ -995,7 +1398,10 @@ public sealed class JobOrchestrator : IDisposable
     /// Промпт задания для ИИ (этап 2.1): заголовок, описание, критерии приёмки,
     /// язык ответа — язык общения агентов команды (ТЗ п. 2.8, гл. 9).
     /// </summary>
-    private string BuildAiRequest(TaskItem task)
+    /// <param name="usedExperience">Сюда складываются идентификаторы записей опыта, реально
+    /// ушедших в текст (T-266-S0): вызывающий запуск дописывает им НОМЕР ЗАДАНИЯ, когда оно
+    /// заведено (промпт собирается раньше задания). Сам след пишется в любом случае.</param>
+    private string BuildAiRequest(TaskItem task, List<string>? usedExperience = null)
     {
         // язык ОБЩЕНИЯ с агентом — язык команды задачи (ТЗ п. 2.8, T-190), а не язык установки
         var language = AgentLanguageOf(task);
@@ -1023,6 +1429,9 @@ public sealed class JobOrchestrator : IDisposable
         // идёт часами, и человек мог подвинуть бегунок уже после старта агента
         sb.AppendLine();
         sb.AppendLine(Loc.In(language, "prompt.job.23", _tasks.TimeQualityOf(task.Id)));
+        // ВЕТВЛЕНИЕ И ЦИКЛ (T-300-S0): задача «Условие» / «Цикл» получает инструкцию, ЧТО
+        // вернуть и КАКИМ действием; у линейной задачи блока нет
+        sb.Append(FlowSection(task, language));
         // ОПЫТ (T-29-S0): три блока — общие правила работы (T-11-S0), опыт проекта (todo48)
         // и опыт узла шаблона (todo32). Отбирается он ОДИН РАЗ на всё задание: правило
         // отбора общее (навык исполнителя, тэги задачи, пометка «загружать всегда»), предел
@@ -1033,13 +1442,56 @@ public sealed class JobOrchestrator : IDisposable
         // тэги перечитываются: сюда задача попадает и от подписчиков событий, а те получают
         // её по одной таблице tasks — без связей (T-272)
         var taskTags = TagsOf(task);
-        sb.Append(ExperienceSection(task, ownedSkills, taskTags, language));
+        sb.Append(ExperienceSection(task, ownedSkills, taskTags, language, usedExperience));
         if (!string.IsNullOrWhiteSpace(language))
         {
             sb.AppendLine();
             sb.AppendLine(Loc.In(language, "prompt.job.2", language));
         }
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Блок промпта задачи типа «Условие» или «Цикл» (T-300-S0): что от агента требуется
+    /// (решение true/false; исход проверки условий цикла) и каким действием это вернуть —
+    /// инструментом, командой ai2p или маркером (текст один на все виды агентов: оркестратор
+    /// не знает, какой коннектор возьмёт задание). У условия перечисляются ветки: задача
+    /// ветки, «создавать задачи» (тогда агенту заводить их самому ДО сдачи) или «завершить
+    /// выполнение». Пусто — задача линейная.
+    /// </summary>
+    internal string FlowSection(TaskItem task, string? language)
+    {
+        var flow = TaskFlow.Read(task.LaunchJson);
+        if (flow.Type == TaskFlow.Linear)
+        {
+            return "";
+        }
+        var sb = new StringBuilder();
+        sb.AppendLine();
+        if (flow.Type == TaskFlow.If)
+        {
+            sb.AppendLine(Loc.In(language, "prompt.flow.1"));
+            Branch(Loc.In(language, "prompt.flow.6"), flow.IfTrueTaskId, flow.IfTrueCreateTasks, flow.IfTrueStopHierarchy);
+            Branch(Loc.In(language, "prompt.flow.7"), flow.IfFalseTaskId, flow.IfFalseCreateTasks, flow.IfFalseStopHierarchy);
+        }
+        else
+        {
+            sb.AppendLine(Loc.In(language, "prompt.flow.8",
+                Loc.In(language, flow.Type == TaskFlow.Loop ? "prompt.flow.9" : "prompt.flow.10")));
+            sb.AppendLine(Loc.In(language, "prompt.flow.11", TaskFlowRun.LoopPass(task.LaunchJson), LoopLimitOf(task)));
+        }
+        sb.AppendLine(Loc.In(language, "prompt.flow.12"));
+        return sb.ToString();
+
+        void Branch(string name, string? taskId, bool create, bool stop)
+        {
+            var target = taskId is { Length: > 0 } ? _tasks.Get(taskId) : null;
+            sb.AppendLine(target is not null
+                ? Loc.In(language, "prompt.flow.2", name, target.DisplayId, target.Title)
+                : create
+                    ? Loc.In(language, "prompt.flow.3", name)
+                    : Loc.In(language, stop ? "prompt.flow.4" : "prompt.flow.5", name));
+        }
     }
 
     /// <summary>
@@ -1077,7 +1529,7 @@ public sealed class JobOrchestrator : IDisposable
     /// внутри — свежим. Порядок ПЕЧАТИ при этом прежний: рамка, потом её уточнения.
     /// </summary>
     private string ExperienceSection(TaskItem task, IReadOnlyCollection<string> ownedSkills,
-        IReadOnlyCollection<string> taskTags, string? language)
+        IReadOnlyCollection<string> taskTags, string? language, List<string>? usedExperience = null)
     {
         if (_experience is null)
         {
@@ -1091,15 +1543,36 @@ public sealed class JobOrchestrator : IDisposable
             ? []
             : _experience.ListByTemplateForExecutor(task.TemplateId, ownedSkills, taskTags);
 
-        // насколько запись прицельна: 0 — узел шаблона (написана ровно про эту работу),
-        // 1 — проект, 2 — вся организация. Записи опознаются по своим полям, а не по тому,
-        // из какого списка пришли: у каждой из трёх разновидностей признак свой (T-11-S0)
-        static int Rank(ExperienceRecord r) => r.TemplateTaskId.Length > 0 ? 0 : r.IsProjectLevel ? 1 : 2;
+        // НАСКОЛЬКО ЗАПИСЬ ПРИЦЕЛЬНА (меньше — важнее). С T-267-S0 у опыта узла шаблона это
+        // РАССТОЯНИЕ ДО УЗЛА: сам узел важнее родителя, родитель важнее деда (опыт предков
+        // теперь тоже доезжает до задачи), дальше идёт опыт проекта, потом общие правила
+        // организации. Записи опознаются по своим полям, а не по тому, из какого списка
+        // пришли: у каждой из трёх разновидностей признак свой (T-11-S0)
+        List<string> chain = task.TemplateId is null ? [] : _experience.TemplateChain(task.TemplateId);
+        var distance = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < chain.Count; i++)
+        {
+            distance[chain[i]] = i;
+        }
+        int Rank(ExperienceRecord r) => r.TemplateTaskId.Length > 0
+            // узла нет в цепочке быть не может (записи пришли по ней же), но если шаблон
+            // сменили на ходу — такая запись идёт последней среди опыта узлов
+            ? (distance.TryGetValue(r.TemplateTaskId, out var d) ? d : chain.Count)
+            : r.IsProjectLevel ? chain.Count + 1 : chain.Count + 2;
 
         var budget = new ExperienceBudget(ExperienceLimitOf(task));
         var (taken, _) = budget.Fit([.. general, .. project, .. node],
-            r => ExperienceLine(r, withSkill: r.TemplateTaskId.Length == 0), Rank);
+            r => ExperienceLine(r, withSkill: r.TemplateTaskId.Length == 0), Rank,
+            // ТЭГИ — СИГНАЛ, А НЕ ФИЛЬТР (T-267-S0): отбор их больше не проверяет, зато
+            // запись по теме задачи идёт вперёд своих ровесников при дележе бюджета
+            r => ExperienceService.TagsOverlap(r.Tags, taskTags));
         var kept = taken.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
+        // ИСПОЛЬЗОВАННЫЙ ОПЫТ (T-266-S0): запоминаем ровно то, что ушло в текст задания —
+        // отбор уже сделан бюджетом, второй раз его гонять незачем. Номер задания здесь ещё
+        // неизвестен (промпт собирается ДО того, как задание заведено), поэтому запуск
+        // дописывает его сам — по списку usedExperience
+        _experience.NoteUsed(task.Id, kept);
+        usedExperience?.AddRange(kept);
 
         var sb = new StringBuilder();
         Append(sb, "prompt.job.21", "prompt.job.22", general, withSkill: true);
@@ -1777,7 +2250,11 @@ public sealed class JobOrchestrator : IDisposable
                 // не идёт вовсе — иначе завершение любой подзадачи снова двигало бы её
                 return run;
             }
-            if (TaskStatuses.Settled(root.Status))
+            // у КОРНЯ-условия и корня-цикла (T-299-S0) анализатор сдаётся РАНЬШЕ потомков:
+            // его «сдан» ещё не конец очереди — её закроет обычное «запускать и ждать нечего»
+            var flowRoot = TaskFlow.Read(root.LaunchJson).Type is TaskFlow.If or TaskFlow.Loop or TaskFlow.DoLoop
+                           && root.Status != TaskStatuses.Cancelled;
+            if (TaskStatuses.Settled(root.Status) && !flowRoot)
             {
                 // КОРЕНЬ УЖЕ СДАН (T-2-S0): очередь вела к его запуску, а он состоялся —
                 // ждать ей больше нечего. Раньше незавершённая подзадача (её никто не берёт:
@@ -1797,11 +2274,10 @@ public sealed class JobOrchestrator : IDisposable
                 withErrors, withNeedsFix);
             if (run.Stopped)
             {
-                // у задачи иерархии отменена блокирующая (T-6-S1): очередь закрывается, даже
-                // если запускать в других ветках ещё есть что — человек велел отменить работу,
-                // от которой они зависят, и решать, что делать дальше, тоже ему
-                StopHierarchyRun(root,
-                    $"у задач {string.Join(", ", run.StoppedBy)} отменена блокирующая");
+                // выполнение иерархии велела остановить задача-условие («завершить выполнение»)
+                // или цикл, превысивший предел с флажком остановки (T-299-S0). До T-299-S0 сюда
+                // же приводила отменённая блокирующая (T-6-S1) — теперь она считается завершённой
+                StopHierarchyRun(root, $"остановку велели задачи {string.Join(", ", run.StoppedBy)}");
                 return run;
             }
             // запускать больше нечего и ждать нечего — очередь закрыта
@@ -1835,17 +2311,27 @@ public sealed class JobOrchestrator : IDisposable
             // закольцованный parent_id: считаем улаженным, иначе обход не кончится
             return true;
         }
-        run.Total++;
-        var childrenSettled = true;
-        foreach (var child in _tasks.ListChildren(node.Id)
-                     .Where(c => c.DeletedAt is null && !c.IsTemplate)
-                     .OrderByDescending(c => c.PriorityNum)
-                     .ThenBy(c => c.CreatedAt))
+        if (run.Stopped)
         {
-            // все ветки обходятся до конца: разным исполнителям задания раздаются сразу,
-            // и ранняя остановка на первой незавершённой ветке их бы придержала
-            childrenSettled &= await RunHierarchyNodeAsync(child, run, actorId, seen, depth + 1,
-                withErrors, withNeedsFix);
+            // выполнение иерархии велено остановить (T-299-S0): больше ничего не запускаем
+            return false;
+        }
+        run.Total++;
+        // тип задачи (T-298-S0): условие и циклы обходятся своим порядком (T-299-S0)
+        switch (TaskFlow.Read(node.LaunchJson).Type)
+        {
+            case TaskFlow.If:
+                return await RunIfNodeAsync(node, run, actorId, seen, depth, withErrors, withNeedsFix);
+            case TaskFlow.Loop:
+                return await RunLoopNodeAsync(node, run, actorId, seen, depth, withErrors, withNeedsFix);
+            case TaskFlow.DoLoop:
+                return await RunDoLoopNodeAsync(node, run, actorId, seen, depth, withErrors, withNeedsFix);
+        }
+        var childrenSettled = await RunChildrenAsync(node, run, actorId, seen, depth,
+            withErrors, withNeedsFix);
+        if (run.Stopped)
+        {
+            return false; // остановку велела задача поддерева (T-299-S0) — родителя не запускаем
         }
 
         var task = _tasks.Get(node.Id) ?? node; // статус мог смениться, пока шли потомки
@@ -1861,6 +2347,405 @@ public sealed class JobOrchestrator : IDisposable
         }
         await TryStartInHierarchyAsync(task, run, actorId, withErrors, withNeedsFix);
         return false;
+    }
+
+    /// <summary>Поддеревья потомков по убыванию приоритета (T-159); true — все улажены.</summary>
+    private async Task<bool> RunChildrenAsync(TaskItem node, HierarchyRunDto run, string? actorId,
+        HashSet<string> seen, int depth, bool withErrors, bool withNeedsFix)
+    {
+        var childrenSettled = true;
+        foreach (var child in _tasks.ListChildren(node.Id)
+                     .Where(c => c.DeletedAt is null && !c.IsTemplate)
+                     .OrderByDescending(c => c.PriorityNum)
+                     .ThenBy(c => c.CreatedAt))
+        {
+            // все ветки обходятся до конца: разным исполнителям задания раздаются сразу,
+            // и ранняя остановка на первой незавершённой ветке их бы придержала
+            childrenSettled &= await RunHierarchyNodeAsync(child, run, actorId, seen, depth + 1,
+                withErrors, withNeedsFix);
+        }
+        return childrenSettled;
+    }
+
+    // ---------- ветвление и циклы в очереди иерархии (T-299-S0) ----------
+    // Условия вычисляет АГЕНТ по описанию задачи и чату и сообщает решение действием
+    // (T-300-S0 → TaskService.SetFlowDecision → ключ flowDecision launch_json). Очередь его
+    // только читает, когда задание задачи завершилось, и двигает дерево.
+
+    /// <summary>
+    /// Задача «Условие» (T-299-S0): запускается СРАЗУ, в потомков очередь не проваливается,
+    /// пока агент не решил. Решение применяется один раз: непройденная ветка (задача и всё её
+    /// поддерево) отменяется, у выбранной ветки без задачи — либо агент уже завёл потомков
+    /// («создавать задачи»), либо выполнение иерархии останавливается («завершить»). Дальше
+    /// потомки идут штатно.
+    /// </summary>
+    private async Task<bool> RunIfNodeAsync(TaskItem node, HierarchyRunDto run, string? actorId,
+        HashSet<string> seen, int depth, bool withErrors, bool withNeedsFix)
+    {
+        var task = _tasks.Get(node.Id) ?? node;
+        if (task.Status == TaskStatuses.Cancelled)
+        {
+            // отменили само условие — не пойдёт ни одна его ветка
+            run.Skipped++;
+            return true;
+        }
+        if (!HierarchyDone(task.Status))
+        {
+            if (TaskFlowRun.Applied(task.LaunchJson) && task.Status is TaskStatuses.Draft or TaskStatuses.Pending)
+            {
+                // условие вернули в работу заново (человек, перезапуск) — прежнее решение
+                // больше не действует
+                _tasks.EditFlowRun(task.Id, ClearFlowRun);
+                task = _tasks.Get(task.Id) ?? task;
+            }
+            await TryStartInHierarchyAsync(task, run, actorId, withErrors, withNeedsFix);
+            return false;
+        }
+        if (!TaskFlowRun.Applied(task.LaunchJson))
+        {
+            var flow = TaskFlow.Read(task.LaunchJson);
+            if (TaskFlowRun.Decision(task.LaunchJson) is not { } decision)
+            {
+                // агент решения не сообщил: выбирать ветку за него AI2P не вправе
+                // (основное правило T-297-S0) — выполнение иерархии останавливается, решает человек
+                StopRun(run, task, "условие без решения агента");
+                _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.StoppedKey] = true); // знак Stop диаграммы (T-301-S0)
+                return false;
+            }
+            var chosen = decision ? flow.IfTrueTaskId : flow.IfFalseTaskId;
+            var other = decision ? flow.IfFalseTaskId : flow.IfTrueTaskId;
+            var children = _tasks.ListChildren(task.Id).Where(c => c.DeletedAt is null && !c.IsTemplate)
+                .ToList();
+            if (other is { Length: > 0 } && !string.Equals(other, chosen, StringComparison.Ordinal)
+                && children.FirstOrDefault(c => c.Id == other) is { } skipped)
+            {
+                var count = CancelSubtree(skipped, actorId, onlyWaiting: false);
+                Logger.Information("Условие {Task}: решение {Decision}, непройденная ветка {Branch} "
+                                   + "отменена ({Count} задач) (T-299-S0)",
+                    task.DisplayId, decision, skipped.DisplayId, count);
+            }
+            _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.AppliedKey] = true);
+            if (chosen is not { Length: > 0 }
+                && (decision ? flow.IfTrueStopHierarchy : flow.IfFalseStopHierarchy))
+            {
+                StopRun(run, task, $"условие → {(decision ? "Да" : "Нет")}: завершить выполнение");
+                _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.StoppedKey] = true); // знак Stop диаграммы (T-301-S0)
+                return false;
+            }
+        }
+        // решение применено — потомки (выбранная ветка, заведённые агентом, прочие) идут штатно
+        return await RunChildrenAsync(task, run, actorId, seen, depth, withErrors, withNeedsFix);
+    }
+
+    /// <summary>
+    /// «Цикл до» (T-299-S0): задача-анализатор запускается ДО потомков. Условия выполнены —
+    /// задача встаёт на паузу «ждёт окончания цикла», потомки идут штатно; последний потомок
+    /// выполнен — анализатор перезапускается и проверяет условия снова (исполнитель между
+    /// кругами свободен). Не выполнены на первом же круге — ожидающие и черновые потомки
+    /// отменяются. Предел кругов — <see cref="TaskFlowRun.LoopLimit"/>.
+    /// </summary>
+    private async Task<bool> RunLoopNodeAsync(TaskItem node, HierarchyRunDto run, string? actorId,
+        HashSet<string> seen, int depth, bool withErrors, bool withNeedsFix)
+    {
+        var task = _tasks.Get(node.Id) ?? node;
+        if (task.Status == TaskStatuses.Cancelled)
+        {
+            run.Skipped++;
+            return true;
+        }
+        if (TaskFlowRun.InLoopBody(task.LaunchJson))
+        {
+            // идёт тело цикла: ждём всех потомков
+            if (!await RunChildrenAsync(task, run, actorId, seen, depth, withErrors, withNeedsFix))
+            {
+                run.Waiting++;
+                return false;
+            }
+            var pass = TaskFlowRun.LoopPass(task.LaunchJson) + 1;
+            _tasks.EditFlowRun(task.Id, root =>
+            {
+                root.Remove(TaskFlowRun.LoopBodyKey);
+                root.Remove(TaskFlowRun.DecisionKey);
+                root[TaskFlowRun.LoopPassKey] = pass;
+            });
+            if (pass >= LoopLimitOf(task))
+            {
+                return FinishLoop(task, run, actorId, $"пройдено кругов {pass} — предел цикла", exceeded: true);
+            }
+            // круг окончен — анализатор перепроверяет условия (перезапуск, как restart_task_for_recheck)
+            Logger.Information("Цикл {Task}: круг {Pass} окончен — перепроверка условий (T-299-S0)",
+                task.DisplayId, pass);
+            await RestartAnalyzerAsync(task, run, actorId, withErrors, withNeedsFix);
+            return false;
+        }
+        if (TaskFlowRun.LoopDone(task.LaunchJson))
+        {
+            if (HierarchyDone(task.Status))
+            {
+                return true; // цикл окончен
+            }
+            // цикл запустили заново — прежний счёт кругов больше не действует
+            _tasks.EditFlowRun(task.Id, ClearFlowRun);
+            task = _tasks.Get(task.Id) ?? task;
+        }
+        if (!HierarchyDone(task.Status))
+        {
+            // анализатор не отработал: запускаем его сам, в потомков не проваливаемся
+            await TryStartInHierarchyAsync(task, run, actorId, withErrors, withNeedsFix);
+            return false;
+        }
+        // анализатор отработал — читаем решение
+        var decision = TaskFlowRun.Decision(task.LaunchJson);
+        var done = TaskFlowRun.LoopPass(task.LaunchJson);
+        _tasks.EditFlowRun(task.Id, root => root.Remove(TaskFlowRun.DecisionKey));
+        if (decision is null)
+        {
+            StopRun(run, task, "цикл без решения агента");
+            _tasks.EditFlowRun(task.Id, root =>
+            {
+                root[TaskFlowRun.LoopDoneKey] = true;
+                root[TaskFlowRun.StoppedKey] = true; // знак Stop диаграммы (T-301-S0)
+            });
+            return false;
+        }
+        if (decision == false)
+        {
+            if (done == 0)
+            {
+                // условие не выполнено на первом же круге: тело не нужно вовсе
+                var count = CancelChildren(task, actorId);
+                Logger.Information("Цикл {Task}: условие не выполнено на первом круге — отменено "
+                                   + "ожидающих потомков {Count} (T-299-S0)", task.DisplayId, count);
+            }
+            return FinishLoop(task, run, actorId, "условия цикла не выполнены", exceeded: false);
+        }
+        if (done >= LoopLimitOf(task))
+        {
+            return FinishLoop(task, run, actorId, $"пройдено кругов {done} — предел цикла", exceeded: true);
+        }
+        // условия выполнены: новый круг тела
+        if (done > 0)
+        {
+            ResetSubtreeForRound(task, actorId);
+        }
+        _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.LoopBodyKey] = true);
+        _tasks.ChangeStatus(task.Id, TaskStatuses.Paused, actorId);
+        Logger.Information("Цикл {Task}: круг {Pass} — задача ждёт окончания цикла (T-299-S0)",
+            task.DisplayId, done + 1);
+        task = _tasks.Get(task.Id) ?? task;
+        await RunChildrenAsync(task, run, actorId, seen, depth, withErrors, withNeedsFix);
+        run.Waiting++;
+        return false;
+    }
+
+    /// <summary>
+    /// «Цикл после» (T-299-S0): потомки идут первыми, как у обычного родителя; задача-анализатор
+    /// запускается после всех потомков. Условия выполнены — поддерево возвращается в «ожидает»
+    /// и проходит новый круг, задача ждёт на паузе «ждёт окончания цикла»; после круга
+    /// анализатор перезапускается. Предел кругов и остановка — как у «Цикла до».
+    /// </summary>
+    private async Task<bool> RunDoLoopNodeAsync(TaskItem node, HierarchyRunDto run, string? actorId,
+        HashSet<string> seen, int depth, bool withErrors, bool withNeedsFix)
+    {
+        var task = _tasks.Get(node.Id) ?? node;
+        if (task.Status == TaskStatuses.Cancelled)
+        {
+            run.Skipped++;
+            return true;
+        }
+        if (TaskFlowRun.LoopDone(task.LaunchJson))
+        {
+            if (HierarchyDone(task.Status))
+            {
+                return true;
+            }
+            _tasks.EditFlowRun(task.Id, ClearFlowRun);
+            task = _tasks.Get(task.Id) ?? task;
+        }
+        var childrenSettled = await RunChildrenAsync(task, run, actorId, seen, depth, withErrors, withNeedsFix);
+        if (!childrenSettled)
+        {
+            run.Waiting++; // тело цикла идёт — анализатор ждёт
+            return false;
+        }
+        if (TaskFlowRun.InLoopBody(task.LaunchJson))
+        {
+            // круг тела окончен — анализатор перепроверяет условия
+            _tasks.EditFlowRun(task.Id, root => root.Remove(TaskFlowRun.LoopBodyKey));
+            Logger.Information("Цикл после {Task}: круг окончен — перепроверка условий (T-299-S0)",
+                task.DisplayId);
+            await RestartAnalyzerAsync(task, run, actorId, withErrors, withNeedsFix);
+            return false;
+        }
+        if (!HierarchyDone(task.Status))
+        {
+            await TryStartInHierarchyAsync(task, run, actorId, withErrors, withNeedsFix);
+            return false;
+        }
+        var decision = TaskFlowRun.Decision(task.LaunchJson);
+        var pass = TaskFlowRun.LoopPass(task.LaunchJson) + 1; // круг тела только что пройден
+        _tasks.EditFlowRun(task.Id, root =>
+        {
+            root.Remove(TaskFlowRun.DecisionKey);
+            root[TaskFlowRun.LoopPassKey] = pass;
+        });
+        if (decision is null)
+        {
+            StopRun(run, task, "цикл без решения агента");
+            _tasks.EditFlowRun(task.Id, root =>
+            {
+                root[TaskFlowRun.LoopDoneKey] = true;
+                root[TaskFlowRun.StoppedKey] = true; // знак Stop диаграммы (T-301-S0)
+            });
+            return false;
+        }
+        if (decision == false)
+        {
+            return FinishLoop(task, run, actorId, "условия цикла не выполнены", exceeded: false);
+        }
+        if (pass >= LoopLimitOf(task))
+        {
+            return FinishLoop(task, run, actorId, $"пройдено кругов {pass} — предел цикла", exceeded: true);
+        }
+        // новый круг: поддерево — в «ожидает», задача ждёт окончания цикла
+        ResetSubtreeForRound(task, actorId);
+        _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.LoopBodyKey] = true);
+        _tasks.ChangeStatus(task.Id, TaskStatuses.Paused, actorId);
+        Logger.Information("Цикл после {Task}: круг {Pass} — задача ждёт окончания цикла (T-299-S0)",
+            task.DisplayId, pass + 1);
+        task = _tasks.Get(task.Id) ?? task;
+        await RunChildrenAsync(task, run, actorId, seen, depth, withErrors, withNeedsFix);
+        run.Waiting++;
+        return false;
+    }
+
+    /// <summary>Предел кругов цикла задачи (T-299-S0): свой recheckLimit, иначе проекта.</summary>
+    private int LoopLimitOf(TaskItem task) =>
+        TaskFlowRun.LoopLimit(TaskFlow.Read(task.LaunchJson), _tasks.RecheckLimitOf(task.Id));
+
+    /// <summary>Цикл окончен (T-299-S0). Анализатор, стоявший на паузе «ждёт окончания цикла»,
+    /// сдаётся в «готово»; при превышении предела и флажке «остановить выполнение всей
+    /// иерархии» очередь закрывается, иначе обход просто идёт дальше.</summary>
+    private bool FinishLoop(TaskItem task, HierarchyRunDto run, string? actorId, string reason, bool exceeded)
+    {
+        _tasks.EditFlowRun(task.Id, root =>
+        {
+            root.Remove(TaskFlowRun.LoopBodyKey);
+            root[TaskFlowRun.LoopDoneKey] = true;
+        });
+        Logger.Information("Цикл {Task} окончен: {Reason} (T-299-S0)", task.DisplayId, reason);
+        if (!HierarchyDone(task.Status))
+        {
+            _tasks.ChangeStatus(task.Id, TaskStatuses.Done, actorId);
+        }
+        if (exceeded && TaskFlow.Read(task.LaunchJson).LoopStopHierarchy)
+        {
+            StopRun(run, task, reason);
+            _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.StoppedKey] = true); // знак Stop диаграммы (T-301-S0)
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>Перезапуск задачи-анализатора цикла между кругами (T-299-S0): снова «ожидает»
+    /// и сразу в очередь запуска — исполнитель между кругами был свободен и мог брать потомков.
+    /// Пометки «очередь уже перезапускала» снимаются, как у restart_task_for_recheck.</summary>
+    private async Task RestartAnalyzerAsync(TaskItem task, HierarchyRunDto run, string? actorId,
+        bool withErrors, bool withNeedsFix)
+    {
+        _tasks.SetLaunchFlag(task.Id, TaskService.HierarchyRetryFlag, false);
+        _tasks.SetLaunchFlag(task.Id, TaskService.HierarchyNeedsFixRetryFlag, false);
+        _tasks.ChangeStatus(task.Id, TaskStatuses.Pending, actorId);
+        var fresh = _tasks.Get(task.Id) ?? task;
+        await TryStartInHierarchyAsync(fresh, run, actorId, withErrors, withNeedsFix);
+    }
+
+    /// <summary>Остановить выполнение всей иерархии (T-299-S0): очередь закроет корень по
+    /// пометке прохода (<see cref="HierarchyRunDto.Stopped"/>) — ДО любых новых запусков.</summary>
+    private static void StopRun(HierarchyRunDto run, TaskItem task, string reason)
+    {
+        Logger.Information("Иерархия: выполнение останавливает {Task} — {Reason} (T-299-S0)",
+            task.DisplayId, reason);
+        run.Stopped = true;
+        if (!run.StoppedBy.Contains(task.DisplayId, StringComparer.Ordinal))
+        {
+            run.StoppedBy.Add(task.DisplayId);
+        }
+    }
+
+    /// <summary>Снять состояние ветвления/цикла — задача начинает заново.</summary>
+    private static void ClearFlowRun(System.Text.Json.Nodes.JsonObject root)
+    {
+        foreach (var key in TaskFlowRun.Keys)
+        {
+            root.Remove(key);
+        }
+    }
+
+    /// <summary>Отменить задачу и всё её поддерево (непройденная ветка условия, T-299-S0).
+    /// onlyWaiting — трогать только «ожидает» и «черновик». Сданные задачи не трогаются.
+    /// Возвращает число отменённых.</summary>
+    private int CancelSubtree(TaskItem node, string? actorId, bool onlyWaiting, int depth = 0)
+    {
+        if (depth > MaxHierarchyDepth || node.IsTemplate || node.DeletedAt is not null)
+        {
+            return 0;
+        }
+        var count = 0;
+        foreach (var child in _tasks.ListChildren(node.Id))
+        {
+            count += CancelSubtree(child, actorId, onlyWaiting, depth + 1);
+        }
+        var task = _tasks.Get(node.Id) ?? node;
+        var cancel = onlyWaiting
+            ? task.Status is TaskStatuses.Pending or TaskStatuses.Draft
+            : !HierarchyDone(task.Status);
+        if (cancel && _tasks.CanWrite(task))
+        {
+            _tasks.ChangeStatus(task.Id, TaskStatuses.Cancelled, actorId);
+            count++;
+        }
+        return count;
+    }
+
+    /// <summary>Все потомки задачи с подпотомками в «ожидает»/«черновик» → «отменена»
+    /// (условие «Цикла до» не выполнено на первом круге, T-299-S0).</summary>
+    private int CancelChildren(TaskItem task, string? actorId) =>
+        _tasks.ListChildren(task.Id).Sum(c => CancelSubtree(c, actorId, onlyWaiting: true));
+
+    /// <summary>Новый круг цикла (T-299-S0): всё поддерево, сданное в прошлом круге, снова
+    /// «ожидает», а вложенные условия и циклы забывают прошлые решения.</summary>
+    private void ResetSubtreeForRound(TaskItem task, string? actorId)
+    {
+        void Reset(TaskItem node, int depth)
+        {
+            if (depth > MaxHierarchyDepth || node.IsTemplate || node.DeletedAt is not null)
+            {
+                return;
+            }
+            var current = _tasks.Get(node.Id) ?? node;
+            if (_tasks.CanWrite(current))
+            {
+                _tasks.EditFlowRun(current.Id, root =>
+                {
+                    ClearFlowRun(root);
+                    root.Remove(TaskService.HierarchyRetryFlag);
+                    root.Remove(TaskService.HierarchyNeedsFixRetryFlag);
+                });
+                if (HierarchyDone(current.Status) || current.Status is TaskStatuses.Error or TaskStatuses.NeedsFix)
+                {
+                    _tasks.ChangeStatus(current.Id, TaskStatuses.Pending, actorId);
+                }
+            }
+            foreach (var child in _tasks.ListChildren(current.Id))
+            {
+                Reset(child, depth + 1);
+            }
+        }
+        foreach (var child in _tasks.ListChildren(task.Id))
+        {
+            Reset(child, 1);
+        }
     }
 
     /// <summary>Задачу, вставшую с ошибкой, очередь перезапускает (T-186): галочка в
@@ -1939,25 +2824,12 @@ public sealed class JobOrchestrator : IDisposable
             run.Skipped++;
             return;
         }
-        switch (_tasks.BlockersStateOf(task))
+        if (!_tasks.BlockersDone(task))
         {
-            case BlockersState.Waiting:
-                // блокирующие задачи ещё не готовы (ТЗ п. 2.12): очередь ждёт — задачу
-                // тронет с места завершение последней блокирующей
-                run.Waiting++;
-                return;
-            case BlockersState.Cancelled:
-                // блокирующая отменена (T-6-S1): ждать нечего, весь запуск иерархии
-                // останавливается — очередь закроет её корень по этой пометке
-                Logger.Information("Иерархия: {Task} не запускается — блокирующая задача отменена (T-6-S1)",
-                    task.DisplayId);
-                run.Stopped = true;
-                if (!run.StoppedBy.Contains(task.DisplayId, StringComparer.Ordinal))
-                {
-                    run.StoppedBy.Add(task.DisplayId);
-                }
-                run.Skipped++;
-                return;
+            // блокирующие задачи ещё не готовы (ТЗ п. 2.12): очередь ждёт — задачу тронет
+            // с места завершение (готово/отмена, T-299-S0) последней блокирующей
+            run.Waiting++;
+            return;
         }
         if (WaitsDeferredStart(task))
         {

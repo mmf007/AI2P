@@ -39,7 +39,11 @@ help_lang() {
 case "${1:-}" in
     -h|--help)
         if [ -f "./i18n/loc.sh" ]; then
-            AI2P_LOC_DIR="./i18n"; . "./i18n/loc.sh"; ai2p_set_lang "$(help_lang "$@")"; ai2p_help install_required
+            AI2P_LOC_DIR="./i18n"; . "./i18n/loc.sh"
+        fi
+        # T-319: годность загрузчика — по функциям, а не по наличию файла
+        if command -v ai2p_help >/dev/null 2>&1; then
+            ai2p_set_lang "$(help_lang "$@")"; ai2p_help install_required
         else
             echo "Usage: ./install_required.sh   - checks and installs the build environment."
         fi
@@ -262,7 +266,7 @@ echo ""
 
 # ---------- 5. makeself (installer packages, T-285) ----------
 # MakePackage.sh turns a release folder into a single self-extracting
-# installer (AI2P_v_1_NN_Linux.run / AI2P_full_v_1_NN_MacOs.run).
+# installer (AI2P_v_1_NN_linux_x64.run / AI2P_v_1_NN_full_macos_arm64.run).
 # Not needed to build or run the app - only to hand it to someone else.
 have_makeself() {
     command -v makeself >/dev/null 2>&1 || command -v makeself.sh >/dev/null 2>&1

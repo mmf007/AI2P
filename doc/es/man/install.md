@@ -12,7 +12,7 @@ pueden perder.
 
 | Forma | Qué es | Cuándo va bien |
 |---|---|---|
-| **Paquete de instalación** | un solo archivo `AI2P_v_1_NN_…` (o `AI2P_full_v_1_NN_…`, con el runtime dentro), se instala con doble clic | el caso normal en Windows |
+| **Paquete de instalación** | un solo archivo `AI2P_v_1_NN_…` (o `AI2P_v_1_NN_full_…`, con el runtime dentro), se instala con doble clic | el caso normal en Windows |
 | **Script de instalación** | `install.cmd` / `install.sh` de la carpeta de publicación | cuando la publicación ya está descargada y la carpeta se elige a mano |
 | **La publicación sin más** | la carpeta descomprimida, se arranca `AI2P.Server.exe` | una prueba, una instalación portátil en un pendrive |
 
@@ -128,6 +128,33 @@ AI2P_HOME= ./install.sh ~/ai/AI2P
 El mismo remedio vale para `makeAsServise.sh` de esas mismas versiones.
 
 ---
+
+### Actualización desde el propio programa
+
+«Ajustes → General», junto al número de versión, tiene el botón **«Comprobar actualizaciones»**.
+Consulta el repositorio de publicaciones (por omisión `https://github.com/mmf007/ai2p`, la dirección
+se edita ahí mismo) y busca el archivo **para esta instalación**: el mismo sistema, la misma
+arquitectura y el mismo modo de instalación: publicación completa (con el runtime dentro) o normal.
+El modo de instalación se lee del `version.json` que está junto al programa.
+
+Si salió una versión más nueva, se enciende el botón **«Actualizar»**. Antes de instalar, el programa
+pregunta quién está ocupado: la actualización **reinicia el servidor** y los agentes en marcha de
+todas las organizaciones abiertas se detendrán; la pregunta muestra su lista. Después se descarga el
+paquete, el programa termina y un script aparte completa la instalación: espera el fin del proceso,
+instala el paquete en silencio y vuelve a levantar el servidor (el servicio, con `net start` /
+`systemctl`; el arranque en consola, iniciando el programa de nuevo). Habrá que recargar la página
+en el navegador.
+
+Dos casillas al lado:
+
+* **comprobación automática**: solo mirar si salió una versión nueva (la respuesta va al registro);
+* **actualización automática**: comprobar e instalar enseguida.
+
+Cuando el programa se ejecuta en **consola**, la comprobación automática ocurre al iniciar. Cuando
+funciona como **servicio del sistema**, no hay inicio durante semanas: entonces la casilla crea una
+entrada en la **programación** (una vez al día, a las 2:00 hora local por omisión) y los ajustes
+muestran su código; la hora se cambia en la propia entrada, como en cualquier programación. Al
+quitar la casilla se elimina la entrada.
 
 ## 4. Servicio del sistema operativo
 

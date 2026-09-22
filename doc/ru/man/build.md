@@ -217,23 +217,28 @@ Linux и macOS — `~/ai/AI2P`: данные (`data/`), журналы (`logs/`)
 ```powershell
 # Windows: нужен Inno Setup 6 (install_required.bat его ставит)
 cd builds\windows\releasefull
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_full_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_full_windows_x64.exe
 cd ..\release
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_windows_x64.exe
 ```
 
 ```sh
 # Linux / macOS: нужен makeself (install_required.sh его ставит)
 cd builds/linux/releasefull
-./MakePackage.sh                     # -> ../../packages/AI2P_full_v_1_99_Linux.run
+./MakePackage.sh                     # -> ../../packages/AI2P_v_1_99_full_linux_x64.run
 ```
 
 Имя файла складывается само из `version.json` выкладки — номер билда `NN` спрашивать не надо:
 
 | выкладка | Windows | Linux | macOS |
 |---|---|---|---|
-| `releasefull` | `AI2P_full_v_1_NN_win64.exe` | `AI2P_full_v_1_NN_Linux.run` | `AI2P_full_v_1_NN_MacOs.run` |
-| `release` | `AI2P_v_1_NN_win64.exe` | `AI2P_v_1_NN_Linux.run` | `AI2P_v_1_NN_MacOs.run` |
+| `releasefull` | `AI2P_v_1_NN_full_windows_x64.exe` | `AI2P_v_1_NN_full_linux_x64.run` | `AI2P_v_1_NN_full_macos_arm64.run` |
+| `release` | `AI2P_v_1_NN_windows_x64.exe` | `AI2P_v_1_NN_linux_x64.run` | `AI2P_v_1_NN_macos_arm64.run` |
+
+Части имени идут в таком порядке: `AI2P_v_` + номер версии + `_full` у полной выкладки +
+система (`windows`, `linux`, `macos`) + архитектура (`x64`, `arm64`, `arm`, `x86`). Систему и
+архитектуру у полной выкладки называет её рантайм (`win-x64`, `linux-arm64`, `osx-arm64`),
+у обычной — каталог ОС и архитектура текущего компилятора (T-234-S0).
 
 Расширение задаёт вид установщика: на Windows это Inno Setup (`.exe`), на Linux и macOS —
 самораспаковывающийся архив makeself (`.run`), который внутри запускает тот же `install.sh`.

@@ -11,6 +11,7 @@ key, why a model may be inactive and how to create your own record.
 
 **Cloud (an API key is needed)**
 
+* [Chatterbox-TTS](Chatterbox-TTS.md) — text plus a voice sample → speech in that voice, skills `audio-speech` 88
 * [Claude-Fable-5](Claude-Fable-5.md) — the API of the provider Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — the API of the provider Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — the Anthropic API
@@ -55,6 +56,7 @@ key, why a model may be inactive and how to create your own record.
 * [Veo-3.1](Veo-3.1.md) — text into a video with sound, 4-8 seconds, up to 4K, skills `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — text into a video up to 30 seconds with sound, skills `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Russia; OpenAI-compatible
+* [Zonos-2-TTS](Zonos-2-TTS.md) — text plus a voice sample → speech in that voice (the sample is mandatory), skills `audio-speech` 86
 
 **Over the Claude CLI (by subscription, no key)**
 

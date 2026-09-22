@@ -126,8 +126,11 @@ public sealed class PluginSetupService
             // пометка владельца — служебный ТЭГ записи: колонки под неё нет, а created_by
             // ссылается на исполнителей (внешний ключ), и строкой «plugin:…» его не занять.
             // Отбору опыта такой тэг не мешает: ExperienceService.TagsMatch его пропускает
+            // force: проверку «выглядит проектным» (T-269-S0) записи манифеста проходят мимо —
+            // решение уже принял человек, поставив плагин, а отказ посреди установки оставил бы
+            // плагин без половины его опыта
             _experience.CreateGeneral(text, actorId: null, SkillId(record.Skill),
-                tags: [PluginCodes.ExperienceOwner(code)]);
+                tags: [PluginCodes.ExperienceOwner(code)], force: true);
         }
         return added;
     }

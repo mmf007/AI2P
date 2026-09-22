@@ -39,6 +39,7 @@ Três regras sobre o link que economizam tempo:
 | **adereço** | um item no quadro |
 | **estilo** | a maneira de desenhar, as restrições do acabamento |
 | **quadro de referência** | uma imagem-modelo; normalmente filho de um personagem ou de uma locação |
+| **gravação de referência** | uma amostra de voz ou de som: o conector passa o arquivo ao modelo do mesmo modo que um fotograma de referência |
 | **conjunto de dados** | pasta de quadros com legendas para treinar o adaptador; os quadros são filhos dele |
 | **adaptador LoRA** | um acréscimo treinado aos pesos do modelo ([Editor de LoRA](LoRAEditor.md)) |
 | **arquivo** | um arquivo a que as tarefas se referem |

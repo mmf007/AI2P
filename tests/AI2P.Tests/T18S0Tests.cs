@@ -231,10 +231,13 @@ public sealed class T18S0Tests : IDisposable
         var text = graph.GetRawText();
 
         Assert.True(graph.EnumerateObject().Count() >= 10);
-        // текст задачи, длительность, шаги и код задания подставляет коннектор
-        Assert.Contains("{prompt}", text, StringComparison.Ordinal);
+        // текст задачи, длительность, шаги и код задания подставляет коннектор.
+        // С T-287-S0 тэги и длительность стоят ИМЕНОВАННЫМИ плейсхолдерами модели-суфлёра,
+        // а прежние {prompt} и "{length}" остались их УМОЛЧАНИЯМИ: без суфлёра граф
+        // собирается ровно как раньше
+        Assert.Contains("{p:tags|{prompt}}", text, StringComparison.Ordinal);
         Assert.Contains("\"{seed}\"", text, StringComparison.Ordinal);
-        Assert.Contains("\"{length}\"", text, StringComparison.Ordinal);
+        Assert.Contains("{p:duration|{length}}", text, StringComparison.Ordinal);
         Assert.Contains("\"{steps}\"", text, StringComparison.Ordinal);
         Assert.Contains("AI2P/{job}", text, StringComparison.Ordinal);
         // подстановки величин варианта обязаны быть выполнены при записи сид-файла

@@ -15,10 +15,10 @@
 
 | Файл | Что внутри | Когда брать |
 |---|---|---|
-| `AI2P_full_v_1_NN_win64.exe` | программа **вместе с рантаймом** | обычный случай: ничего доставлять не надо |
-| `AI2P_v_1_NN_win64.exe` | только программа | если на компьютере уже стоит рантайм **ASP.NET Core 8.x** |
+| `AI2P_v_1_NN_full_windows_x64.exe` | программа **вместе с рантаймом** | обычный случай: ничего доставлять не надо |
+| `AI2P_v_1_NN_windows_x64.exe` | только программа | если на компьютере уже стоит рантайм **ASP.NET Core 8.x** |
 
-На Linux и macOS то же самое, но с расширением `.run` (`AI2P_full_v_1_NN_Linux.run`).
+На Linux и macOS то же самое, но с расширением `.run` (`AI2P_v_1_NN_full_linux_x64.run`).
 `NN` — номер версии; берите наибольший.
 
 > Сомневаетесь — берите **`full`**. Он крупнее, но не требует ничего, кроме себя.
@@ -34,8 +34,8 @@
 ### Linux
 
 ```sh
-chmod +x AI2P_full_v_1_NN_Linux.run
-./AI2P_full_v_1_NN_Linux.run
+chmod +x AI2P_v_1_NN_full_linux_x64.run
+./AI2P_v_1_NN_full_linux_x64.run
 ```
 
 Ставится в `~/ai/AI2P`. Права `root` не нужны: сервер работает от обычного пользователя.
@@ -43,8 +43,8 @@ chmod +x AI2P_full_v_1_NN_Linux.run
 ### macOS
 
 ```sh
-chmod +x AI2P_full_v_1_NN_macos.run
-./AI2P_full_v_1_NN_macos.run
+chmod +x AI2P_v_1_NN_full_macos_arm64.run
+./AI2P_v_1_NN_full_macos_arm64.run
 ```
 
 Ставится в `~/ai/AI2P`. Права `root` не нужны: сервер работает от обычного пользователя.  

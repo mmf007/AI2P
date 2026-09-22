@@ -1,0 +1,375 @@
+@inject ApiClient Api
+@inject UiState State
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+@* НАБОРЫ ОПЫТА — «БИБЛИОТЕКА СТИЛЕЙ РАБОТЫ» (T-270-S0, ветка T-318 «Проект опыта»).
+
+   Стиль работы (как ревьюим, как пишем отчёты, как ведём медиа-продакшн) — это пачка
+   записей опыта, которую хочется ставить и снимать ЦЕЛИКОМ и возить между установками.
+   Файлы наборов лежат в каталоге данных рядом с plugins/ и models/; здесь — то, что о них
+   знает база: установлен ли набор и В КАКУЮ ОБЛАСТЬ.
+
+   ОБЛАСТЬ ВЫБИРАЕТСЯ ДО УСТАНОВКИ И НЕ БЫВАЕТ ПУСТОЙ (решение заказчика): кнопка
+   «Установить» погашена, пока область не выбрана, а если выбран проект или узел шаблона —
+   пока не назван адресат. Молчаливое «поставим в общий опыт» означало бы, что поставляемые
+   записи начнут приходить КАЖДОЙ задаче организации.
+
+   Разметка для живых проверок: data-packs-row="<код>", data-pack-install, data-pack-remove. *@
+<div class="pa-4" data-packs-tab="1">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1" Style="max-width: 1100px;">
+        <MudText Typo="Typo.h6">@L["packs.title"]</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@Icons.Material.Filled.Refresh" data-packs-refresh="1"
+                       title="@L["packs.refresh"]" OnClick="ReloadAsync" />
+    </MudStack>
+    <MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75; max-width: 900px;">
+        @L["packs.hint"]
+    </MudText>
+
+    @* ВЫБОР ОБЛАСТИ — над списком: он один на все кнопки «Установить» в таблице *@
+    @if (CanEdit)
+    {
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mb-3"
+                  Style="max-width: 1100px; flex-wrap: wrap;">
+            <MudSelect T="string" @bind-Value="_scope" Label="@L["packs.scope"]" Dense="true"
+                       data-packs-scope="1" Style="max-width: 240px;">
+                <MudSelectItem T="string" Value="@ExperienceScopes.General">@L["usedexp.scope.general"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@ExperienceScopes.Project">@L["usedexp.scope.project"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@ExperienceScopes.Template">@L["usedexp.scope.template"]</MudSelectItem>
+            </MudSelect>
+            @if (_scope == ExperienceScopes.Project)
+            {
+                <MudSelect T="string" @bind-Value="_projectId" Label="@L["exp.move.project"]"
+                           Dense="true" data-packs-project="1" Style="max-width: 320px;">
+                    @foreach (var project in State.Projects)
+                    {
+                        <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+            else if (_scope == ExperienceScopes.Template)
+            {
+                <MudSelect T="string" @bind-Value="_templateId" Label="@L["exp.move.template"]"
+                           Dense="true" data-packs-template="1" Style="max-width: 420px;">
+                    @foreach (var node in _templates)
+                    {
+                        <MudSelectItem T="string" Value="@node.Id">@node.DisplayId @node.Title</MudSelectItem>
+                    }
+                </MudSelect>
+            }
+        </MudStack>
+    }
+
+    @if (_packs.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Dense="true" data-packs-empty="1" Style="max-width: 900px;">
+            @L["packs.empty"]
+        </MudAlert>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+            <thead>
+                <tr>
+                    <th>@L["packs.name"]</th>
+                    <th>@L["packs.recordsCol"]</th>
+                    <th>@L["packs.stateCol"]</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var pack in _packs)
+                {
+                    <tr data-packs-row="@pack.Code">
+                        <td>
+                            @pack.Name
+                            <MudText Typo="Typo.caption" Style="opacity:.6;">@pack.Code</MudText>
+                            <MudText Typo="Typo.caption" Style="opacity:.75;">@pack.Description</MudText>
+                        </td>
+                        <td data-pack-records="@pack.Records">
+                            @pack.Records@(pack.Templates > 0 ? $" + {pack.Templates}" : "")
+                        </td>
+                        @* «установлен и куда» — одной ячейкой: без области ответ неполон *@
+                        <td data-pack-state="@(pack.Installed > 0 ? "installed" : "none")">
+                            @PlacementText(pack)
+                        </td>
+                        <td style="white-space: nowrap;">
+                            <MudIconButton Icon="@Icons.Material.Filled.Info" Size="Size.Small"
+                                           data-pack-doc="@pack.Code" title="@L["packs.doc"]"
+                                           OnClick="@(() => OpenDocAsync(pack))" />
+                            @if (CanEdit)
+                            {
+                                <MudButton Size="Size.Small" Color="Color.Primary" Variant="Variant.Text"
+                                           data-pack-install="@pack.Code" Disabled="@(!ScopeChosen || _busy)"
+                                           OnClick="@(() => InstallAsync(pack))">
+                                    @L["packs.install"]
+                                </MudButton>
+                                @if (pack.Installed > 0)
+                                {
+                                    <MudButton Size="Size.Small" Color="Color.Error" Variant="Variant.Text"
+                                               data-pack-remove="@pack.Code" Disabled="@_busy"
+                                               OnClick="@(() => RemoveAsync(pack))">
+                                        @L["packs.remove"]
+                                    </MudButton>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+
+    @* ВЫГРУЗКА — обратная кнопка: отобрать записи и сохранить их файлом набора. Это
+       единственный способ перенести наработанный стиль на другую установку *@
+    @if (CanEdit)
+    {
+        <MudPaper Class="pa-3 mt-4" Outlined="true" data-packs-export="1" Style="max-width: 1100px;">
+            <MudText Typo="Typo.subtitle1" Class="mb-1">@L["packs.export.title"]</MudText>
+            <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity:.75;">
+                @L["packs.export.hint"]
+            </MudText>
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mb-2"
+                      Style="flex-wrap: wrap;">
+                <MudSelect T="string" @bind-Value="_srcScope" Label="@L["packs.export.source"]"
+                           Dense="true" data-packs-export-scope="1" Style="max-width: 240px;">
+                    <MudSelectItem T="string" Value="@ExperienceScopes.General">@L["usedexp.scope.general"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@ExperienceScopes.Project">@L["usedexp.scope.project"]</MudSelectItem>
+                    <MudSelectItem T="string" Value="@ExperienceScopes.Template">@L["usedexp.scope.template"]</MudSelectItem>
+                </MudSelect>
+                @if (_srcScope == ExperienceScopes.Project)
+                {
+                    <MudSelect T="string" @bind-Value="_srcProjectId" Label="@L["exp.move.project"]"
+                               Dense="true" Style="max-width: 280px;">
+                        @foreach (var project in State.Projects)
+                        {
+                            <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                else if (_srcScope == ExperienceScopes.Template)
+                {
+                    <MudSelect T="string" @bind-Value="_srcTemplateId" Label="@L["exp.move.template"]"
+                               Dense="true" Style="max-width: 380px;">
+                        @foreach (var node in _templates)
+                        {
+                            <MudSelectItem T="string" Value="@node.Id">@node.DisplayId @node.Title</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+                @* фильтр по тэгу и навыку — «отобрать фильтром», а галочки ниже — «руками» *@
+                <MudTextField T="string" @bind-Value="_filter" Label="@L["packs.export.filter"]"
+                              Dense="true" data-packs-export-filter="1" Style="max-width: 240px;" />
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" data-packs-export-load="1"
+                           OnClick="LoadSourceAsync">@L["packs.export.load"]</MudButton>
+            </MudStack>
+            @if (_source.Count > 0)
+            {
+                <MudSimpleTable Dense="true" Hover="true" Style="max-height: 320px; overflow: auto;">
+                    <tbody>
+                        @foreach (var record in Filtered())
+                        {
+                            <tr data-packs-export-row="@record.Id">
+                                <td style="width:48px">
+                                    <MudCheckBox T="bool" Dense="true" Value="@_picked.Contains(record.Id)"
+                                                 data-packs-export-pick="@record.Id"
+                                                 ValueChanged="@((bool on) => Pick(record.Id, on))" />
+                                </td>
+                                <td style="width:160px; opacity:.7">
+                                    @record.SkillName<br />@string.Join(", ", record.Tags)
+                                </td>
+                                <td style="white-space: pre-wrap;">@record.Text</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2"
+                          Style="flex-wrap: wrap;">
+                    <MudTextField T="string" @bind-Value="_newCode" Label="@L["packs.export.code"]"
+                                  Dense="true" data-packs-export-code="1" Style="max-width: 260px;" />
+                    <MudTextField T="string" @bind-Value="_newName" Label="@L["packs.export.name"]"
+                                  Dense="true" Style="max-width: 260px;" />
+                    <MudTextField T="string" @bind-Value="_newDescription" Label="@L["packs.export.desc"]"
+                                  Dense="true" Style="max-width: 320px;" />
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" data-packs-export-run="1"
+                               Disabled="@(_picked.Count == 0 || _newCode.Trim().Length == 0 || _busy)"
+                               OnClick="ExportAsync">@L["packs.export.run"]</MudButton>
+                </MudStack>
+            }
+        </MudPaper>
+    }
+</div>
+
+@code {
+    /// <summary>Правка разрешена (роль): у читателя кнопок установки и выгрузки нет.</summary>
+    [Parameter] public bool CanEdit { get; set; } = true;
+
+    private List<ExperiencePackDto> _packs = [];
+    private List<TaskItem> _templates = [];
+    private string _scope = "";
+    private string _projectId = "";
+    private string _templateId = "";
+    private bool _busy;
+
+    private List<ExperienceRecordDto> _source = [];
+    private readonly HashSet<string> _picked = [];
+    private string _srcScope = ExperienceScopes.General;
+    private string _srcProjectId = "";
+    private string _srcTemplateId = "";
+    private string _filter = "";
+    private string _newCode = "";
+    private string _newName = "";
+    private string _newDescription = "";
+
+    /// <summary>Область выбрана ЦЕЛИКОМ: у проекта и узла шаблона назван и адресат.</summary>
+    private bool ScopeChosen =>
+        _scope == ExperienceScopes.General
+        || (_scope == ExperienceScopes.Project && _projectId.Length > 0)
+        || (_scope == ExperienceScopes.Template && _templateId.Length > 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _projectId = State.CurrentProjectId ?? State.Projects.FirstOrDefault()?.Id ?? "";
+        _srcProjectId = _projectId;
+        await ReloadAsync();
+        try
+        {
+            _templates = await Api.GetTasksAsync(templatesOnly: true);
+        }
+        catch (ApiException)
+        {
+            _templates = [];   // узлов шаблонов нет — область «узел шаблона» просто пуста
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            _packs = await Api.GetExperiencePacksAsync(L.Lang);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _packs = [];
+        }
+    }
+
+    private string PlacementText(ExperiencePackDto pack) =>
+        pack.Installed == 0
+            ? L["packs.notInstalled"]
+            : pack.Scope switch
+            {
+                ExperienceScopes.Project => L["packs.installedIn", pack.Installed,
+                    L["usedexp.scope.project"] + ": " + pack.ProjectName],
+                ExperienceScopes.Template => L["packs.installedIn", pack.Installed,
+                    L["usedexp.scope.template"] + ": " + pack.TemplateDisplayId],
+                _ => L["packs.installedIn", pack.Installed, L["usedexp.scope.general"]],
+            };
+
+    private async Task InstallAsync(ExperiencePackDto pack)
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.InstallExperiencePackAsync(pack.Code, L.Lang, _scope,
+                _projectId, _templateId);
+            Snackbar.Add(L["packs.installed", result.Count], Severity.Success);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        _busy = false;
+    }
+
+    private async Task RemoveAsync(ExperiencePackDto pack)
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.RemoveExperiencePackAsync(pack.Code);
+            Snackbar.Add(L["packs.removed", result.Count], Severity.Success);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        _busy = false;
+    }
+
+    private async Task OpenDocAsync(ExperiencePackDto pack)
+    {
+        var parameters = new DialogParameters<DocPageDialog> { { d => d.Path, pack.Doc } };
+        await Dialogs.ShowAsync<DocPageDialog>(L["packs.doc"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+    }
+
+    private async Task LoadSourceAsync()
+    {
+        try
+        {
+            _source = _srcScope switch
+            {
+                ExperienceScopes.Project when _srcProjectId.Length > 0 =>
+                    await Api.GetProjectExperienceAsync(_srcProjectId),
+                ExperienceScopes.Template when _srcTemplateId.Length > 0 =>
+                    await Api.GetExperienceAsync(_srcTemplateId),
+                ExperienceScopes.General => await Api.GetGeneralExperienceAsync(),
+                _ => [],
+            };
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _source = [];
+        }
+        _picked.Clear();
+    }
+
+    /// <summary>Отбор фильтром: слово ищется в тэгах, навыке и тексте — одно поле на три
+    /// признака, потому что человек помнит тему, а не то, чем она у него записана.</summary>
+    private IEnumerable<ExperienceRecordDto> Filtered()
+    {
+        var word = _filter.Trim();
+        return word.Length == 0
+            ? _source
+            : _source.Where(r =>
+                r.Text.Contains(word, StringComparison.CurrentCultureIgnoreCase)
+                || r.SkillName.Contains(word, StringComparison.OrdinalIgnoreCase)
+                || r.Tags.Any(t => t.Contains(word, StringComparison.CurrentCultureIgnoreCase)));
+    }
+
+    private void Pick(string id, bool on)
+    {
+        if (on)
+        {
+            _picked.Add(id);
+        }
+        else
+        {
+            _picked.Remove(id);
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        _busy = true;
+        try
+        {
+            var result = await Api.ExportExperiencePackAsync(_newCode.Trim(), L.Lang,
+                _newName.Trim(), _newDescription.Trim(), _picked);
+            Snackbar.Add(L["packs.exported", result.Path], Severity.Success);
+            await ReloadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        _busy = false;
+    }
+}

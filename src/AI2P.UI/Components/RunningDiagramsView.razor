@@ -1,0 +1,210 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+@implements IDisposable
+
+@* «ДИАГРАММЫ В РАБОТЕ» (T-328-S0) — представление списка задач: диаграммы (TaskDiagramView)
+   только тех иерархий, где хоть одна задача «в работе» или «на паузе». Рисуется вся
+   иерархия — от корня до листьев, а не одна запущенная ветка.
+
+   Во вкладке «Задачи» проекта (FixedProjectId) — одна диаграмма на все такие корни проекта:
+   дорожки исполнителей общие. В общем списке задач появляется ещё одна полоса — ПРОЕКТ:
+   слева код и название проекта, повёрнутые на 90° против часовой стрелки, справа диаграмма
+   его корней. Исполнитель, работающий в двух проектах, повторяется в каждой полосе — только
+   с задачами этого проекта. Меню квадрата — полное, как на диаграмме подзадач карточки
+   (второй прогон T-328-S0): действия делает RunActionAsync теми же вызовами и формами. *@
+
+@if (_groups is null)
+{
+    <MudProgressLinear Indeterminate="true" Class="ai2p-view-busy" />
+}
+else if (_groups.Count == 0)
+{
+    <MudText Typo="Typo.body2" data-diagrams-empty="1">@L["tasks.diagrams.empty"]</MudText>
+}
+else
+{
+    <div data-tasks-view="diagrams">
+        @foreach (var group in _groups)
+        {
+            <div @key="group.ProjectId" class="ai2p-diagrams-project" data-diagrams-project="@group.ProjectId"
+                 style="display: flex; align-items: stretch; margin-bottom: 12px;
+                        border: 1px solid var(--mud-palette-lines-default); border-radius: 4px;">
+                @if (FixedProjectId is null)
+                {
+                    @* поворот на 90° против часовой: текст читается снизу вверх. Середину
+                       держит flex внешней полосы, а не text-align повёрнутого блока: тот при
+                       перерисовке диаграммы (кнопка прозрачности) уезжал вверх *@
+                    <div style="display: flex; align-items: center; justify-content: center;
+                                padding: 6px 4px; border-right: 1px solid var(--mud-palette-lines-default);"
+                         data-diagrams-project-label="1">
+                        <span style="writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap;
+                                     font-weight: 600;">
+                            @group.Label
+                        </span>
+                    </div>
+                }
+                <div style="flex: 1; min-width: 0; padding: 4px;">
+                    <TaskDiagramView TaskIds="group.RootIds" Version="@string.Join(",", group.RootIds)"
+                                     OnAction="RunActionAsync" />
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Вкладка «Задачи» проекта: только его иерархии и без полосы проекта.</summary>
+    [Parameter] public string? FixedProjectId { get; set; }
+
+    private sealed record Group(string ProjectId, string Label, List<string> RootIds);
+
+    private List<Group>? _groups;
+    private Timer? _timer;
+
+    /// <summary>Новые запуски появляются и без действий человека — список корней перечитывается
+    /// сам; сами диаграммы обновляются своим таймером, пока идёт работа.</summary>
+    private static readonly TimeSpan Refresh = TimeSpan.FromSeconds(30);
+
+    protected override async Task OnInitializedAsync()
+    {
+        State.Changed += OnStateChanged;
+        await ReloadAsync();
+        _timer = new Timer(async _ =>
+        {
+            await ReloadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, Refresh, Refresh);
+    }
+
+    private async void OnStateChanged()
+    {
+        await ReloadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            var tasks = await Api.GetTasksAsync(projectId: FixedProjectId);
+            var byId = tasks.ToDictionary(t => t.Id, StringComparer.Ordinal);
+            var roots = new List<TaskItem>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var task in tasks.Where(t => t.Status is TaskStatuses.InProgress or TaskStatuses.Paused))
+            {
+                // корень цепочки; защита от кольца — не глубже числа задач
+                var root = task;
+                for (var depth = 0; depth <= byId.Count && root.ParentId is { } parentId
+                     && byId.TryGetValue(parentId, out var parent); depth++)
+                {
+                    root = parent;
+                }
+                if (seen.Add(root.Id))
+                {
+                    roots.Add(root);
+                }
+            }
+            _groups = roots
+                .GroupBy(r => r.ProjectId ?? "")
+                .Select(g => new Group(g.Key, ProjectLabel(g.Key),
+                    g.OrderBy(r => r.CreatedAt).Select(r => r.Id).ToList()))
+                .OrderBy(g => g.Label, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _groups ??= [];
+        }
+    }
+
+    /// <summary>Действие меню квадрата (второй прогон T-328-S0) — те же формы и вызовы, что у
+    /// диаграммы подзадач карточки (TaskCardView.RunSubtaskActionAsync). Диаграмма после
+    /// действия перечитывает себя сама, список корней — по State.NotifyChanged.</summary>
+    private async Task RunActionAsync((string Action, string TaskId) request)
+    {
+        try
+        {
+            if (request.Action == "link")
+            {
+                var parameters = new DialogParameters<TaskLinkDialog>
+                {
+                    { d => d.Url, State.TaskUrl(request.TaskId) },
+                    { d => d.LocalUrl, State.HasExternalUrl ? State.TaskLocalUrl(request.TaskId) : "" },
+                    { d => d.RelativeUrl, LinkUrls.RelativeOf(State.TaskUrl(request.TaskId)) },
+                };
+                await Dialogs.ShowAsync<TaskLinkDialog>(L["task.link"], parameters,
+                    new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+                return;
+            }
+            var details = await Api.GetTaskAsync(request.TaskId);
+            var task = details.Task;
+            switch (request.Action)
+            {
+                case "edit":
+                {
+                    var parameters = new DialogParameters<TaskDialog> { { d => d.Source, details } };
+                    var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
+                        FormDialogs.Options(MaxWidth.Medium));
+                    if (await dialog.Result is { Canceled: false, Data: TaskSaveDto dto })
+                    {
+                        await Api.UpdateTaskAsync(dto);
+                    }
+                    break;
+                }
+                case "status":
+                {
+                    var parameters = new DialogParameters<StatusDialog> { { d => d.Current, task.Status } };
+                    var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
+                    if (await dialog.Result is { Canceled: false, Data: string status } && status != task.Status)
+                    {
+                        await Api.ChangeTaskStatusAsync(task.Id, status);
+                    }
+                    break;
+                }
+                case "delete":
+                {
+                    var target = task.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
+                    var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+                        target, task.Id, $"{task.DisplayId} {task.Title}");
+                    if (choice == ArchiveOrDeleteDialog.Archive)
+                    {
+                        await Api.MoveToArchiveAsync(target, task.Id);
+                    }
+                    else if (choice is not null)
+                    {
+                        await Api.DeleteTaskAsync(task.Id);
+                    }
+                    break;
+                }
+                case "start":
+                    await Api.StartTaskAsync(task.Id);
+                    break;
+                case "stop":
+                    await Api.StopTaskAsync(task.Id, false, false);
+                    Snackbar.Add(L["task.stop.done"], Severity.Success);
+                    break;
+            }
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private string ProjectLabel(string projectId)
+    {
+        var project = State.Projects.FirstOrDefault(p => p.Id == projectId);
+        return project is null ? L["tasks.diagrams.noProject"] : $"{project.DisplayId} {project.Name}".Trim();
+    }
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        State.Changed -= OnStateChanged;
+    }
+}

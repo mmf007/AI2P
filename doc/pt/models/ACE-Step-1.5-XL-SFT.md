@@ -107,21 +107,74 @@ São editados no perfil do modelo (botão «Perfil de conexão»):
 | `negative` | vazio | prompt negativo (ao contrário do Turbo, aqui ele funciona) |
 | `timeoutMinutes` | 60 | quanto esperar pelo resultado |
 
-**Sobre a duração.** O campo `length` neste registro significa segundos e vai de uma vez para
-dois lugares do grafo: o tamanho do latente vazio e o campo `duration` do planejador. No resumo
-da tarefa ele aparece rotulado com a palavra «quadros» — é assim em todos os modelos de mídia;
-leia-o como «segundos». O modelo é calculado para faixas de até cerca de dez minutos.
+**Sobre a duração.** A duração de cada faixa é indicada pelo **modelo ponto** a
+partir da descrição da tarefa («um minuto e meio» vira `duration: 90`). O campo `length` do
+perfil ficou de reserva: ele vale quando não há ponto escolhido, quando ele não respondeu ou
+quando a tarefa não diz nada sobre a duração. O valor vai de uma vez para dois lugares do
+grafo — o tamanho do latente vazio e o campo `duration` do planejador — e os limites são
+rígidos: de 1 a 1000 segundos (conferido com um ComfyUI vivo). No resumo da tarefa o
+`length` aparece rotulado «quadros» — é assim em todos os modelos de mídia; leia-o como
+«segundos».
 
-**Sobre o idioma do vocal.** No grafo, o campo `language` está definido como `unknown` — o
-modelo determina o idioma pelo seu texto sozinho. Nos modelos oficiais do ComfyUI ali consta
-`en`, o que, para letras em russo, daria pronúncia inglesa. Se você sempre canta em um mesmo
-idioma, coloque o código dele (`ru`, `en`, `zh`, …) direto no modelo de workflow.
+**Sobre o idioma do vocal.** O idioma é indicado pelo ponto, com um código da lista
+do nó (`ru`, `en`, `zh`, `ja`, … — 51 valores ao todo). Se ninguém o indicar, fica
+`unknown` e o modelo determina o idioma pela letra sozinho; nos modelos oficiais do ComfyUI
+ali consta `en`, o que para letras não inglesas daria pronúncia inglesa. Um idioma fixo
+também pode ser posto sem o ponto: pelo código direto no modelo de workflow.
 
-A descrição da tarefa vai inteira para o prompt (campo `tags` do modelo). Uma indicação do tipo
+Sem o ponto, a descrição da tarefa vai inteira para o prompt (campo `tags` do modelo); com o ponto, para `tags` vão as etiquetas de estilo que ele montou. Uma indicação do tipo
 «put the result into the file X.mp3» é executada pelo conector: o arquivo é copiado para a pasta
 do projeto e a própria linha é recortada do prompt. **As linhas de indicação são reconhecidas
 apenas em russo e em inglês** — as palavras-reconhecedoras estão fixadas no código, e por isso
 escreva a indicação em uma dessas duas línguas, ainda que o texto da cena esteja em português.
+
+## O ponto
+
+Este registro traz no perfil a marca **«precisa de ponto»**. O ponto é OUTRO EXECUTOR: antes da
+geração ele lê a descrição da tarefa e prepara o json de controle para o ACE-Step numa
+tarefa à parte. Serve qualquer executor de IA: uma assinatura CLI, um modelo local, uma API
+na nuvem; ele trabalha com o seu próprio conector, como numa tarefa comum. Atribui-se de
+duas maneiras: pelo campo **«Ponto»** no cartão do executor de IA (padrão para todas as suas
+tarefas) e pelo campo **«Ponto»** no formulário da tarefa, ao lado da lista **«Podem
+substituir o ponto»**, para quando o atribuído estiver ocupado com outro trabalho.
+
+O ponto preenche sete campos do nó `TextEncodeAceStepAudio1.5`:
+
+| Campo | O que é | Se não for indicado |
+|---|---|---|
+| `tags` | etiquetas de estilo: gênero, andamento, instrumentos, clima, vocal | a descrição inteira da tarefa |
+| `lyrics` | a letra da canção | vazio — o modelo a compõe sozinho |
+| `duration` | duração em segundos (1…1000) | o `length` do perfil |
+| `language` | código do idioma do vocal, da lista do nó | `unknown` |
+| `bpm` | andamento, batidas por minuto (10…300) | 120 |
+| `keyscale` | tonalidade e modo (`C major` … `B minor`) | `C major` |
+| `timesignature` | compasso: 2, 3, 4 ou 6 | 4 |
+
+**O que acontece se você não definir o ponto.** A tarefa NÃO COMEÇA: ela para com um erro
+dizendo que o executor precisa de um ponto e não há nenhum, nem na tarefa nem no próprio
+executor. O sistema não pode seguir em silêncio «como de costume»: os parâmetros da faixa
+viriam do nada, e isso só se veria meia hora depois, quando a faixa pronta não for a pedida.
+O mesmo vale para uma resposta sem json e para uma tarefa do ponto que falhou. Os outros
+dois desfechos são mais brandos: se o ponto atribuído estiver ocupado, o trabalho vai para o
+primeiro livre de «podem substituir o ponto», e se todos estiverem ocupados a tarefa aguarda
+em pausa até alguém ficar livre; se o ponto fez uma pergunta à pessoa, a tarefa também fica
+em pausa e continua com a resposta.
+
+**Novo arranque.** Uma tarefa em pausa ou com erro que já tem o seu json vai direto para a
+geração: o ponto não é perguntado duas vezes. Uma tarefa em rascunho, em espera ou em
+revisão recomeça do zero: o ponto prepara um json novo.
+
+**Como influir no resultado pela descrição da tarefa.** Escreva o que precisa chegar aos
+campos: a duração («um minuto», «90 segundos»), o idioma do vocal, o andamento, o modo, o
+compasso — e dê a letra palavra por palavra, o ponto a transfere como está. O estilo
+descreva com palavras: delas saem as etiquetas. O que ele de fato indicou aparece no console
+da tarefa e no arquivo `prompter.json`, entre os arquivos da tarefa.
+
+**As regras pelas quais ele trabalha** ficam junto ao perfil do modelo — o arquivo
+`models/prompter_<identificador do registro>.md` no diretório de dados. Você pode editá-lo:
+o texto vai inteiro para o prompt do ponto, e a edição vale a partir da próxima tarefa. O
+arquivo é reescrito pela instalação quando sua versão sobe, e a replicação não o leva para
+outros servidores.
 
 ## Como escrever a tarefa
 
@@ -137,26 +190,49 @@ O SFT segue o texto com mais exatidão que as outras variantes, e por isso uma d
 detalhada aqui é o que mais compensa. Cada execução usa um **seed aleatório** — se você precisa
 de um resultado repetível, escreva o `seed` como número no perfil do modelo.
 
+A descrição é lida pelo ponto, então escreva nela os números e o idioma
+diretamente: «90 segundos», «vocal em russo», «120 batidas por minuto», «em modo menor». O
+que ele entendeu disso aparece no console da tarefa.
+
 ## Treinamento de LoRA
 
-**A aplicação, sim; o treinamento, não.**
+**Aplicar — sim; treinar a partir do AI2P — não.**
 
-Um adaptador pronto o modelo aceita: o ComfyUI conhece o formato oficial de LoRA do ACE-Step, e
-o AI2P insere o nó `LoraLoaderModelOnly` no grafo em tempo de execução. Coloque o arquivo em
-`<repositório de modelos>/loras/` e nomeie o objeto-adaptador na descrição da tarefa pela
-referência `@obj:`.
+O modelo aceita um adaptador pronto: o AI2P insere o nó `LoraLoaderModelOnly` no grafo em
+tempo de execução. Coloque o arquivo em `<repositório de modelos>/loras/` e mencione o
+objeto-adaptador na descrição da tarefa com `@obj:`.
 
-Já **treinar um adaptador a partir do AI2P não é possível**, e isso está anotado no perfil com
-honestidade (`lora.train.kind: external`). São duas as razões:
+Treinar um adaptador a partir do AI2P não é possível, e o perfil diz isso honestamente:
+`lora.train.kind: external` com o comando vazio — o botão «Treinar» recusa de imediato, em
+vez de gastar meia hora. Verificado em 14.09.2026 nos arquivos dos repositórios:
 
-* o [musubi-tuner](https://github.com/kohya-ss/musubi-tuner), com que o AI2P treina LoRA para os
-  demais modelos locais, não conhece o ACE-Step de forma alguma — nele não há nenhum script
-  acestep (verificado em 27.08.2026);
-* o treinador oficial do ACE-Step (<https://github.com/ace-step/ACE-Step-1.5>, `train.py`)
-  treina sobre **gravações de áudio**, e o conjunto de dados de LoRA no AI2P são quadros-imagem.
+* **o modelo tem treinador** — o oficial
+  [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5), licença MIT, e ele roda no
+  Windows com UMA única placa: `python -m acestep.training_v2.cli.train_fixed`, sem
+  `torchrun`, `--num-devices` igual a 1 por padrão e workers do DataLoader
+  propositalmente 0 no Windows. Exige 16 GB de VRAM no mínimo, 20 GB ou mais
+  recomendados;
+* **mas ele precisa de pesos diferentes dos que instalamos.** O treinador lê um diretório
+  de checkpoints no formato HuggingFace (`config.json` +
+  `model-0000N-of-00004.safetensors`, cerca de 19,9 GB por variante, além do VAE e do
+  modelo de linguagem de rotulagem), enquanto o AI2P instala o reempacotamento da
+  Comfy-Org: outros arquivos e outro arranjo. A instalação não baixa uma segunda cópia;
+* **e o formato do arquivo treinado não foi verificado**: o treinador gera um adaptador
+  peft sobre o próprio DiT, e o ramo do «formato oficial do ACE-Step» em `comfy/lora.py`
+  está sob a classe `ACEStep`, ao passo que o 1.5 é a classe separada `ACEStep15`;
+* o [musubi-tuner](https://github.com/kohya-ss/musubi-tuner), com o qual o AI2P treina
+  LoRA dos demais modelos locais, não conhece o ACE-Step (verificado em 27.08.2026).
 
-Por isso o adaptador é treinado fora do AI2P, com o treinador oficial, e aqui é colocado como
-arquivo pronto.
+**Mesmo assim os limites do conjunto estão declarados**: o AI2P compara o conjunto com eles
+e você o monta para um treinamento externo. O conjunto é de ÁUDIO (`media: audio`):
+gravações de até 240 s, 48 000 Hz, 2 canais, formatos WAV, MP3, FLAC, OGG e Opus, a partir
+de 10 gravações, com as legendas em um arquivo `.txt` ao lado da gravação (transcrição ou
+tags). O editor mostra exatamente esses campos e guarda a gravação como está: o áudio não
+passa pela compressão de imagens.
+
+Ordem de trabalho do treinador oficial: preparar as gravações com `<nome>.lyrics.txt` e as
+legendas → pré-processar em tensores → iniciar o treinamento (LoRA ou LoKr, cerca de dez
+vezes mais rápido). Detalhes — [LoRA Training Tutorial](https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/LoRA_Training_Tutorial.md).
 
 ## Erros frequentes
 
@@ -165,9 +241,11 @@ arquivo pronto.
   mostrará o volume restante.
 * **Demora demais** — são 50 passos com CFG; para rascunhos pegue o Turbo.
 * **Resultados monótonos** — é uma propriedade do SFT; se precisar de dispersão, pegue o Base.
-* **O vocal canta no idioma errado** — coloque o código do idioma no campo `language` do modelo
-  de workflow, em vez de `unknown`.
-* **A faixa saiu mais curta ou mais longa que o esperado** — é o `length` do perfil, e ele está
-  em segundos.
+* **O vocal canta no idioma errado** — indique o idioma na própria descrição da
+  tarefa, o ponto o repassa; sem o ponto, coloque o código do idioma no campo `language` do
+  modelo de workflow, em vez de `unknown`.
+* **A faixa saiu mais curta ou mais longa que o esperado** — indique a duração na
+  descrição da tarefa (o ponto a entrega em segundos); sem o ponto vale o `length` do perfil,
+  que também está em segundos.
 * **O ComfyUI está ocupado por um processo alheio** — o AI2P descarrega apenas o servidor que
   ele mesmo iniciou; um ComfyUI alheio já em execução na 8188 ele não toca.

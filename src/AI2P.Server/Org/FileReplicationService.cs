@@ -135,10 +135,17 @@ public sealed class FileReplicationService
         // (пути внутри «arc»). Сверка приняла бы это за «у меня удалили» и вычистила бы
         // архивы у него. Заодно из базы сравнения выбрасываются пути, накопленные до этой
         // версии: иначе они остались бы там навсегда
+        //
+        // ТУДА ЖЕ — ФАЙЛЫ, КОТОРЫЕ КАЖДЫЙ СЕРВЕР ПИШЕТ СЕБЕ САМ (T-261-S0): профайлы и
+        // workflow записей справочника дистрибутива, справочник пакетов, манифесты плагинов
+        // и наборы опыта (см. FileManifest.IsDistributionFile). Они расходятся у двух серверов
+        // ровно на время, пока версии программы у них разные, и давали конфликт, в котором
+        // человеку нечего выбирать
         List<string> dropped = root.SkipService
-            ? paths.Where(FileManifest.IsServicePath).ToList()
+            ? paths.Where(p => FileManifest.IsServicePath(p) || FileManifest.IsDistributionFile(p)).ToList()
             : [];
         paths.ExceptWith(dropped);
+        ForgetConflicts(org, target, root, scopeKey, dropped);
 
         // прогресс считаем в байтах: у медиа один файл весит больше всех остальных вместе
         var plan = new List<Step>();
@@ -194,6 +201,27 @@ public sealed class FileReplicationService
             sync.Forget(target.Id, scopeKey, forgotten);
         }
         return failed;
+    }
+
+    /// <summary>
+    /// Снять УЖЕ ЗАПИСАННЫЕ конфликты по путям, которые больше не сверяются (T-261-S0).
+    /// Без этого конфликт, записанный прежней версией на <c>models/profile_…json</c>, висел бы
+    /// в списке вечно: сверка такой путь теперь не смотрит, а значит и не закроет его сама,
+    /// и человеку остался бы выбор из четырёх решений, ни одно из которых ничего не делает.
+    /// </summary>
+    private void ForgetConflicts(Organization org, ServerNode target, Root root, string scopeKey,
+        List<string> dropped)
+    {
+        if (dropped.Count == 0)
+        {
+            return;
+        }
+        var gone = new HashSet<string>(dropped, StringComparer.Ordinal);
+        foreach (var conflict in _registry.FileSync.Conflicts(target.Id, org.Id)
+                     .Where(c => c.Scope == root.Scope && gone.Contains(c.Path)))
+        {
+            _registry.FileSync.Clear(org.Id, target.Id, scopeKey, conflict.Path);
+        }
     }
 
     /// <summary>Выполнить ОДИН шаг плана переноса. Вынесено отдельно ради обработки неудачи:

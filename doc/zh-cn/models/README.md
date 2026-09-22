@@ -11,6 +11,7 @@
 
 **云端（需要 API 密钥）**
 
+* [Chatterbox-TTS](Chatterbox-TTS.md) — 文本 + 语音样本 → 该音色的语音，技能 `audio-speech` 88
 * [Claude-Fable-5](Claude-Fable-5.md)
 * [Claude-Fable-5.1](Claude-Fable-5.1.md)
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md)
@@ -55,6 +56,7 @@
 * [Veo-3.1](Veo-3.1.md) — 文本 → 带声视频，4–8 秒，最高 4K，技能 `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — 文本 → 最长 30 秒的带声视频，技能 `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md)
+* [Zonos-2-TTS](Zonos-2-TTS.md) — 文本 + 语音样本 → 该音色的语音（样本必填），技能 `audio-speech` 86
 
 **通过 Claude CLI（按订阅，无需密钥）**
 

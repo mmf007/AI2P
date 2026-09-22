@@ -23,6 +23,9 @@ public sealed class Ai2pConfig
     /// <summary>Пароль администратора сервера — общий с паролем пользователя (T-291).</summary>
     public ServerAdminSettings ServerAdmin { get; set; } = new();
 
+    /// <summary>Автообновление приложения (T-208): где искать выпуски и что делать само.</summary>
+    public UpdateSettings Update { get; set; } = new();
+
     /// <summary>
     /// ПЛАГИНЫ НА ЭТОМ КОМПЬЮТЕРЕ (T-111-S0): по коду плагина — установлен ли он здесь,
     /// ручной путь к программе и время последней проверки. Ключ словаря — код плагина
@@ -416,6 +419,36 @@ public sealed class Ai2pConfig
         public string Level { get; set; } = "Warning";
         public string Dir { get; set; } = "./logs";
         public string Rotation { get; set; } = "day";
+    }
+
+    /// <summary>
+    /// АВТООБНОВЛЕНИЕ ПРИЛОЖЕНИЯ (T-208). Настройка ПЕР-СЕРВЕРНАЯ и не реплицируется:
+    /// обновляется отдельный компьютер, а не организация, и способ установки (полная
+    /// выкладка или обычная, служба или консоль) у каждого свой.
+    ///
+    /// В поставляемом config.json раздела нет вовсе: умолчания живут в коде, а раз попавший
+    /// в файл ключ оттуда уже не уходит (ConfigMerge кладёт значения пользователя ПОВЕРХ
+    /// новых умолчаний — наука T-164 и T-215-S0). Пустой <see cref="Url"/> означает
+    /// «адрес по умолчанию», а не «обновляться неоткуда».
+    /// </summary>
+    public sealed class UpdateSettings
+    {
+        /// <summary>Репозиторий выпусков; пусто — <see cref="AI2P.Core.AppUpdate.DefaultRepoUrl"/>.</summary>
+        public string Url { get; set; } = "";
+
+        /// <summary>Проверять наличие новой версии автоматически.</summary>
+        public bool AutoCheck { get; set; }
+
+        /// <summary>Не только проверять, но и СТАВИТЬ найденное обновление.</summary>
+        public bool AutoUpdate { get; set; }
+
+        /// <summary>Время суточной проверки у СЕРВИСНОГО запуска, «ЧЧ:ММ» местного времени
+        /// (умолчание 2:00). Консольный запуск проверяется при старте — ему время не нужно.</summary>
+        public string Time { get; set; } = AI2P.Core.AppUpdate.DefaultTime;
+
+        /// <summary>Адрес выпусков с учётом умолчания.</summary>
+        public string RepoUrl() =>
+            Url.Trim().Length > 0 ? Url.Trim() : AI2P.Core.AppUpdate.DefaultRepoUrl;
     }
 
     /// <summary>

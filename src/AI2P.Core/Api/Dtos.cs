@@ -1067,9 +1067,57 @@ public sealed class TaskDiagramLaneDto
     public int Level { get; set; }
 }
 
+/// <summary>
+/// ТИП ЗАДАЧИ и его параметры (T-298-S0) — разобранные ключи <c>launch_json</c>
+/// (<see cref="TaskFlow"/>). Отдаётся готовым в <see cref="TaskItem.Flow"/> и в
+/// <see cref="TaskDiagramNodeDto.Flow"/>, чтобы движок иерархии и диаграмма не разбирали
+/// json сами. Поля чужого типа всегда пусты: у линейной задачи всё по умолчанию.
+/// </summary>
+public sealed class TaskFlowDto
+{
+    /// <summary>linear | if | loop | do-loop (<see cref="TaskFlow.Types"/>).</summary>
+    public string Type { get; set; } = TaskFlow.Linear;
+
+    /// <summary>Условие: задача при «Да» — идентификатор ПРЯМОГО потомка; null — не указана.</summary>
+    public string? IfTrueTaskId { get; set; }
+    /// <summary>Условие: задача при «Нет» — идентификатор ПРЯМОГО потомка; null — не указана.</summary>
+    public string? IfFalseTaskId { get; set; }
+    /// <summary>Ветка «Да» без задачи: «создавать задачи».</summary>
+    public bool IfTrueCreateTasks { get; set; }
+    /// <summary>Ветка «Нет» без задачи: «создавать задачи».</summary>
+    public bool IfFalseCreateTasks { get; set; }
+    /// <summary>Ветка «Да» без задачи и без создания задач: «завершить выполнение иерархии».</summary>
+    public bool IfTrueStopHierarchy { get; set; }
+    /// <summary>Ветка «Нет» без задачи и без создания задач: «завершить выполнение иерархии».</summary>
+    public bool IfFalseStopHierarchy { get; set; }
+
+    /// <summary>Циклы: лимит кругов. null — не задан (при создании задачи не из шаблона
+    /// подставляется <see cref="ProjectSettings.RecheckLimit"/> проекта).</summary>
+    public int? RecheckLimit { get; set; }
+    /// <summary>Циклы: «остановить выполнение всей иерархии при превышении лимита».</summary>
+    public bool LoopStopHierarchy { get; set; }
+}
+
 /// <summary>Квадрат диаграммы — задача (T-132-S0).</summary>
 public sealed class TaskDiagramNodeDto
 {
+    /// <summary>Тип задачи и параметры ветвей/цикла (T-298-S0) — для развилок и циклов диаграммы.</summary>
+    public TaskFlowDto Flow { get; set; } = new();
+
+    // --- ФАКТ хода условия и цикла (T-301-S0, ключи TaskFlowRun в launch_json) ---
+    /// <summary>Решение агента у «Условия»: true — «Да», false — «Нет», null — не сообщено
+    /// (у цикла движок снимает решение после чтения, для диаграммы оно там не нужно).</summary>
+    public bool? FlowDecision { get; set; }
+    /// <summary>У «Условия»: переход по решению выполнен движком — стрелки зелёная/серая.</summary>
+    public bool FlowApplied { get; set; }
+    /// <summary>Выполнение иерархии остановлено на этой задаче — знак Stop.</summary>
+    public bool FlowStopped { get; set; }
+    /// <summary>У цикла: пройдено кругов.</summary>
+    public int LoopPass { get; set; }
+    /// <summary>У цикла: предел кругов, по которому работает движок (свой recheckLimit либо
+    /// проекта); у прочих задач 0.</summary>
+    public int LoopLimit { get; set; }
+
     public string Id { get; set; } = "";
     public string DisplayId { get; set; } = "";
     public string Title { get; set; } = "";
@@ -1087,6 +1135,12 @@ public sealed class TaskDiagramNodeDto
     /// работа ещё не начиналась. Раскладке нужно, чтобы уже случившееся стояло на дорожке
     /// в том порядке, в каком оно случилось, а плановое — после него (T-164-S0).</summary>
     public DateTime? StartedAt { get; set; }
+    /// <summary>Начало ЖИВОГО задания (T-312-S0): от него внизу квадрата считается время
+    /// работы, как в представлении «в работе у ИИ»; пусто — работы сейчас нет.</summary>
+    public DateTime? WorkStartedAt { get; set; }
+    /// <summary>Чего ждёт работа по задаче (T-312-S0) — тот же расчёт, что в «в работе у ИИ»;
+    /// null — ждать нечего.</summary>
+    public AiPauseDto? Pause { get; set; }
     /// <summary>Длительность в часах: реально затраченное время у законченной задачи,
     /// у идущей — не меньше прошедшего, у остальных — плановая либо умолчание проекта.</summary>
     public double DurationHours { get; set; }
@@ -1637,12 +1691,39 @@ public sealed class ExperienceRecordDto
     public string Text { get; set; } = "";
     /// <summary>«Загружать всегда» (T-24-S0): запись идёт в задание мимо отбора.</summary>
     public bool AlwaysLoad { get; set; }
+    /// <summary>АКТИВНА (T-265-S0): неактивная запись не идёт в задание ни при каком раскладе,
+    /// но человек видит её в списке — колонка «Активен» и фильтр.</summary>
+    public bool IsActive { get; set; } = true;
     /// <summary>Тэги записи (T-24-S0) — колонка и фильтр списка опыта.</summary>
     public List<string> Tags { get; set; } = [];
     public string CreatedBy { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public string UpdatedBy { get; set; } = "";
     public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
+/// СТРОКА ВЫДАЧИ ПОИСКА ПО ОПЫТУ (T-268-S0): сама запись плюс то, чем она заслужила своё
+/// место. Человек в списках опыта ищет ТЕМ ЖЕ механизмом, что и агент инструментом
+/// <c>search_experience</c>, — <c>GET /api/experience/search</c>.
+/// </summary>
+public sealed class ExperienceHitDto
+{
+    public ExperienceRecordDto Record { get; set; } = new();
+
+    /// <summary>Балл слияния рангов (BM25 + свежесть + совпадение тэгов); по нему
+    /// упорядочена выдача.</summary>
+    public double Score { get; set; }
+
+    /// <summary>Область записи: project / template / general.</summary>
+    public string Scope { get; set; } = "";
+}
+
+/// <summary>Состояние поиска по опыту (T-268-S0): работает ли лексический индекс FTS5.
+/// Ложь — поиск идёт подстрочным сравнением (хуже, но работает).</summary>
+public sealed class ExperienceSearchStateDto
+{
+    public bool IndexReady { get; set; }
 }
 
 /// <summary>Создание/правка записи опыта из UI (todo32, todo48).</summary>
@@ -1656,8 +1737,191 @@ public sealed class ExperienceSaveDto
     /// отбор по навыку и тэгам её не выбрал. Умолчание — выключено.</summary>
     public bool AlwaysLoad { get; set; }
 
+    /// <summary>АКТИВНА (T-265-S0): переключатель формы записи. Умолчание — включено, поэтому
+    /// вызов, не знающий про поле вовсе, запись не гасит.</summary>
+    public bool IsActive { get; set; } = true;
+
     /// <summary>Тэги записи (T-24-S0); null — при правке оставить прежние.</summary>
     public List<string>? Tags { get; set; }
+
+    /// <summary>ПОДТВЕРЖДЕНИЕ человека (T-269-S0): текст с признаками проектного (код задачи,
+    /// путь файла, расширение исходника, имя проекта) в ОБЩИЕ правила работы не проходит,
+    /// а форма показывает предупреждение с кнопкой «всё равно сохранить» — она и ставит
+    /// этот признак. Инструмент агента его не ставит никогда: ему отказ окончательный.</summary>
+    public bool Force { get; set; }
+}
+
+/// <summary>
+/// ПЕРЕНОС ЗАПИСИ ОПЫТА МЕЖДУ ОБЛАСТЯМИ (T-269-S0): POST /api/experience/{id}/move.
+/// Меняется только привязка записи — идентификатор, текст, навык, тэги, авторство
+/// и история остаются прежними.
+/// </summary>
+public sealed class ExperienceMoveDto
+{
+    /// <summary>Куда: project / template / general.</summary>
+    public string Scope { get; set; } = "";
+
+    /// <summary>Проект-получатель (scope=project).</summary>
+    public string? ProjectId { get; set; }
+
+    /// <summary>Узел шаблона-получатель (scope=template).</summary>
+    public string? TemplateTaskId { get; set; }
+
+    /// <summary>Подтверждение человека при переносе проектного текста в общие правила.</summary>
+    public bool Force { get; set; }
+}
+
+/// <summary>
+/// СТРОКА РЕВИЗИИ ОБЩЕГО ОПЫТА (T-269-S0): общее правило, которое выглядит ПРОЕКТНЫМ,
+/// и то, чем оно поймано. GET /api/experience/general/suspects.
+/// </summary>
+public sealed class ExperienceSuspectDto
+{
+    public ExperienceRecordDto Record { get; set; } = new();
+
+    /// <summary>Виды найденных признаков: taskCode / path / ext / name.</summary>
+    public List<string> Kinds { get; set; } = [];
+
+    /// <summary>Образцы текста, которыми запись поймана, — через запятую.</summary>
+    public string Samples { get; set; } = "";
+}
+
+/// <summary>Переключение активности записи опыта (T-265-S0): POST /api/experience/{id}/active.
+/// Отдельным вызовом, а не правкой записи целиком, — кнопка в строке списка меняет одно поле
+/// и не переписывает текст, навык и тэги значениями давно прочитанного списка.</summary>
+public sealed class ExperienceActiveDto
+{
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
+/// НАБОР ОПЫТА в списке закладки «Настройки → Наборы опыта» (T-270-S0): GET /api/packs.
+/// Состав файла (<c>packs/&lt;код&gt;/pack.json</c>) плюс то, что известно ТОЛЬКО базе, —
+/// установлен ли он здесь и в какую область.
+/// </summary>
+public sealed class ExperiencePackDto
+{
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+
+    /// <summary>Сколько записей опыта в файле набора.</summary>
+    public int Records { get; set; }
+
+    /// <summary>Сколько узлов шаблона задач приносит набор (блок <c>templates</c>).</summary>
+    public int Templates { get; set; }
+
+    /// <summary>Сколько записей набора стоит в организации сейчас.</summary>
+    public int Installed { get; set; }
+
+    /// <summary>Область, в которую набор поставлен: project / template / general; пусто —
+    /// не установлен.</summary>
+    public string Scope { get; set; } = "";
+
+    /// <summary>Проект-получатель (Scope=project) и его название — для строки списка.</summary>
+    public string ProjectId { get; set; } = "";
+    public string ProjectName { get; set; } = "";
+
+    /// <summary>Узел шаблона-получатель (Scope=template) и его номер.</summary>
+    public string TemplateTaskId { get; set; } = "";
+    public string TemplateDisplayId { get; set; } = "";
+
+    /// <summary>Страница поставляемой документации набора (окно <c>DocPageDialog</c>).</summary>
+    public string Doc { get; set; } = "";
+}
+
+/// <summary>УСТАНОВКА НАБОРА (T-270-S0): POST /api/packs/{code}/install. Область ОБЯЗАТЕЛЬНА
+/// — интерфейс не даёт её не выбрать (решение заказчика), а сервер пустую отвергает.</summary>
+public sealed class ExperiencePackInstallDto
+{
+    /// <summary>Куда ставим: project / template / general.</summary>
+    public string Scope { get; set; } = "";
+
+    public string? ProjectId { get; set; }
+    public string? TemplateTaskId { get; set; }
+}
+
+/// <summary>ВЫГРУЗКА ОТОБРАННЫХ ЗАПИСЕЙ В ФАЙЛ НАБОРА (T-270-S0): POST /api/packs/export.
+/// Способ перенести наработанный стиль работы в другую организацию или установку.</summary>
+public sealed class ExperiencePackExportDto
+{
+    /// <summary>Код нового набора — он же имя каталога <c>packs/&lt;код&gt;</c>.</summary>
+    public string Code { get; set; } = "";
+
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+
+    /// <summary>Идентификаторы записей опыта, отобранных человеком.</summary>
+    public List<string> RecordIds { get; set; } = [];
+}
+
+/// <summary>Итог установки, снятия или выгрузки набора (T-270-S0).</summary>
+public sealed class ExperiencePackResultDto
+{
+    public string Code { get; set; } = "";
+
+    /// <summary>Сколько записей заведено (установка) либо снято (снятие).</summary>
+    public int Count { get; set; }
+
+    /// <summary>Сколько УЗЛОВ ШАБЛОНА завела установка набора (T-271-S0): набор приносит
+    /// с собой не только записи опыта, но и готовые узлы шаблона задач — например
+    /// «Анализ опыта». Ноль означает и «узлов в наборе нет», и «они уже заведены».</summary>
+    public int Templates { get; set; }
+
+    /// <summary>Путь файла относительно каталога данных (выгрузка).</summary>
+    public string Path { get; set; } = "";
+}
+
+/// <summary>
+/// ИСПОЛЬЗОВАННАЯ ЗАПИСЬ ОПЫТА (T-266-S0): строка вкладки «Использованный опыт» карточки
+/// задачи — что система подставила агенту в задание. У задачи хранится ТОЛЬКО идентификатор
+/// записи, поэтому текст, область, навык и тэги дочитываются при выдаче и приходят ПУСТЫМИ,
+/// если запись удалили или унесли в архив (<see cref="Available"/> = false): строка при этом
+/// остаётся — идентификатор и есть то, что мы обещали хранить.
+/// </summary>
+public sealed class ExperienceUsedDto
+{
+    public string ExperienceId { get; set; } = "";
+
+    /// <summary>Запись ещё жива; false — показывается строкой «запись недоступна».</summary>
+    public bool Available { get; set; }
+
+    /// <summary>Область записи: general / project / template; пусто — запись недоступна.</summary>
+    public string Scope { get; set; } = "";
+
+    /// <summary>Код узла шаблона (T-N) у записи узла — иначе пусто.</summary>
+    public string TemplateDisplayId { get; set; } = "";
+
+    public string SkillName { get; set; } = "";
+
+    /// <summary>Навык записи кодом (T-293-S0): правка записи идёт прямо из этого журнала —
+    /// по ссылке на запись, — и форме нужен код навыка, а не его название.</summary>
+    public string SkillId { get; set; } = "";
+
+    public string Text { get; set; } = "";
+    public List<string> Tags { get; set; } = [];
+
+    /// <summary>«Загружать всегда» (T-293-S0): нужен форме правки — иначе сохранение
+    /// из журнала молча сбрасывало бы признак.</summary>
+    public bool AlwaysLoad { get; set; }
+
+    /// <summary>Запись активна (T-265-S0): погашенную в следующее задание уже не подставят.</summary>
+    public bool IsActive { get; set; }
+
+    /// <summary>Задание последнего использования; пусто — неизвестно.</summary>
+    public string JobId { get; set; } = "";
+
+    /// <summary>Когда запись уходила в задание этой задачи в последний раз.</summary>
+    public DateTime UsedAt { get; set; }
+}
+
+/// <summary>Статистика использования записи опыта (T-266-S0): GET /api/experience/{id}/usage —
+/// сколько ЗАДАЧ получило запись в задании и когда это было в последний раз.</summary>
+public sealed class ExperienceUsageDto
+{
+    public string ExperienceId { get; set; } = "";
+    public int Count { get; set; }
+    public DateTime? LastUsedAt { get; set; }
 }
 
 /// <summary>Строка статистики шаблона (вкладка «Статистика», todo32): смена состояния
@@ -1747,6 +2011,104 @@ public sealed class SettingsDto
 
     /// <summary>Почтовый сервер для уведомлений (T-272): свой у каждой установки.</summary>
     public MailSettingsDto Mail { get; set; } = new();
+
+    /// <summary>Автообновление приложения (T-208): свой у каждой установки.</summary>
+    public UpdateSettingsDto Update { get; set; } = new();
+}
+
+/// <summary>
+/// АВТООБНОВЛЕНИЕ — НАСТРОЙКА (T-208), раздел <c>update</c> в config.json плюс то, что
+/// к ней прилагается на экране: коды записей расписания, заведённых флажками, и адрес
+/// страницы выпусков.
+/// </summary>
+public sealed class UpdateSettingsDto
+{
+    /// <summary>Автоматическая проверка обновлений.</summary>
+    public bool AutoCheck { get; set; }
+
+    /// <summary>Автоматическая установка найденного обновления.</summary>
+    public bool AutoUpdate { get; set; }
+
+    /// <summary>Время суточной проверки, «ЧЧ:ММ» местного времени (умолчание 02:00).</summary>
+    public string Time { get; set; } = "02:00";
+
+    /// <summary>Репозиторий выпусков; пусто — адрес по умолчанию.</summary>
+    public string Url { get; set; } = "";
+
+    /// <summary>Страница выпусков для человека (только чтение).</summary>
+    public string ReleasesUrl { get; set; } = "";
+
+    /// <summary>Сервер запущен службой ОС (T-271): от этого зависит, откуда берётся
+    /// суточная проверка — из расписания (служба) или со старта (консоль).</summary>
+    public bool IsService { get; set; }
+
+    /// <summary>Код записи расписания «проверять обновления» (SCH-7); пусто — записи нет.</summary>
+    public string CheckScheduleCode { get; set; } = "";
+
+    /// <summary>Код записи расписания «обновляться» (SCH-8); пусто — записи нет.</summary>
+    public string UpdateScheduleCode { get; set; } = "";
+}
+
+/// <summary>
+/// ОТВЕТ ПРОВЕРКИ ОБНОВЛЕНИЙ (T-208). Отказ — не исключение, а поле <see cref="Error"/>:
+/// сеть недоступна и репозиторий не отвечает ЧАСТО, и «красная плашка» на весь экран
+/// вместо строки под кнопкой была бы неправдой о важности события.
+/// </summary>
+public sealed class UpdateCheckDto
+{
+    /// <summary>Версия, которая работает сейчас.</summary>
+    public string CurrentVersion { get; set; } = "";
+
+    /// <summary>Найдена версия новее текущей.</summary>
+    public bool Available { get; set; }
+
+    /// <summary>Найденная версия (1.134); пусто — новее ничего нет.</summary>
+    public string Version { get; set; } = "";
+
+    /// <summary>Имя файла выпуска, который подходит этой установке.</summary>
+    public string AssetName { get; set; } = "";
+
+    /// <summary>Адрес файла выпуска.</summary>
+    public string AssetUrl { get; set; } = "";
+
+    /// <summary>Страница выпуска на GitHub.</summary>
+    public string ReleaseUrl { get; set; } = "";
+
+    /// <summary>Момент проверки (UTC).</summary>
+    public DateTime CheckedAt { get; set; }
+
+    /// <summary>Почему проверить не удалось; пусто — проверка прошла.</summary>
+    public string Error { get; set; } = "";
+
+    /// <summary>Способ установки этой копии: полная выкладка (рантайм внутри).</summary>
+    public bool Full { get; set; }
+
+    /// <summary>Система и архитектура, по которым отбирался файл (для строки под кнопкой).</summary>
+    public string Platform { get; set; } = "";
+}
+
+/// <summary>
+/// ЧТО ОСТАНОВИТ ОБНОВЛЕНИЕ (T-208): обновление перезапускает сервер, поэтому работающие
+/// на нём агенты будут сняты. Список тот же, что у смены организации (T-188), только
+/// собранный по ВСЕМ открытым организациям этого сервера — перезапуск не выбирает.
+/// </summary>
+public sealed class UpdateAgentsDto
+{
+    /// <summary>Занятые агенты: организация и задача.</summary>
+    public List<string> Agents { get; set; } = [];
+}
+
+/// <summary>Обновление запущено (T-208): что именно происходит — человеку в ответ.</summary>
+public sealed class UpdateStartDto
+{
+    /// <summary>Имя скачанного файла установки.</summary>
+    public string AssetName { get; set; } = "";
+
+    /// <summary>Версия, которая ставится.</summary>
+    public string Version { get; set; } = "";
+
+    /// <summary>Сервер перезапустится сам (служба ОС) — человеку не нужно ничего делать.</summary>
+    public bool Restarts { get; set; }
 }
 
 /// <summary>
@@ -2043,6 +2405,8 @@ public sealed class ModelInstallOptionDto
 public sealed class ModelInstallFileDto
 {
     public string Name { get; set; } = "";
+    /// <summary>Источник: откуда файл качается (T-256-S0, строка «источник» подсказки «i»).</summary>
+    public string Url { get; set; } = "";
     public long Size { get; set; }
     public long Downloaded { get; set; }
     /// <summary>done — размер совпал; partial — есть частично (докачаем); missing — файла нет.</summary>
@@ -2081,6 +2445,31 @@ public sealed class ModelPackageStatusDto
     /// <summary>Код дополнительной опции, которая привела этот пакет (T-190-S0); пусто —
     /// пакет обязательный. Выключенные опции своих пакетов в список не отдают вовсе.</summary>
     public string Option { get; set; } = "";
+
+    /// <summary>Дистрибутивы пакета для подсказки «i» окна установки (T-238-S0): точные
+    /// имена файлов, их размеры и лежат ли они в каталоге дистрибутивов. Пусто — у пакета
+    /// нет файлов (системный) либо имя дистрибутива ещё неизвестно.</summary>
+    public List<ModelPackageDistDto> Dists { get; set; } = [];
+}
+
+/// <summary>
+/// ДИСТРИБУТИВ ПАКЕТА (T-238-S0): то, что скачивается в каталог дистрибутивов и оттуда
+/// ставится. Показывается подсказкой «i» у строки пакета — человеку нужно точное имя
+/// файла, чтобы положить его руками, когда автоматическая загрузка не удалась.
+/// </summary>
+public sealed class ModelPackageDistDto
+{
+    /// <summary>Точное имя файла дистрибутива (может содержать подкаталог).</summary>
+    public string Name { get; set; } = "";
+    /// <summary>Источник дистрибутива (T-256-S0): прямая ссылка, а до разбора ссылок у ассета
+    /// релиза GitHub — страница последнего релиза репозитория; пусто — неизвестен.</summary>
+    public string Url { get; set; } = "";
+    /// <summary>Размер файла, байт; 0 — ещё не выяснен.</summary>
+    public long Size { get; set; }
+    /// <summary>Сколько уже лежит в каталоге дистрибутивов.</summary>
+    public long Downloaded { get; set; }
+    /// <summary>Файл виден в каталоге дистрибутивов.</summary>
+    public bool Present { get; set; }
 }
 
 /// <summary>
@@ -2274,6 +2663,17 @@ public sealed class PickedExecutorDto
     /// <summary>Пояснение выбора либо причина «не подобран».</summary>
     public string Reason { get; set; } = "";
     public List<PickCandidateDto> Candidates { get; set; } = [];
+
+    /// <summary>
+    /// СУФЛЁР подобранного исполнителя (T-292-S0): пусто — не нужен либо не нашёлся.
+    /// Если у рабочей модели в профайле стоит «нужен суфлёр», подбор ищет его сам —
+    /// сначала в самой записи исполнителя, а нет там — среди исполнителей команды
+    /// с навыком <c>analyze-data</c>: без суфлёра такая задача не запустится вовсе.
+    /// </summary>
+    public string? PrompterExecutorId { get; set; }
+
+    /// <summary>Ник подобранного суфлёра — для сообщения человеку.</summary>
+    public string PrompterNick { get; set; } = "";
 }
 
 /// <summary>Загрузка файла (картинка из буфера обмена в MD-редакторе, гл. 11).</summary>
@@ -2548,6 +2948,13 @@ public sealed class LoraStageDto
 
     /// <summary>Абсолютный путь файла на диске этого компьютера.</summary>
     public string LocalPath { get; set; } = "";
+
+    /// <summary>
+    /// ЧТО кладём в хранилище (T-250-S0): «image» либо «audio». От этого зависит, какие
+    /// файлы вообще разрешено читать с диска: путь приходит из формы, а прочитанный файл
+    /// отдаётся наружу ссылкой — список расширений здесь и есть защита.
+    /// </summary>
+    public string Media { get; set; } = LoraDatasetMedia.Image;
 }
 
 /// <summary>Исходник кадра, положенный в хранилище (T-12-S1).</summary>
@@ -2782,6 +3189,9 @@ public sealed class LoraDatasetDto
 /// </summary>
 public sealed class LoraDatasetLimitsDto
 {
+    /// <summary>Из чего собран датасет (T-250-S0): «image» либо «audio».</summary>
+    public string Media { get; set; } = LoraDatasetMedia.Image;
+
     public int MaxWidth { get; set; } = 1024;
     public int MaxHeight { get; set; } = 1024;
     public int MaxKb { get; set; } = 2048;
@@ -2789,24 +3199,47 @@ public sealed class LoraDatasetLimitsDto
     public int MinItems { get; set; }
     public int MaxItems { get; set; }
 
+    /// <summary>Пределы ЗАПИСИ (T-250-S0): длительность, частота дискретизации, каналы.</summary>
+    public int MinSeconds { get; set; }
+
+    public int MaxSeconds { get; set; } = LoraDatasetLimits.DefaultMaxSeconds;
+
+    public int SampleRate { get; set; } = LoraDatasetLimits.DefaultSampleRate;
+
+    public int Channels { get; set; } = 2;
+
+    /// <summary>Датасет собран из записей — форма показывает свои поля.</summary>
+    [JsonIgnore]
+    public bool IsAudio => LoraDatasetMedia.Normalize(Media) == LoraDatasetMedia.Audio;
+
     public static LoraDatasetLimitsDto Of(LoraDatasetLimits limits) => new()
     {
+        Media = limits.Media,
         MaxWidth = limits.MaxWidth,
         MaxHeight = limits.MaxHeight,
         MaxKb = limits.MaxKb,
         Format = limits.Format,
         MinItems = limits.MinItems,
         MaxItems = limits.MaxItems,
+        MinSeconds = limits.MinSeconds,
+        MaxSeconds = limits.MaxSeconds,
+        SampleRate = limits.SampleRate,
+        Channels = limits.Channels,
     };
 
     public LoraDatasetLimits ToLimits() => new LoraDatasetLimits
     {
+        Media = Media,
         MaxWidth = MaxWidth,
         MaxHeight = MaxHeight,
         MaxKb = MaxKb,
         Format = Format,
         MinItems = MinItems,
         MaxItems = MaxItems,
+        MinSeconds = MinSeconds,
+        MaxSeconds = MaxSeconds,
+        SampleRate = SampleRate,
+        Channels = Channels,
     }.Sane();
 }
 

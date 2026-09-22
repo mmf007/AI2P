@@ -237,8 +237,26 @@ Write-Host (L 'scr.inst.17' $source $newInfo.version)
 Write-Host (L $(if ($newInfo.selfContained -eq $true) { 'scr.inst.18' } else { 'scr.inst.19' }))
 Write-Host (L 'scr.inst.20' $targetDir)
 
-if ($targetDir -eq $source) {
+# КАТАЛОГ УСТАНОВКИ НЕ СМЕЕТ ЛЕЖАТЬ ВНУТРИ ВЫКЛАДКИ (todo133). Сравнить каталоги на
+# равенство мало: копирование каталога ВНУТРЬ САМОГО СЕБЯ кормит собственный обход —
+# Get-ChildItem -Recurse доходит до только что созданной копии и копирует её ещё глубже,
+# и так до предела длины пути. Живьём это стоило 4 ГБ мусора и 126 уровней вложенности
+# в самой выкладке; следующий install.cmd после этого «висел» по полчаса, потому что
+# честно тащил весь этот ком в установку.
+# Ловушка не теоретическая: путь приходит из командной строки, и стоит оболочке съесть
+# обратные слэши (bash так и делает: «C:\mmf\...\inst» превращается в «C:mmf...inst»),
+# как диск-относительный путь раскрывается ОТ ТЕКУЩЕГО КАТАЛОГА — то есть внутрь выкладки.
+# Обратный случай (выкладка внутри приёмника) не лучше: уборка $wipe снесёт сам источник
+$sourceFull = [System.IO.Path]::GetFullPath($source).TrimEnd('\')
+$targetFull = $targetDir.TrimEnd('\')
+if ($targetFull -ieq $sourceFull) {
     Write-Host (L 'scr.inst.21') -ForegroundColor Red
+    exit 1
+}
+if ($targetFull.StartsWith($sourceFull + '\', [System.StringComparison]::OrdinalIgnoreCase) -or
+    $sourceFull.StartsWith($targetFull + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+    Write-Host (L 'scr.inst.75') -ForegroundColor Red
+    Write-Host (L 'scr.inst.76') -ForegroundColor Red
     exit 1
 }
 
@@ -356,7 +374,11 @@ foreach ($dir in $wipe) {
 
 # --- копирование ---
 $copied = 0
-Get-ChildItem -Path $source -Force -Recurse | ForEach-Object {
+# СПИСОК СНИМАЕТСЯ ЦЕЛИКОМ ДО ПЕРВОГО КОПИРОВАНИЯ (todo133) — вторая страховка к проверке
+# «приёмник внутри источника» выше. Конвейерный Get-ChildItem отдаёт файлы ПО ХОДУ обхода,
+# и если копия почему-то всё же легла внутрь источника, обход дойдёт до неё и начнёт
+# копировать собственный результат. @(...) закрывает эту дверь по построению
+@(Get-ChildItem -Path $source -Force -Recurse) | ForEach-Object {
     $rel = $_.FullName.Substring($source.Length).TrimStart('\', '/')
     $top = $rel.Split('\')[0]
     if ($skip -contains $top) { return }

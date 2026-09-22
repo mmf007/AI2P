@@ -11,6 +11,7 @@
 
 **Облачные (нужен ключ API)**
 
+* [Chatterbox-TTS](Chatterbox-TTS.md) — текст + образец голоса → речь этим голосом, навыки `audio-speech` 88
 * [Claude-Fable-5](Claude-Fable-5.md) — API провайдера Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API провайдера Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API Anthropic
@@ -55,6 +56,7 @@
 * [Veo-3.1](Veo-3.1.md) — текст → видео со звуком, 4–8 секунд, до 4K, навыки `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — текст → видео до 30 секунд со звуком, навыки `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Россия; OpenAI-совместимый
+* [Zonos-2-TTS](Zonos-2-TTS.md) — текст + образец голоса → речь этим голосом (образец обязателен), навыки `audio-speech` 86
 
 **Через Claude CLI (по подписке, ключ не нужен)**
 

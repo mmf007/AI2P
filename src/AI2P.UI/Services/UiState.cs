@@ -583,8 +583,17 @@ public sealed class UiState
         _ => 4,
     };
 
-    /// <summary>Тёмная тема (ТЗ гл. 11: две темы, светлая и тёмная).</summary>
-    public bool DarkMode { get; set; }
+    /// <summary>Тёмная тема (ТЗ гл. 11: две темы, светлая и тёмная). Запоминается вместе
+    /// с лейаутом (T-237-S0): до этого она жила только в памяти circuit и слетала при
+    /// любой перезагрузке страницы, а тем более при перезапуске сервера.</summary>
+    public bool DarkMode { get; private set; }
+
+    /// <summary>Переключить тему (кнопка в шапке). Через лейаут — чтобы выбор сохранился.</summary>
+    public void ToggleDarkMode()
+    {
+        DarkMode = !DarkMode;
+        LayoutChanged();
+    }
 
     /// <summary>Эксплорер (панель 3) показан; по умолчанию скрыт (todo23),
     /// состояние запоминается в лейауте и восстанавливается при следующем входе.</summary>
@@ -1027,6 +1036,8 @@ public sealed class UiState
         /// <summary>Левый тулбар (экшен-бар) показан (T-10-S1); по умолчанию ВИДЕН —
         /// поэтому у лейаута прошлых версий, где поля нет вовсе, тулбар останется на месте.</summary>
         [JsonPropertyName("actionbar")] public bool ActionBar { get; set; } = true;
+        /// <summary>Тёмная тема (T-237-S0); у лейаута прошлых версий поля нет — светлая.</summary>
+        [JsonPropertyName("dark")] public bool Dark { get; set; }
         [JsonPropertyName("frames")] public List<FrameDto> Frames { get; set; } = [];
     }
 
@@ -1060,6 +1071,7 @@ public sealed class UiState
             H = HorizontalRatio,
             Explorer = ExplorerVisible,
             ActionBar = ActionBarVisible,
+            Dark = DarkMode,
             Frames = Frames.Select(f => new FrameDto
             {
                 Active = f.ActiveTabIndex,
@@ -1117,6 +1129,7 @@ public sealed class UiState
         HorizontalRatio = Math.Clamp(dto.H, 10, 90);
         ExplorerVisible = dto.Explorer; // состояние кнопки эксплорера запоминается (todo23)
         ActionBarVisible = dto.ActionBar; // то же у левого тулбара (T-10-S1), но умолчание — «виден»
+        DarkMode = dto.Dark; // выбранная тема (T-237-S0)
         for (var f = 0; f < Frames.Length; f++)
         {
             Frames[f].Tabs.Clear();

@@ -247,12 +247,17 @@ public sealed class ArchiveRuleService
         rule.AgeDays = Math.Max(0, rule.AgeDays);
         rule.AgeMonths = Math.Max(0, rule.AgeMonths);
         rule.AgeYears = Math.Max(0, rule.AgeYears);
-        var age = rule.AgeKind == ArchiveRuleAges.Days
-            ? rule.AgeDays
-            : rule.AgeMonths + rule.AgeYears;
-        if (age <= 0)
+        // «ВОЗРАСТ НЕ ВАЖЕН» (T-265-S0) — единственный вид срока, у которого числа нет
+        // вовсе: правило «все неактивные записи опыта» именно так и записывается
+        if (rule.AgeKind != ArchiveRuleAges.Any)
         {
-            throw new ArgumentException(Loc.T("msg.arcrule.7"));
+            var age = rule.AgeKind == ArchiveRuleAges.Days
+                ? rule.AgeDays
+                : rule.AgeMonths + rule.AgeYears;
+            if (age <= 0)
+            {
+                throw new ArgumentException(Loc.T("msg.arcrule.7"));
+            }
         }
     }
 

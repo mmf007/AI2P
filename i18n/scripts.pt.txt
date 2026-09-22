@@ -79,6 +79,8 @@ scr.inst.71=Obsoleto e seria removido: {0}
 scr.inst.72=[WARN] O serviço {0} não subiu. Os arquivos foram atualizados.
 scr.inst.73=       Motivo: os logs em {0} e a situação do próprio serviço.
 scr.inst.74=desconhecida
+scr.inst.75=[ERROR] O diretório de destino fica DENTRO do diretório da distribuição (ou vice-versa).
+scr.inst.76=        Copiar um diretório para dentro de si mesmo alimenta a própria varredura e enche o disco. Informe um diretório fora da distribuição.
 
 # ---------- makeAsServise.ps1 / makeAsServise.sh ----------
 scr.svc.1=AI2P: servidor de tarefas e agentes de IA. Interface web — a porta vem do config.json do diretório de instalação.

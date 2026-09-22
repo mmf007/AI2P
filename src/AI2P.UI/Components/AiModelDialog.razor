@@ -110,6 +110,11 @@
                         <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-refimage="@_model.RefImage.Kind">
                             @L["models.refImage"]: @L["models.refImage.kind." + _model.RefImage.Kind]
                         </MudText>
+                        @* референсное аудио (T-249-S0) — своя строка по той же причине:
+                           у аудио-моделей постоянный голос даёт образец, а не адаптер *@
+                        <MudText Typo="Typo.caption" Class="mud-text-secondary" data-model-refaudio="@_model.RefAudio.Kind">
+                            @L["models.refAudio"]: @L["models.refAudio.kind." + _model.RefAudio.Kind]
+                        </MudText>
                     </MudStack>
                 </MudPaper>
             }
@@ -232,6 +237,7 @@
                 // но не правит — правится она в редакторе профайла, там же, где живёт
                 Lora = Source.Lora,
                 RefImage = Source.RefImage,
+                RefAudio = Source.RefAudio,
             };
         }
         // пути по схеме из ТЗ п. 2.9 — чтобы редакторы работали и до первого сохранения

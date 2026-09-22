@@ -283,10 +283,10 @@ public sealed class T16S0Tests : IDisposable
     }
 
     [Fact]
-    public async Task A_Cancelled_Blocker_Still_Stops_The_Queue()
+    public async Task A_Cancelled_Blocker_No_Longer_Stops_The_Queue()
     {
-        // T-6-S1: отменённая блокирующая держит ждущих навсегда и останавливает очередь —
-        // добавленная подзадача не должна этого обходить
+        // T-299-S0 (было T-6-S1): отменённая блокирующая считается ЗАВЕРШЁННОЙ — очередь не
+        // останавливается, а ждавшая подзадача уходит в работу
         var root = CreateTask("корень", executor: CreateHuman("root"));
         var blocker = CreateTask("блокирующая", executor: CreateHuman("b"),
             status: TaskStatuses.Cancelled);
@@ -294,9 +294,9 @@ public sealed class T16S0Tests : IDisposable
 
         var run = await _f.Orchestrator.StartHierarchyAsync(root.Id, null);
 
-        Assert.True(run.Stopped);
-        Assert.False(HasJob(a));
-        Assert.False(RunOpen(_f.Tasks.Get(root.Id)!));
+        Assert.False(run.Stopped);
+        Assert.Contains(a.DisplayId, run.Started);
+        Assert.True(RunOpen(_f.Tasks.Get(root.Id)!));
     }
 
     [Fact]

@@ -90,15 +90,37 @@ public static class ObjectLoadProblems
     /// <summary>Кадров названо больше, чем модель берёт разом.</summary>
     public const string ImageTooMany = "image-too-many";
 
+    /// <summary>Названа эталонная запись, а модель звук на вход не принимает (T-249-S0).</summary>
+    public const string AudioNotSupported = "audio-not-supported";
+
+    /// <summary>У объекта-записи не задан файл.</summary>
+    public const string AudioNoPath = "audio-no-path";
+
+    /// <summary>Файла записи нет в папке проекта.</summary>
+    public const string AudioFileMissing = "audio-file-missing";
+
+    /// <summary>Запись не того формата, какой модель принимает.</summary>
+    public const string AudioFormat = "audio-format";
+
+    /// <summary>Записей названо больше, чем модель берёт разом.</summary>
+    public const string AudioTooMany = "audio-too-many";
+
     public static readonly string[] All =
     [
         LoraNotSupported, LoraNotTrained, LoraNoPath, LoraFileMissing, LoraFormat, LoraTooMany,
         ImageNotSupported, ImageNoPath, ImageFileMissing, ImageFormat, ImageTooMany,
+        AudioNotSupported, AudioNoPath, AudioFileMissing, AudioFormat, AudioTooMany,
     ];
 
     /// <summary>Несовпадение из-за АДАПТЕРА (а не из-за картинки) — по этому признаку
     /// в чат подбирается замена: исполнители, чья модель адаптеры принимает.</summary>
     public static bool IsLora(string code) => code.StartsWith("lora-", StringComparison.Ordinal);
+
+    /// <summary>Несовпадение из-за ЭТАЛОННОЙ ЗАПИСИ (T-249-S0).</summary>
+    public static bool IsAudio(string code) => code.StartsWith("audio-", StringComparison.Ordinal);
+
+    /// <summary>Несовпадение из-за КАРТИНКИ.</summary>
+    public static bool IsImage(string code) => code.StartsWith("image-", StringComparison.Ordinal);
 }
 
 /// <summary>Одно несовпадение: код, объект, готовый текст для человека.</summary>
@@ -112,6 +134,11 @@ public sealed record ObjectLoadLora(string ObjectCode, string ObjectName, string
 /// <summary>Картинка, которую надо передать модели: путь относительно папки проекта.</summary>
 public sealed record ObjectLoadImage(string ObjectCode, string ObjectName, string Path);
 
+/// <summary>Эталонная запись, которую надо передать модели (T-249-S0): путь относительно
+/// папки проекта. Отдельный тип, а не общий с картинкой: коннектор грузит их РАЗНЫМИ
+/// плейсхолдерами, и перепутать их местами нельзя даже случайно.</summary>
+public sealed record ObjectLoadAudio(string ObjectCode, string ObjectName, string Path);
+
 /// <summary>
 /// Что уедет в модель и что этому помешало. Пустой список несовпадений — можно запускать;
 /// непустой — задание встаёт с ошибкой, а её текст собирается из <see cref="Problems"/>.
@@ -121,6 +148,9 @@ public sealed class ObjectLoadPlan
     public List<ObjectLoadLora> Loras { get; } = [];
 
     public List<ObjectLoadImage> Images { get; } = [];
+
+    /// <summary>Эталонные записи, которые уедут в модель (T-249-S0).</summary>
+    public List<ObjectLoadAudio> Audios { get; } = [];
 
     public List<ObjectLoadProblem> Problems { get; } = [];
 
@@ -135,7 +165,10 @@ public sealed class ObjectLoadPlan
     public bool LoraFailed => Problems.Any(p => ObjectLoadProblems.IsLora(p.Code));
 
     /// <summary>Есть несовпадение из-за картинки.</summary>
-    public bool ImageFailed => Problems.Any(p => !ObjectLoadProblems.IsLora(p.Code));
+    public bool ImageFailed => Problems.Any(p => ObjectLoadProblems.IsImage(p.Code));
+
+    /// <summary>Есть несовпадение из-за эталонной записи (T-249-S0).</summary>
+    public bool AudioFailed => Problems.Any(p => ObjectLoadProblems.IsAudio(p.Code));
 }
 
 /// <summary>
@@ -154,19 +187,24 @@ public static class ObjectLoadPlanner
     /// <param name="modelName">Как модель зовут в справочнике — для текста ошибки.</param>
     /// <param name="findLoraFile">Путь из объекта → абсолютный путь файла либо null.</param>
     /// <param name="imageExists">Путь из объекта (относительно папки проекта) → есть ли файл.</param>
+    /// <param name="refAudio">Настройка референсного аудио (T-249-S0); null — модель звук
+    /// на вход не берёт (так же, как её отсутствие в профайле).</param>
     public static ObjectLoadPlan Plan(
         IReadOnlyList<ObjectLoadRef> refs,
         LoraSettings lora,
         RefImageSettings refImage,
         string modelName,
         Func<string, string?> findLoraFile,
-        Func<string, bool> imageExists)
+        Func<string, bool> imageExists,
+        RefAudioSettings? refAudio = null)
     {
+        var audio = refAudio ?? new RefAudioSettings();
         var plan = new ObjectLoadPlan();
         foreach (var item in refs)
         {
             PlanLora(plan, item, lora, modelName, findLoraFile);
             PlanImage(plan, item, refImage, modelName, imageExists);
+            PlanAudio(plan, item, audio, modelName, imageExists);
         }
         // сколько адаптеров и картинок модель берёт РАЗОМ — тоже из справочника: лишние
         // не отбрасываем молча, иначе часть названных объектов исчезла бы без следа
@@ -174,6 +212,8 @@ public static class ObjectLoadPlanner
             ObjectLoadProblems.LoraTooMany, "msg.objectLoad.8", modelName);
         TrimByMaxCount(plan.Images, Math.Max(1, refImage.MaxCount), plan,
             ObjectLoadProblems.ImageTooMany, "msg.objectLoad.11", modelName);
+        TrimByMaxCount(plan.Audios, Math.Max(1, audio.MaxCount), plan,
+            ObjectLoadProblems.AudioTooMany, "msg.objectLoad.26", modelName);
         return plan;
     }
 
@@ -278,6 +318,53 @@ public static class ObjectLoadPlanner
         plan.Images.Add(new ObjectLoadImage(item.Code, item.Name, item.ImagePath));
     }
 
+    /// <summary>
+    /// Нужна ли объекту передача ЭТАЛОННОЙ ЗАПИСИ и можно ли её передать (T-249-S0).
+    /// Правило зеркально картинке: требование даёт только ПРЯМАЯ ссылка на объект вида
+    /// «эталонная запись». У персонажа его записи-дети — подсказка, а не обязательство,
+    /// иначе ни одна уже заведённая задача с персонажем не пошла бы на модель без звука.
+    /// </summary>
+    private static void PlanAudio(ObjectLoadPlan plan, ObjectLoadRef item, RefAudioSettings refAudio,
+        string modelName, Func<string, bool> fileExists)
+    {
+        if (!item.Kind.Equals(ObjectKinds.Audio, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        if (!refAudio.Supported)
+        {
+            Add(plan, ObjectLoadProblems.AudioNotSupported, item, "msg.objectLoad.22", modelName);
+            return;
+        }
+        if (item.ImagePath.Length == 0)
+        {
+            Add(plan, ObjectLoadProblems.AudioNoPath, item, "msg.objectLoad.23");
+            return;
+        }
+        var mime = AudioMimeOf(item.ImagePath);
+        if (mime is null)
+        {
+            Add(plan, ObjectLoadProblems.AudioFormat, item, "msg.objectLoad.25",
+                System.IO.Path.GetExtension(item.ImagePath),
+                refAudio.Formats.Count > 0
+                    ? string.Join(", ", refAudio.Formats)
+                    : string.Join(", ", AudioExtensions));
+            return;
+        }
+        if (refAudio.Formats.Count > 0 && !refAudio.Formats.Any(f => MimeMatches(f, mime)))
+        {
+            Add(plan, ObjectLoadProblems.AudioFormat, item, "msg.objectLoad.25", mime,
+                string.Join(", ", refAudio.Formats));
+            return;
+        }
+        if (!fileExists(item.ImagePath))
+        {
+            Add(plan, ObjectLoadProblems.AudioFileMissing, item, "msg.objectLoad.24", item.ImagePath);
+            return;
+        }
+        plan.Audios.Add(new ObjectLoadAudio(item.Code, item.Name, item.ImagePath));
+    }
+
     /// <summary>Лишние сверх максимума модели — в несовпадения, а не в тишину.</summary>
     private static void TrimByMaxCount<T>(List<T> loaded, int max, ObjectLoadPlan plan,
         string code, string key, string modelName)
@@ -290,6 +377,7 @@ public static class ObjectLoadPlanner
             {
                 ObjectLoadLora l => (l.ObjectCode, l.ObjectName),
                 ObjectLoadImage i => (i.ObjectCode, i.ObjectName),
+                ObjectLoadAudio a => (a.ObjectCode, a.ObjectName),
                 _ => ("", ""),
             };
             plan.Problems.Add(new ObjectLoadProblem(code, objectCode, objectName,
@@ -326,6 +414,22 @@ public static class ObjectLoadPlanner
             ".jpg" or ".jpeg" => "image/jpeg",
             ".webp" => "image/webp",
             ".bmp" => "image/bmp",
+            _ => null,
+        };
+
+    /// <summary>Расширения, которые считаем записью, если модель форматы не перечислила.</summary>
+    public static readonly string[] AudioExtensions = [".wav", ".mp3", ".flac", ".ogg", ".m4a", ".opus"];
+
+    /// <summary>MIME-тип записи по имени файла; null — это вообще не звук (T-249-S0).</summary>
+    public static string? AudioMimeOf(string path) =>
+        System.IO.Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".wav" => "audio/wav",
+            ".mp3" => "audio/mpeg",
+            ".flac" => "audio/flac",
+            ".ogg" => "audio/ogg",
+            ".opus" => "audio/opus",
+            ".m4a" => "audio/mp4",
             _ => null,
         };
 

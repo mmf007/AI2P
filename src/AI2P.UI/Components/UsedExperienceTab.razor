@@ -1,0 +1,192 @@
+@inject I18nService L
+@inject ApiClient Api
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Вкладка «ИСПОЛЬЗОВАННЫЙ ОПЫТ» карточки задачи (T-266-S0, ветка T-318 «Проект опыта»).
+
+   Что это: записи опыта, которые система РЕАЛЬНО подставила агенту в текст задания, —
+   до этого их можно было увидеть только в самом тексте задания, и то не всегда.
+   Таблица намеренно повторяет вкладку «Опыт» (ExperienceTab): те же колонки, та же
+   подача навыка, тэгов и активности.
+
+   С T-293-S0 записи правятся ПРЯМО ЗДЕСЬ: у задачи хранится ссылка на запись (её
+   идентификатор), поэтому «изменить» в строке меняет саму запись — ту же самую, что
+   на вкладке «Опыт» проекта или узла шаблона. Ради этого журнал и заведён: увидев
+   в нём негодный урок, человек чинит его на месте, а не ищет заново в общих списках.
+
+   Сверху — ИТОГ (T-293-S0): сколько записей ушло в задание и сколько это знаков,
+   в том числе долей от предела подстановки опыта (настройка проекта). Предел выбирают
+   вслепую, а здесь видно, сколько от него занято на самом деле.
+
+   Удалённая (или унесённая в архив) запись приходит пустой и показывается строкой
+   «запись <id> недоступна»: след использования нужен и после того, как самой записи
+   не стало, — но править в ней нечего. *@
+<MudStack Spacing="2" data-task-usedexp="1">
+    <MudText Typo="Typo.body2" Style="opacity:.7">@L["usedexp.hint"]</MudText>
+    @* ИТОГ (T-293-S0) — ДО таблицы: он отвечает на вопрос «много ли опыта съело задание»,
+       а до низа длинного списка человек не доходит *@
+    <MudStack Row="true" Spacing="4" Wrap="Wrap.Wrap">
+        <MudText Typo="Typo.body2" data-usedexp-count="@Records.Count">
+            <b>@L["usedexp.total.count", Records.Count]</b>
+        </MudText>
+        <MudText Typo="Typo.body2" data-usedexp-chars="@Chars">
+            <b>@L["usedexp.total.chars", Chars, Percent, Max]</b>
+        </MudText>
+    </MudStack>
+    @if (Records.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Style="opacity:.7">@L["usedexp.empty"]</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+                <tr>
+                    <th style="width:150px">@L["usedexp.scope"]</th>
+                    <th style="width:160px">@L["exp.skill"]</th>
+                    <th style="width:180px">@L["exp.tags"]</th>
+                    <th style="width:88px">@L["exp.active"]</th>
+                    <th>@L["exp.text"]</th>
+                    <th style="width:140px">@L["usedexp.used"]</th>
+                    @* колонка действий (T-293-S0): «изменить запись» стоит СПРАВА — там же,
+                       где она стоит на вкладке «Опыт» *@
+                    <th style="width:56px"></th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var record in Records)
+            {
+                <tr data-task-usedexp-row="@record.ExperienceId">
+                    @if (!record.Available)
+                    {
+                        @* запись удалили или унесли в архив — идентификатор остаётся *@
+                        <td colspan="5" style="opacity:.6">@L["usedexp.missing", record.ExperienceId]</td>
+                    }
+                    else
+                    {
+                        <td>@ScopeText(record)</td>
+                        <td>
+                            @if (record.SkillName.Length > 0)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default">@record.SkillName</MudChip>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Style="opacity:.6">@L["exp.skill.any"]</MudText>
+                            }
+                        </td>
+                        <td>
+                            @foreach (var tag in record.Tags)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default">@tag</MudChip>
+                            }
+                            @if (record.Tags.Count == 0)
+                            {
+                                <MudText Typo="Typo.caption" Style="opacity:.6">@L["exp.tags.none"]</MudText>
+                            }
+                        </td>
+                        @* активность (T-265-S0): погашенную запись в следующее задание уже
+                           не подставят, и по журналу это должно быть видно *@
+                        <td data-usedexp-active="@(record.IsActive ? 1 : 0)">
+                            <MudIcon Size="Size.Small"
+                                     Icon="@(record.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                     Color="@(record.IsActive ? Color.Success : Color.Default)" />
+                        </td>
+                        <td style="white-space: pre-wrap;">@record.Text</td>
+                    }
+                    <td style="white-space: nowrap; opacity:.7">@record.UsedAt.ToLocalTime().ToString("g")</td>
+                    <td style="white-space: nowrap;">
+                        @* ИЗМЕНИТЬ ЗАПИСЬ ПО ССЫЛКЕ (T-293-S0): здесь хранится только ссылка
+                           на запись, поэтому правка уходит прямо в неё (PUT /api/experience/{id}).
+                           У недоступной записи править нечего — кнопки нет *@
+                        @if (CanEdit && record.Available)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                           data-usedexp-edit="@record.ExperienceId"
+                                           title="@L["usedexp.edit"]"
+                                           OnClick="@(() => EditAsync(record))" />
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudStack>
+
+@code {
+    /// <summary>Использованные записи (T-266-S0): их читает карточка задачи — от списка
+    /// зависит и итог сверху, и то, показывать ли вкладку вовсе.</summary>
+    [Parameter] public List<ExperienceUsedDto> Records { get; set; } = [];
+
+    /// <summary>Предел подстановки опыта в задание (настройка проекта, знаков): от него
+    /// считается доля в итоге. Ноль или меньше — берётся умолчание.</summary>
+    [Parameter] public int LimitChars { get; set; } = ProjectSettings.ExperienceLimitDefault;
+
+    /// <summary>Правка разрешена (роль, владение сервером — решает карточка задачи).</summary>
+    [Parameter] public bool CanEdit { get; set; }
+
+    /// <summary>Запись изменили: карточка перечитывает список — в нём лежит текст записи,
+    /// а он только что стал другим.</summary>
+    [Parameter] public EventCallback Changed { get; set; }
+
+    /// <summary>Знаков во всех подставленных записях: именно эту величину и ограничивает
+    /// предел подстановки, поэтому считается она по ТЕКСТАМ записей.</summary>
+    private int Chars => Records.Sum(r => r.Text.Length);
+
+    /// <summary>Предел, от которого считается доля; пустое или бессмысленное значение
+    /// (настройки проекта прочитать не удалось) заменяется умолчанием — так же, как
+    /// это делает сам <c>ExperienceBudget</c>.</summary>
+    private int Max => LimitChars > 0 ? LimitChars : ProjectSettings.ExperienceLimitDefault;
+
+    /// <summary>Доля от предела, процентов: с одним знаком после запятой — у пары коротких
+    /// записей целые проценты дали бы ноль.</summary>
+    private double Percent => Math.Round(Chars * 100.0 / Max, 1);
+
+    /// <summary>
+    /// ИЗМЕНИТЬ ЗАПИСЬ (T-293-S0). Форма та же, что на вкладке «Опыт», и сохранение то же —
+    /// правка по ссылке уходит в саму запись. Область записи передаётся в форму ради
+    /// предупреждения «похоже на проектную запись»: у общих правил оно уместно.
+    /// </summary>
+    private async Task EditAsync(ExperienceUsedDto record)
+    {
+        var parameters = new DialogParameters<ExperienceDialog>
+        {
+            { d => d.Text, record.Text },
+            { d => d.SkillId, record.SkillId },
+            { d => d.AlwaysLoad, record.AlwaysLoad },
+            { d => d.Tags, (IReadOnlyCollection<string>)record.Tags },
+            { d => d.IsActive, record.IsActive },
+            { d => d.Scope, record.Scope },
+        };
+        var dialog = await Dialogs.ShowAsync<ExperienceDialog>(L["exp.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: ExperienceSaveDto saved })
+        {
+            return;
+        }
+        try
+        {
+            await Api.UpdateExperienceAsync(record.ExperienceId, saved);
+            await Changed.InvokeAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Область записи словами: общие правила работы, опыт проекта, опыт узла
+    /// шаблона (у узла — вместе с его кодом, в поддереве узлов много).</summary>
+    private string ScopeText(ExperienceUsedDto record) => record.Scope switch
+    {
+        "general" => L["usedexp.scope.general"],
+        "project" => L["usedexp.scope.project"],
+        "template" => record.TemplateDisplayId.Length > 0
+            ? L["usedexp.scope.template"] + " " + record.TemplateDisplayId
+            : L["usedexp.scope.template"],
+        _ => "",
+    };
+}

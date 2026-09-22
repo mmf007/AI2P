@@ -104,6 +104,13 @@ The action codes (`AI2P.Files.Write`, `AI2P.Tasks.Create`, …) are hierarchical
 They are exactly what the security rules operate on, so it is worth looking in here before writing a
 rule.
 
+For branching and loops (Condition, Loop before, Loop after tasks) the catalog has four
+actions: `AI2P.Tasks.ConditionResult` (`set_condition_result` — the condition decision,
+strictly true/false), `AI2P.Tasks.LoopResult` (`set_loop_result` — the loop condition check
+result), `AI2P.Tasks.FromTemplate` (`create_tasks_from_template` — branch tasks from a
+template node) and `AI2P.Tasks.StopHierarchy` (`stop_hierarchy` — finish the hierarchy run).
+The agent sees the first two only in a task of the matching type.
+
 ### Security
 
 The rules of "what the agent may do": **allow / ask / forbid** for an action (or for a whole branch

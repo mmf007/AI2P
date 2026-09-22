@@ -26,6 +26,10 @@ namespace AI2P.Storage.Services;
 /// работы, а признак ставится правилам, которые обязаны попасть в задание независимо от
 /// любого отбора.
 ///
+/// С T-265-S0 у записи есть ПРИЗНАК АКТИВНОСТИ (колонка <c>is_active</c>, схема v47) —
+/// промежуточное состояние между «есть» и «удалена»: неактивную запись агент не получает
+/// ни при каком раскладе, а человек видит её в списке и может вернуть.
+///
 /// Правятся руками (вкладка «Опыт» шаблона и проекта) и агентами (инструменты
 /// create_experience / update_experience — под правилами безопасности, проверка в слое
 /// коннекторов). Хранится, кем и когда создана и изменена каждая запись.
@@ -74,14 +78,22 @@ public sealed class ExperienceService
     /// </list>
     /// Сравнение без учёта регистра силами C#: <c>COLLATE NOCASE</c> в SQLite сворачивает
     /// только латиницу, а тэги пишет человек и почти всегда по-русски (T-259).
+    ///
+    /// <para>С T-267-S0 это УЖЕ НЕ ФИЛЬТР, а сигнал: в <see cref="GoesToPrompt"/> тэги
+    /// жёстким условием не стоят, запись с непересекающимися тэгами берётся и просто
+    /// ранжируется ниже (<see cref="ExperienceBudget"/>). Причина: обе поблажки выше делали
+    /// фильтр почти пустым, а <c>create_experience</c> с T-24-S0 проставляет новым записям
+    /// тэги задачи — значит со временем фильтр начал бы отсекать нужное по формальному
+    /// несовпадению слова. Метод остался ровно тем же и зовётся теперь из отбора по рангу.</para>
     /// </summary>
     public static bool TagsMatch(IReadOnlyCollection<string>? recordTags,
         IReadOnlyCollection<string>? taskTags)
     {
-        // СЛУЖЕБНАЯ ПОМЕТКА ВЛАДЕЛЬЦА (plugin:<код>, T-112-S0) темой работы не является:
-        // ею записи плагина помечены, чтобы снятие плагина их нашло. Считай её тэгом — и
-        // записи плагина исчезли бы у каждой задачи, у которой тэги вообще проставлены
-        recordTags = recordTags?.Where(t => !PluginCodes.IsPluginOwner(t)).ToList();
+        // СЛУЖЕБНАЯ ПОМЕТКА ВЛАДЕЛЬЦА (plugin:<код>, T-112-S0; pack:<код>, T-270-S0) темой
+        // работы не является: ею помечены записи плагина и записи НАБОРА ОПЫТА, чтобы снятие
+        // их нашло. Считай её тэгом — и записи набора исчезли бы у каждой задачи, у которой
+        // тэги вообще проставлены
+        recordTags = recordTags?.Where(t => !IsOwnerTag(t)).ToList();
         if (taskTags is null or { Count: 0 } || recordTags is null or { Count: 0 })
         {
             return true;
@@ -91,14 +103,54 @@ public sealed class ExperienceService
     }
 
     /// <summary>
+    /// ТЭГИ ЗАПИСИ И ЗАДАЧИ ДЕЙСТВИТЕЛЬНО ПЕРЕСЕКЛИСЬ (T-267-S0) — прибавка к рангу при
+    /// дележе бюджета. В отличие от <see cref="TagsMatch"/>, поблажек здесь нет: «тэгов
+    /// нет ни у кого» — это не совпадение темы, а отсутствие сведений о ней, и двигать
+    /// такую запись вперёд не за что. Служебная пометка владельца (<c>plugin:&lt;код&gt;</c>,
+    /// T-112-S0) тэгом по-прежнему не считается — как и в <see cref="TagsMatch"/>; с T-270-S0
+    /// тем же местом отсеивается пометка НАБОРА ОПЫТА (<c>pack:&lt;код&gt;</c>).
+    /// </summary>
+    public static bool TagsOverlap(IReadOnlyCollection<string>? recordTags,
+        IReadOnlyCollection<string>? taskTags)
+    {
+        if (taskTags is null or { Count: 0 } || recordTags is null or { Count: 0 })
+        {
+            return false;
+        }
+        return recordTags
+            .Where(t => !IsOwnerTag(t))
+            .Any(tag => taskTags.Any(
+                t => string.Equals(t.Trim(), tag.Trim(), StringComparison.CurrentCultureIgnoreCase)));
+    }
+
+    /// <summary>
+    /// ТЭГ — СЛУЖЕБНАЯ ПОМЕТКА ВЛАДЕЛЬЦА, а не тема работы: <c>plugin:&lt;код&gt;</c> у записей
+    /// плагина (T-112-S0) и <c>pack:&lt;код&gt;</c> у записей набора опыта (T-270-S0). Обе нужны
+    /// ровно для того, чтобы снятие нашло свои записи, и обе обязаны проходить мимо отбора —
+    /// иначе поставленный стиль работы исчезал бы у каждой задачи с проставленными тэгами.
+    /// </summary>
+    public static bool IsOwnerTag(string? tag) =>
+        PluginCodes.IsPluginOwner(tag) || PackCodes.IsPackOwner(tag);
+
+    /// <summary>
     /// Запись опыта идёт В ПРОМПТ этой задачи (T-29-S0). Порядок правил ровно такой:
     /// <list type="number">
+    /// <item>запись АКТИВНА (T-265-S0) — первым условием и БЕЗ исключений: неактивная
+    /// не идёт в задание ни при каком раскладе, в том числе помеченная «загружать всегда».
+    /// В этом весь смысл признака — выключить запись, не удаляя её;</item>
     /// <item>помечена «ЗАГРУЖАТЬ ВСЕГДА» (T-24-S0) — идёт всегда, отбор её не касается.
     /// Этой пометкой заменена прежняя вставка записей БЕЗ НАВЫКА: раньше запись без навыка
     /// считалась общей и приходила каждому, отчего блок опыта рос без предела;</item>
-    /// <item>иначе нужен НАВЫК, и он должен сойтись с навыками исполнителя (как было);</item>
-    /// <item>и сверх того — совпасть по ТЕМЕ, то есть по тэгам задачи.</item>
+    /// <item>иначе нужен НАВЫК, и он должен сойтись с навыками исполнителя (как было).</item>
     /// </list>
+    /// <para>ТЭГОВ В ЭТОМ СПИСКЕ БОЛЬШЕ НЕТ (T-267-S0): жёстким условием стоял
+    /// <see cref="TagsMatch"/> с двумя поблажками («нет тэгов у задачи ИЛИ у записи =
+    /// совпадение»), то есть почти ничего не отсекал — зато <c>create_experience</c>
+    /// проставляет новым записям тэги задачи, и со временем фильтр начал бы отсекать нужное
+    /// по формальному несовпадению слова. Теперь тэги — СИГНАЛ: совпадение двигает запись
+    /// вперёд при дележе бюджета (<see cref="TagsOverlap"/> и <see cref="ExperienceBudget"/>),
+    /// несовпадение её не убирает. Параметр <paramref name="taskTags"/> оставлен: он часть
+    /// подписи, зовущейся отовсюду, и понадобится следующему правилу отбора.</para>
     /// Запись без навыка и без пометки «загружать всегда» не берётся вовсе: пометку живым
     /// записям без навыка проставляет разовый перенос при обновлении схемы (T-24-S0),
     /// поэтому накопленный опыт от этого правила не пропадает.
@@ -111,10 +163,10 @@ public sealed class ExperienceService
     /// </summary>
     public static bool GoesToPrompt(ExperienceRecord record, IReadOnlyCollection<string> ownedSkills,
         IReadOnlyCollection<string>? taskTags, bool skillRequired = true) =>
-        record.AlwaysLoad
-        || ((!skillRequired || !string.IsNullOrWhiteSpace(record.SkillName))
-            && SkillMatches(record.SkillName, ownedSkills)
-            && TagsMatch(record.Tags, taskTags));
+        record.IsActive
+        && (record.AlwaysLoad
+            || ((!skillRequired || !string.IsNullOrWhiteSpace(record.SkillName))
+                && SkillMatches(record.SkillName, ownedSkills)));
 
     /// <summary>Один навык — продолжение другого по сегментам «-» (в любую сторону).</summary>
     private static bool SameBranch(string a, string b)
@@ -210,6 +262,28 @@ public sealed class ExperienceService
             """, r => r.S("tag"))
             .OrderBy(t => t, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
+    }
+
+    /// <summary>
+    /// ЦЕПОЧКА ПРЕДКОВ УЗЛА ШАБЛОНА (T-267-S0), начиная с самого узла: индекс в списке —
+    /// это расстояние до узла (0 — он сам, 1 — родитель, 2 — дед). По ней берётся опыт
+    /// задания (<see cref="ListByTemplateForExecutor"/>) и считается прицельность записи
+    /// при дележе бюджета. Цепочка идёт до корня шаблона целиком: записей у узлов немного,
+    /// а место теперь делится квотами уровней, и общая наука по ветке процесса обязана
+    /// доезжать до задачи.
+    /// </summary>
+    public List<string> TemplateChain(string templateTaskId)
+    {
+        using var conn = _db.Open();
+        return Sql.Query(conn, null, """
+            WITH RECURSIVE chain(id, parent_id, depth) AS (
+              SELECT id, parent_id, 0 FROM tasks WHERE id=@id
+              UNION ALL
+              SELECT t.id, t.parent_id, c.depth + 1 FROM tasks t JOIN chain c ON t.id = c.parent_id
+              WHERE t.deleted_at IS NULL
+            )
+            SELECT id FROM chain ORDER BY depth
+            """, r => r.S("id"), ("@id", templateTaskId));
     }
 
     /// <summary>Записи узла шаблона; includeSubtree — вместе с узлами-потомками
@@ -313,11 +387,40 @@ public sealed class ExperienceService
     /// навыки исполнителя и тэги задачи — но БЕЗ правила «нет навыка ⇒ не берём»: опыт узла
     /// написан ровно про эту работу и достаётся только задачам этого узла, отсекать его
     /// не за что (навыка у таких записей обычно нет вовсе).
+    ///
+    /// <para>С T-267-S0 берётся ЦЕПОЧКА ПРЕДКОВ узла (<see cref="TemplateChain"/>), а не
+    /// один узел: общая наука по ветке процесса («так у нас делается выпуск») записана
+    /// у узла-родителя, и до задачи узла-потомка она не доезжала вовсе. Поддерево при этом
+    /// НЕ берётся — опыт соседних веток к этой работе не относится.</para>
     /// </summary>
     public List<ExperienceRecord> ListByTemplateForExecutor(string templateTaskId,
         IReadOnlyCollection<string> ownedSkills, IReadOnlyCollection<string>? taskTags = null) =>
-        ListByTemplate(templateTaskId)
+        ListByTemplateChain(templateTaskId)
             .Where(r => GoesToPrompt(r, ownedSkills, taskTags, skillRequired: false)).ToList();
+
+    /// <summary>Записи узла и всех его узлов-ПРЕДКОВ (T-267-S0), в том же хронологическом
+    /// порядке, что и у одного узла: блок опыта читается как история работы.</summary>
+    private List<ExperienceRecord> ListByTemplateChain(string templateTaskId)
+    {
+        using var conn = _db.Open();
+        var records = Sql.Query(conn, null, $"""
+            WITH RECURSIVE chain(id, parent_id) AS (
+              SELECT id, parent_id FROM tasks WHERE id=@id
+              UNION ALL
+              SELECT t.id, t.parent_id FROM tasks t JOIN chain c ON t.id = c.parent_id
+              WHERE t.deleted_at IS NULL
+            )
+            {Select}
+            WHERE e.template_task_id IN (SELECT id FROM chain) AND e.deleted_at IS NULL
+            ORDER BY e.created_at
+            """, Map, ("@id", templateTaskId));
+        foreach (var record in records)
+        {
+            Decorate(record);
+        }
+        LoadTagsFor(conn, records);
+        return records;
+    }
 
     // --- первичное наполнение общих правил (T-11-S0) ---
 
@@ -548,11 +651,16 @@ public sealed class ExperienceService
     /// <summary>
     /// Новое ОБЩЕЕ ПРАВИЛО РАБОТЫ организации (T-11-S0): ни проекта, ни узла шаблона —
     /// такую запись получает каждая задача. Навык не указан — правило читают все.
+    /// <para>С T-269-S0 текст с признаками ПРОЕКТНОГО (код задачи, путь файла, расширение
+    /// исходника, имя проекта) сюда не проходит: <paramref name="force"/> снимает проверку
+    /// и ставится там, где решение уже принял человек (кнопка «всё равно сохранить» в форме,
+    /// пачка записей опыта из манифеста плагина).</para>
     /// </summary>
     public ExperienceRecord CreateGeneral(string text, string? actorId, string? skillId = null,
-        bool alwaysLoad = false, IEnumerable<string>? tags = null)
+        bool alwaysLoad = false, IEnumerable<string>? tags = null, bool force = false)
     {
         text = Require(text);
+        EnsureGeneralEnough(text, force);
         using var conn = _db.Open();
         var skill = Skill(conn, skillId);
         var record = new ExperienceRecord
@@ -579,14 +687,18 @@ public sealed class ExperienceService
         using var tx = conn.BeginTransaction();
         Sql.Exec(conn, tx, """
             INSERT INTO experience (id, template_task_id, project_id, skill_id, text, always_load,
-                                    created_by, updated_by, server_id, created_at, updated_at)
-            VALUES (@id, @template, @project, @skill, @text, @always, @by, @by, @server, @created, @created)
+                                    is_active, created_by, updated_by, server_id, created_at, updated_at)
+            VALUES (@id, @template, @project, @skill, @text, @always, @active, @by, @by, @server, @created, @created)
             """,
+            ("@active", record.IsActive ? 1 : 0),
             ("@id", record.Id),
             ("@template", record.TemplateTaskId.Length > 0 ? record.TemplateTaskId : null),
             ("@project", record.ProjectId), ("@skill", record.SkillId), ("@text", record.Text),
             ("@always", record.AlwaysLoad ? 1 : 0),
             ("@by", actorId), ("@server", record.ServerId), ("@created", Sql.ToDb(record.CreatedAt)));
+        // лексический индекс (T-268-S0) — в той же транзакции: запись и её строка в индексе
+        // появляются вместе либо не появляются вовсе
+        ExperienceIndex.Put(conn, tx, record.Id, record.Text);
         SaveTags(conn, tx, record);
         Append(conn, tx, EventTypes.ExperienceRecorded, record, node, actorId);
         tx.Commit();
@@ -594,16 +706,27 @@ public sealed class ExperienceService
 
     /// <summary>
     /// Правка текста и навыка записи; actorId — кто изменил (updated_by/updated_at).
-    /// <para>Признак «загружать всегда» и тэги (T-24-S0) правятся только когда их передали
-    /// (<paramref name="alwaysLoad"/> не null, <paramref name="tags"/> не null): правка
-    /// текста из инструмента агента не должна снимать пометку, которую поставил человек.</para>
+    /// <para>Признак «загружать всегда», тэги (T-24-S0) и АКТИВНОСТЬ (T-265-S0) правятся
+    /// только когда их передали (<paramref name="alwaysLoad"/>, <paramref name="isActive"/>
+    /// не null, <paramref name="tags"/> не null): правка текста из инструмента агента не
+    /// должна снимать пометку, которую поставил человек.</para>
+    /// <para>ПРАВКА НЕАКТИВНОЙ ЗАПИСИ разрешена и активности не возвращает (решение по
+    /// T-265-S0): агент правит текст, не зная о признаке, и молчаливое «воскрешение»
+    /// отменяло бы работу того, кто запись погасил.</para>
     /// </summary>
     public ExperienceRecord Update(string id, string text, string? actorId, string? skillId = null,
-        bool changeSkill = false, bool? alwaysLoad = null, IEnumerable<string>? tags = null)
+        bool changeSkill = false, bool? alwaysLoad = null, IEnumerable<string>? tags = null,
+        bool? isActive = null, bool force = false)
     {
         text = Require(text);
         var record = Get(id) ?? throw new InvalidOperationException(Loc.T("msg.experience.1", id));
         EnsureMine(record);
+        // ПРАВКОЙ проектный текст в общие правила тоже не попадает (T-269-S0): иначе
+        // проверку при создании обходил бы любой, кто завёл пустое правило и дописал его
+        if (record.IsGeneral)
+        {
+            EnsureGeneralEnough(text, force);
+        }
         using var conn = _db.Open();
         // общее правило работы (T-11-S0) ни к проекту, ни к узлу шаблона не привязано —
         // проверять у него нечего
@@ -622,16 +745,22 @@ public sealed class ExperienceService
         {
             record.AlwaysLoad = always;
         }
+        if (isActive is { } active)
+        {
+            record.IsActive = active;
+        }
         record.UpdatedBy = actorId;
         record.UpdatedAt = DateTime.UtcNow;
         using var tx = conn.BeginTransaction();
         Sql.Exec(conn, tx, """
             UPDATE experience SET text=@text, skill_id=@skill, always_load=@always,
-                                  updated_by=@by, updated_at=@at
+                                  is_active=@active, updated_by=@by, updated_at=@at
             WHERE id=@id
             """,
             ("@text", text), ("@skill", record.SkillId), ("@always", record.AlwaysLoad ? 1 : 0),
+            ("@active", record.IsActive ? 1 : 0),
             ("@by", actorId), ("@at", Sql.ToDb(record.UpdatedAt)), ("@id", id));
+        ExperienceIndex.Put(conn, tx, id, text);   // текст сменился — индекс тоже (T-268-S0)
         if (tags is not null)
         {
             record.Tags = tags.ToList();
@@ -663,6 +792,635 @@ public sealed class ExperienceService
             : (skillId, name);
     }
 
+    /// <summary>
+    /// ПЕРЕКЛЮЧИТЬ АКТИВНОСТЬ записи (T-265-S0) — отдельным действием, а не правкой всей
+    /// записи: кнопка в строке списка меняет одно поле и не переписывает текст, навык и тэги
+    /// значениями давно прочитанного списка (та же наука, что у переноса объекта, T-266).
+    /// Правит только сервер-владелец записи, как правка и удаление (ТЗ гл. 6).
+    /// <para>ПОСТАВЛЯЕМОЕ ОБЩЕЕ ПРАВИЛО (фиксированные id <c>a1e5b5c0-…</c>) погасить МОЖНО
+    /// и намеренно: удалять его жалко, а вернуть удалённое сид не умеет — «неактивно» и есть
+    /// тот способ убрать правило, которого раньше не было.</para>
+    /// </summary>
+    public ExperienceRecord SetActive(string id, bool isActive, string? actorId)
+    {
+        var record = Get(id) ?? throw new InvalidOperationException(Loc.T("msg.experience.1", id));
+        EnsureMine(record);
+        using var conn = _db.Open();
+        var node = record.IsGeneral
+            ? ("", "")
+            : record.IsProjectLevel
+                ? (record.ProjectId!, "")
+                : TemplateNodeOrEmpty(conn, record.TemplateTaskId);
+        record.IsActive = isActive;
+        record.UpdatedBy = actorId;
+        record.UpdatedAt = DateTime.UtcNow;
+        using var tx = conn.BeginTransaction();
+        Sql.Exec(conn, tx,
+            "UPDATE experience SET is_active=@active, updated_by=@by, updated_at=@at WHERE id=@id",
+            ("@active", isActive ? 1 : 0), ("@by", actorId),
+            ("@at", Sql.ToDb(record.UpdatedAt)), ("@id", id));
+        Append(conn, tx, EventTypes.ExperienceActivity, record, node, actorId);
+        tx.Commit();
+        return Get(id)!;
+    }
+
+    // --- НАБОРЫ ОПЫТА (T-270-S0) ---
+
+    /// <summary>
+    /// ЖИВЫЕ ЗАПИСИ С ЭТИМ ТЭГОМ — ПО ВСЕЙ ОРГАНИЗАЦИИ, любой области. Ею снятие набора
+    /// опыта находит свои записи по служебной пометке владельца <c>pack:&lt;код&gt;</c>:
+    /// область выбирал человек при установке, и искать записи «в общем опыте» или «в проекте
+    /// N» пришлось бы наугад.
+    /// </summary>
+    public List<ExperienceRecord> ListByTag(string tag)
+    {
+        using var conn = _db.Open();
+        var records = Sql.Query(conn, null, $"""
+            {Select}
+            WHERE e.deleted_at IS NULL AND EXISTS (
+              SELECT 1 FROM experience_tags g
+              WHERE g.experience_id = e.id AND g.tag = @tag COLLATE NOCASE)
+            ORDER BY e.created_at
+            """, Map, ("@tag", tag));
+        foreach (var record in records)
+        {
+            Decorate(record);
+        }
+        LoadTagsFor(conn, records);
+        return records;
+    }
+
+    /// <summary>Строка с таким идентификатором есть и НЕ УДАЛЕНА.</summary>
+    public bool HasLiveRecord(string id)
+    {
+        using var conn = _db.Open();
+        return Sql.Scalar<long>(conn, null,
+            "SELECT COUNT(*) FROM experience WHERE id=@id AND deleted_at IS NULL", ("@id", id)) > 0;
+    }
+
+    /// <summary>
+    /// ЗАВЕСТИ ЗАПИСЬ С ЗАДАННЫМ ИДЕНТИФИКАТОРОМ В ВЫБРАННОЙ ОБЛАСТИ (T-270-S0) — этим
+    /// ставится набор опыта. Идентификатор приходит ИЗ ФАЙЛА набора и постоянен: набор
+    /// ставит каждый сервер сам, а таблица реплицируется — со случайными идентификаторами
+    /// в организации копился бы второй комплект (та же наука, что у <see cref="GeneralSeed"/>
+    /// и у записей справочника моделей, T-227).
+    ///
+    /// <para>СНЯТУЮ РАНЬШЕ ЗАПИСЬ ОЖИВЛЯЕТ, а не вставляет второй раз: снятие набора —
+    /// мягкое удаление, и строка с этим идентификатором на месте; обычный INSERT упёрся бы
+    /// в первичный ключ, и повторно поставить снятый набор стало бы нельзя вовсе.</para>
+    ///
+    /// <para>Проверку «текст выглядит проектным» (T-269-S0) записи набора проходят мимо, как
+    /// и записи манифеста плагина: решение уже принял человек, нажав «Установить», а отказ
+    /// посреди установки оставил бы набор поставленным наполовину.</para>
+    /// </summary>
+    public ExperienceRecord CreateWithId(string id, string scope, string? projectId,
+        string? templateTaskId, string text, string? actorId, string? skillId = null,
+        bool alwaysLoad = false, IEnumerable<string>? tags = null)
+    {
+        text = Require(text);
+        scope = (scope ?? "").Trim().ToLowerInvariant();
+        using var conn = _db.Open();
+        (string ProjectId, string DisplayId) node = ("", "");
+        string? newProject = null;
+        var newTemplate = "";
+        switch (scope)
+        {
+            case ScopeProject:
+                if (string.IsNullOrWhiteSpace(projectId))
+                {
+                    throw new ArgumentException(Loc.T("msg.experience.11"));
+                }
+                node = RequireProject(conn, projectId);
+                newProject = projectId;
+                break;
+            case ScopeTemplate:
+                if (string.IsNullOrWhiteSpace(templateTaskId))
+                {
+                    throw new ArgumentException(Loc.T("msg.experience.12"));
+                }
+                node = RequireTemplateNode(conn, templateTaskId);
+                newTemplate = templateTaskId;
+                break;
+            case ScopeGeneral:
+                break;
+            default:
+                throw new ArgumentException(Loc.T("msg.experience.9", scope,
+                    ScopeProject, ScopeTemplate, ScopeGeneral));
+        }
+        var skill = Skill(conn, skillId);
+        var record = new ExperienceRecord
+        {
+            Id = id,
+            ProjectId = newProject,
+            TemplateTaskId = newTemplate,
+            SkillId = skill.Id,
+            SkillName = skill.Name,
+            Text = text,
+            AlwaysLoad = alwaysLoad,
+            IsActive = true,
+            Tags = TaskTags.Normalize(tags?.ToList()),
+            CreatedBy = actorId,
+            UpdatedBy = actorId,
+            ServerId = _scope.ServerId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var known = Sql.Scalar<long>(conn, null,
+            "SELECT COUNT(*) FROM experience WHERE id=@id", ("@id", id)) > 0;
+        if (!known)
+        {
+            Insert(conn, record, node, actorId);
+            return Get(record.Id)!;
+        }
+        using (var tx = conn.BeginTransaction())
+        {
+            Sql.Exec(conn, tx, """
+                UPDATE experience SET template_task_id=@template, project_id=@project,
+                                      skill_id=@skill, text=@text, always_load=@always,
+                                      is_active=1, deleted_at=NULL, updated_by=@by,
+                                      updated_at=@at, server_id=@server
+                WHERE id=@id
+                """,
+                ("@template", newTemplate.Length > 0 ? newTemplate : null),
+                ("@project", newProject), ("@skill", record.SkillId), ("@text", record.Text),
+                ("@always", record.AlwaysLoad ? 1 : 0), ("@by", actorId),
+                ("@at", Sql.ToDb(record.UpdatedAt)), ("@server", record.ServerId), ("@id", id));
+            ExperienceIndex.Put(conn, tx, id, record.Text);
+            SaveTags(conn, tx, record);
+            Append(conn, tx, EventTypes.ExperienceRecorded, record, node, actorId);
+            tx.Commit();
+        }
+        return Get(record.Id)!;
+    }
+
+    // --- ИСПОЛЬЗОВАННЫЙ ОПЫТ ЗАДАЧИ (T-266-S0) ---
+
+    /// <summary>
+    /// ЗАПОМНИТЬ, ЧТО ЗАПИСИ УШЛИ В ЗАДАНИЕ (T-266-S0). Зовётся из
+    /// <c>JobOrchestrator.ExperienceSection</c> ровно с теми идентификаторами, которые
+    /// напечатаны в блоках опыта, — после бюджета <c>ExperienceBudget.Fit</c> и без
+    /// повторного отбора. Хранятся ТОЛЬКО идентификаторы: текст записи не копируется.
+    ///
+    /// <para>Задание по задаче запускают многократно (перезапуск, доработка), поэтому набор
+    /// ДОПОЛНЯЕТСЯ: ключ «задача + запись», у уже известной пары обновляются <c>used_at</c>
+    /// и задание. Отсюда и смысл счётчика использований — число ЗАДАЧ, а не запусков.</para>
+    ///
+    /// <para>Сбой записи следа НЕ СРЫВАЕТ задание: это журнал для человека и для анализа
+    /// опыта, а не часть работы агента.</para>
+    /// </summary>
+    /// <returns>Сколько пар записано (новых и обновлённых).</returns>
+    public int NoteUsed(string taskId, IEnumerable<string> experienceIds, string? jobId = null)
+    {
+        var ids = experienceIds
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (string.IsNullOrWhiteSpace(taskId) || ids.Count == 0)
+        {
+            return 0;
+        }
+        try
+        {
+            using var conn = _db.Open();
+            using var tx = conn.BeginTransaction();
+            var at = Sql.ToDb(DateTime.UtcNow);
+            foreach (var id in ids)
+            {
+                Sql.Exec(conn, tx, """
+                    INSERT INTO task_experience_used (task_id, experience_id, job_id, used_at)
+                    VALUES (@task, @exp, @job, @at)
+                    ON CONFLICT(task_id, experience_id)
+                    DO UPDATE SET job_id=@job, used_at=@at
+                    """,
+                    ("@task", taskId), ("@exp", id),
+                    ("@job", string.IsNullOrWhiteSpace(jobId) ? null : jobId), ("@at", at));
+            }
+            tx.Commit();
+            return ids.Count;
+        }
+        catch (SqliteException)
+        {
+            return 0;   // задача уже удалена, база занята — задание из-за журнала не срывается
+        }
+    }
+
+    /// <summary>
+    /// ЧТО СИСТЕМА ПОДСТАВИЛА В ЗАДАНИЕ ЭТОЙ ЗАДАЧИ (T-266-S0) — вкладка «Использованный
+    /// опыт» карточки. Свежие использования сверху. Сама запись дочитывается из
+    /// <c>experience</c> и бывает пустой (удалена, унесена в архив) — строка при этом
+    /// остаётся: идентификатор и есть то, что мы обещали хранить.
+    /// </summary>
+    public List<ExperienceUse> ListUsedByTask(string taskId)
+    {
+        using var conn = _db.Open();
+        var uses = Sql.Query(conn, null, """
+            SELECT task_id, experience_id, job_id, used_at
+            FROM task_experience_used WHERE task_id=@id
+            ORDER BY used_at DESC, experience_id
+            """,
+            r => new ExperienceUse
+            {
+                TaskId = r.S("task_id"),
+                ExperienceId = r.S("experience_id"),
+                JobId = r.SN("job_id") ?? "",
+                UsedAt = r.Dt("used_at"),
+            }, ("@id", taskId));
+        foreach (var use in uses)
+        {
+            use.Record = Get(use.ExperienceId);
+        }
+        return uses;
+    }
+
+    /// <summary>
+    /// СТАТИСТИКА ИСПОЛЬЗОВАНИЯ записи (T-266-S0): сколько задач получило её в задании и
+    /// когда это было в последний раз. Ею пользуется шаблон «Анализ опыта» — запись,
+    /// которую не брали ни разу, кандидат в неактивные. Записи, которой не пользовались,
+    /// отдаётся честный ноль, а не пустота: «не брали» — это тоже ответ.
+    /// </summary>
+    public ExperienceUsageStat UsageOf(string experienceId)
+    {
+        using var conn = _db.Open();
+        var row = Sql.Query(conn, null, """
+            SELECT COUNT(*) AS cnt, MAX(used_at) AS last_at
+            FROM task_experience_used WHERE experience_id=@id
+            """,
+            r => new ExperienceUsageStat
+            {
+                ExperienceId = experienceId,
+                Count = (int)r.L("cnt"),
+                LastUsedAt = r.DtN("last_at"),
+            }, ("@id", experienceId)).FirstOrDefault();
+        return row ?? new ExperienceUsageStat { ExperienceId = experienceId };
+    }
+
+    /// <summary>
+    /// СТАТИСТИКА СРАЗУ ПО ВСЕМ ЗАПИСЯМ (T-271-S0) — одним запросом, а не вызовом
+    /// <see cref="UsageOf"/> на каждую строку: шаблон «Анализ опыта» разбирает опыт проекта
+    /// пачками по сотне записей, и поход в базу на каждую обошёлся бы дороже самой выборки
+    /// (та же причина, по которой тэги дочитываются одним запросом на список).
+    /// <para>Записи, которая не уходила НИ В ОДНО задание, в ответе нет вовсе: «нуль» видно
+    /// по её отсутствию, и таблица следа не растёт пустыми строками.</para>
+    /// </summary>
+    public Dictionary<string, ExperienceUsageStat> UsageMap()
+    {
+        using var conn = _db.Open();
+        return Sql.Query(conn, null, """
+            SELECT experience_id, COUNT(*) AS cnt, MAX(used_at) AS last_at
+            FROM task_experience_used GROUP BY experience_id
+            """,
+            r => new ExperienceUsageStat
+            {
+                ExperienceId = r.S("experience_id"),
+                Count = (int)r.L("cnt"),
+                LastUsedAt = r.DtN("last_at"),
+            }).ToDictionary(s => s.ExperienceId, StringComparer.Ordinal);
+    }
+
+    // --- ПОИСК ПО ОПЫТУ (T-268-S0) ---
+
+    /// <summary>Область записи: опыт ПРОЕКТА (todo48). Сами слова — в
+    /// <see cref="ExperienceScopes"/> (Core, T-269-S0): их одинаково называют хранилище,
+    /// API, инструмент агента и UI.</summary>
+    public const string ScopeProject = ExperienceScopes.Project;
+
+    /// <summary>Область записи: опыт УЗЛА ШАБЛОНА (todo32).</summary>
+    public const string ScopeTemplate = ExperienceScopes.Template;
+
+    /// <summary>Область записи: ОБЩИЕ ПРАВИЛА РАБОТЫ организации (T-11-S0).</summary>
+    public const string ScopeGeneral = ExperienceScopes.General;
+
+    /// <summary>Сколько лексических попаданий берётся в разбор до отбора и слияния рангов.
+    /// Больше незачем: выдаётся человеку и агенту десяток строк, а переставить их местами
+    /// свежесть и тэги могут только внутри этого набора.</summary>
+    private const int CandidateCap = 200;
+
+    /// <summary>Постоянная слияния рангов (RRF). 60 — общепринятое значение: оно сглаживает
+    /// разницу между первым и вторым местом, поэтому одинокое совпадение тэга не выталкивает
+    /// наверх запись, у которой лексическое попадание слабое.</summary>
+    private const double RrfK = 60;
+
+    /// <summary>Область записи, как её называет поиск.</summary>
+    public static string ScopeOf(ExperienceRecord record) =>
+        record.IsGeneral ? ScopeGeneral : record.IsProjectLevel ? ScopeProject : ScopeTemplate;
+
+    /// <summary>Лексический индекс на этой базе работает (FTS5 собран). Ложь — поиск идёт
+    /// подстрочным сравнением: хуже, но работает.</summary>
+    public bool SearchIndexReady
+    {
+        get
+        {
+            using var conn = _db.Open();
+            return ExperienceIndex.Ready(conn);
+        }
+    }
+
+    /// <summary>ДОГОНЯЮЩИЙ ПРОХОД по индексу (зовётся при открытии организации): записи
+    /// приезжают репликацией прямо в таблицу, мимо этого сервиса, а индекс не реплицируется
+    /// вовсе.</summary>
+    /// <returns>Сколько записей добавлено в индекс.</returns>
+    public int CatchUpSearchIndex()
+    {
+        using var conn = _db.Open();
+        return ExperienceIndex.CatchUp(conn);
+    }
+
+    /// <summary>
+    /// ПОИСК ПО ЗАПИСЯМ ОПЫТА (T-268-S0). Кандидаты берутся ТОЛЬКО из лексического попадания
+    /// (порог отсечения), а порядок выдачи — слияние трёх рангов (RRF): BM25, свежесть
+    /// правки и число совпавших с задачей тэгов. Подробности — в <see cref="ExperienceHit"/>.
+    /// </summary>
+    /// <param name="query">Слова запроса.</param>
+    /// <param name="scope">Область: project / template / general; пусто — все.</param>
+    /// <param name="limit">Сколько строк отдать (1..50).</param>
+    /// <param name="includeInactive">Вместе с неактивными записями; по умолчанию ищет
+    /// ТОЛЬКО ПО АКТИВНЫМ — неактивную запись агент не получает ни при каком раскладе,
+    /// и находить её по умолчанию значило бы вернуть её в работу через чёрный ход.</param>
+    /// <param name="projectId">Проект: берутся его записи, записи узлов его шаблонов и общие
+    /// правила организации (их получает любая задача). Пусто — вся организация.</param>
+    /// <param name="taskTags">Тэги задачи — прибавка за совпадение темы.</param>
+    public List<ExperienceHit> Search(string query, string? scope = null, int limit = 10,
+        bool includeInactive = false, string? projectId = null,
+        IReadOnlyCollection<string>? taskTags = null)
+    {
+        query = (query ?? "").Trim();
+        limit = Math.Clamp(limit <= 0 ? 10 : limit, 1, 50);
+        if (query.Length == 0)
+        {
+            return [];
+        }
+        using var conn = _db.Open();
+        var hits = ExperienceIndex.Ready(conn)
+            ? ExperienceIndex.Match(conn, query, CandidateCap)
+            : ExperienceIndex.MatchByScan(
+                Sql.Query(conn, null, "SELECT id, text FROM experience WHERE deleted_at IS NULL",
+                    r => (Id: r.S("id"), Text: r.S("text"))),
+                query, CandidateCap);
+        if (hits.Count == 0)
+        {
+            return [];
+        }
+        var bm25 = hits.ToDictionary(h => h.Id, h => h.Bm25, StringComparer.Ordinal);
+        var names = hits.Select((_, i) => "@h" + i).ToList();
+        var args = hits.Select((h, i) => ("@h" + i, (object?)h.Id)).ToArray();
+        var loaded = Sql.Query(conn, null, $"""
+            SELECT e.*, (SELECT s.name FROM skills s WHERE s.id = e.skill_id) AS skill_name,
+                   (SELECT t.project_id FROM tasks t WHERE t.id = e.template_task_id) AS node_project_id
+            FROM experience e
+            WHERE e.id IN ({string.Join(", ", names)}) AND e.deleted_at IS NULL
+            """, r => (Record: Map(r), NodeProject: r.SN("node_project_id") ?? ""), args);
+
+        var scopeWanted = (scope ?? "").Trim().ToLowerInvariant();
+        var kept = new List<ExperienceHit>();
+        foreach (var (record, nodeProject) in loaded)
+        {
+            if (!includeInactive && !record.IsActive)
+            {
+                continue;
+            }
+            if (scopeWanted is ScopeProject or ScopeTemplate or ScopeGeneral
+                && ScopeOf(record) != scopeWanted)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(projectId) && !record.IsGeneral
+                && (record.IsProjectLevel ? record.ProjectId : nodeProject) != projectId)
+            {
+                continue;
+            }
+            kept.Add(new ExperienceHit { Record = Decorate(record), Bm25 = bm25[record.Id] });
+        }
+        LoadTagsFor(conn, kept.Select(h => h.Record).ToList());
+        foreach (var hit in kept)
+        {
+            hit.TagHits = taskTags is null or { Count: 0 }
+                ? 0
+                : hit.Record.Tags.Count(tag => taskTags.Any(
+                    t => string.Equals(t.Trim(), tag.Trim(), StringComparison.CurrentCultureIgnoreCase)));
+        }
+
+        // СЛИЯНИЕ РАНГАМИ: каждый список даёт 1/(k + место). Список тэгов НЕПОЛНЫЙ — в нём
+        // только записи, у которых совпадение есть: иначе «нет тэгов» тоже оказалось бы
+        // местом в списке и приносило бы баллы
+        var score = kept.ToDictionary(h => h.Record.Id, _ => 0.0, StringComparer.Ordinal);
+        Fuse(kept.OrderBy(h => h.Bm25).ToList());
+        Fuse(kept.OrderByDescending(h => h.Record.UpdatedAt).ToList());
+        Fuse(kept.Where(h => h.TagHits > 0).OrderByDescending(h => h.TagHits).ToList());
+        foreach (var hit in kept)
+        {
+            hit.Score = score[hit.Record.Id];
+        }
+        return kept
+            .OrderByDescending(h => h.Score)
+            .ThenBy(h => h.Bm25)
+            .Take(limit)
+            .ToList();
+
+        void Fuse(List<ExperienceHit> ordered)
+        {
+            for (var place = 0; place < ordered.Count; place++)
+            {
+                score[ordered[place].Record.Id] += 1.0 / (RrfK + place + 1);
+            }
+        }
+    }
+
+    /// <summary>
+    /// СХОЖЕСТЬ ДВУХ ТЕКСТОВ (T-268-S0) — доля общих слов (Жаккар) по огрублённым основам.
+    /// Эмбеддингов у нас нет (вариант В отложен), поэтому сравнение чисто лексическое:
+    /// пересказ той же мысли ДРУГИМИ СЛОВАМИ оно не ловит и поймать не может.
+    /// </summary>
+    public static double Similarity(string a, string b)
+    {
+        var left = ExperienceIndex.Stems(a).ToHashSet(StringComparer.Ordinal);
+        var right = ExperienceIndex.Stems(b).ToHashSet(StringComparer.Ordinal);
+        if (left.Count == 0 || right.Count == 0)
+        {
+            return 0;
+        }
+        var common = left.Count(right.Contains);
+        return (double)common / (left.Count + right.Count - common);
+    }
+
+    /// <summary>Порог «это та же самая запись»: новую заводить не надо, надо править старую.
+    /// Взят СТРОГИМ намеренно — ложный отказ завести запись хуже дубля.</summary>
+    public const double DuplicateRatio = 0.75;
+
+    /// <summary>Порог «похоже на уже имеющуюся»: запись заводится, но помечается для ревизии
+    /// человеком. Ниже порога отказа намеренно и заметно: мера Жаккара сурова к текстам
+    /// разной длины — у записи вдвое длиннее общих слов не может быть больше половины,
+    /// даже если она дословно включает первую.</summary>
+    public const double SimilarRatio = 0.35;
+
+    /// <summary>Тэг-пометка «похоже на запись …» (T-268-S0): по нему человек находит
+    /// кандидатов на слияние. Вид <c>similar:&lt;id&gt;</c> — как служебная пометка владельца
+    /// у записей плагина (<c>plugin:&lt;код&gt;</c>).</summary>
+    public static string SimilarTag(string otherId) => "similar:" + otherId;
+
+    /// <summary>Похожая запись и мера схожести.</summary>
+    public sealed record SimilarFound(ExperienceRecord Record, double Ratio);
+
+    /// <summary>
+    /// САМАЯ ПОХОЖАЯ ЗАПИСЬ ТОЙ ЖЕ ОБЛАСТИ (§4.9 проекта опыта) — чем пользуется
+    /// <c>create_experience</c> перед тем, как завести новую. Ищется по тексту самой записи:
+    /// кандидатов даёт тот же лексический поиск, а решение принимается по <see
+    /// cref="Similarity"/>. Неактивные тоже считаются: дубль погашенной записи — дубль.
+    /// </summary>
+    public SimilarFound? FindSimilar(string text, string? scope = null, string? projectId = null)
+    {
+        var best = Search(text, scope, limit: 10, includeInactive: true, projectId: projectId)
+            .Select(hit => new SimilarFound(hit.Record, Similarity(text, hit.Record.Text)))
+            .OrderByDescending(found => found.Ratio)
+            .FirstOrDefault();
+        return best is null || best.Ratio < SimilarRatio ? null : best;
+    }
+
+    // --- РАЗГРАНИЧЕНИЕ ОБЛАСТЕЙ И ПЕРЕНОС ЗАПИСИ (T-269-S0) ---
+
+    /// <summary>
+    /// НАЗВАНИЯ ПРОЕКТОВ организации — ими проверка «выглядит проектным»
+    /// (<see cref="ExperienceScopeCheck"/>) ловит четвёртый признак. Имя ОРГАНИЗАЦИИ в её
+    /// же базе не хранится вовсе (оно в реестре серверов), поэтому здесь только проекты.
+    /// </summary>
+    public List<string> ProjectNames()
+    {
+        using var conn = _db.Open();
+        return Sql.Query(conn, null,
+            "SELECT name FROM projects WHERE deleted_at IS NULL", r => r.S("name"));
+    }
+
+    /// <summary>
+    /// ПРИЗНАКИ ПРОЕКТНОГО в тексте, который хотят положить в ОБЩИЕ ПРАВИЛА РАБОТЫ
+    /// (T-269-S0). Пустой список — текст на общее правило похож. Проверка дешёвая и без
+    /// модели: она стоит на пути каждой записи в общий опыт, в том числе из инструмента
+    /// агента.
+    /// </summary>
+    public List<ExperienceScopeCheck.Sign> GeneralSigns(string text) =>
+        ExperienceScopeCheck.Signs(text, ProjectNames());
+
+    /// <summary>
+    /// Не пустить проектный текст в общие правила. <paramref name="force"/> — подтверждение
+    /// человека из формы: ему предупреждение показывается с кнопкой «всё равно сохранить»,
+    /// а агенту отказ окончательный (решение заказчика по T-269-S0: молчаливая подмена
+    /// области сбила бы агента, который потом ищет запись по id).
+    /// </summary>
+    private void EnsureGeneralEnough(string text, bool force)
+    {
+        if (force)
+        {
+            return;
+        }
+        var signs = GeneralSigns(text);
+        if (signs.Count > 0)
+        {
+            throw new ArgumentException(Loc.T("msg.experience.8",
+                ExperienceScopeCheck.Samples(signs)));
+        }
+    }
+
+    /// <summary>Запись — ПОСТАВЛЯЕМОЕ ПРАВИЛО ДИСТРИБУТИВА (<see cref="GeneralSeed"/>):
+    /// её сеет каждый сервер сам по фиксированному идентификатору, поэтому перенести её
+    /// в проект нельзя — на следующем же старте правило появилось бы в общих снова,
+    /// и в организации оказалось бы два экземпляра одной строки.</summary>
+    public static bool IsDistributionRule(string id) =>
+        GeneralSeed.Any(rule => string.Equals(rule.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// ПЕРЕНЕСТИ ЗАПИСЬ МЕЖДУ ОБЛАСТЯМИ (T-269-S0) — главное этой задачи. Меняется ТОЛЬКО
+    /// привязка (проект / узел шаблона / ничто): идентификатор, текст, навык, тэги,
+    /// авторство, время создания и признаки «загружать всегда» и «активна» остаются теми же.
+    /// До этого перенести запись было нечем ни в сервисе, ни в API, ни в UI — только удалить
+    /// и завести заново, потеряв id, историю и авторство; отсюда и мусор в общем опыте,
+    /// который приходит КАЖДОЙ задаче организации.
+    ///
+    /// <para>Ограничения: переносит только сервер-ВЛАДЕЛЕЦ записи (как правка и удаление,
+    /// ТЗ гл. 6) — мусор, приехавший с другого сервера, чистится на нём (решение заказчика
+    /// по T-269-S0); поставляемое правило дистрибутива не переносится вовсе; перенос в проект
+    /// требует ЖИВОГО проекта, в узел шаблона — живого узла-шаблона, а в общие правила —
+    /// текста без признаков проектного (<paramref name="force"/> снимает эту проверку,
+    /// её подтверждает человек в форме).</para>
+    /// </summary>
+    /// <param name="id">Запись.</param>
+    /// <param name="scope">Куда: project / template / general.</param>
+    /// <param name="projectId">Проект-получатель (scope=project).</param>
+    /// <param name="templateTaskId">Узел шаблона-получатель (scope=template).</param>
+    /// <param name="actorId">Кто переносит.</param>
+    /// <param name="force">Подтверждение человека для переноса проектного текста в общие.</param>
+    public ExperienceRecord Move(string id, string scope, string? projectId,
+        string? templateTaskId, string? actorId, bool force = false)
+    {
+        var record = Get(id) ?? throw new InvalidOperationException(Loc.T("msg.experience.1", id));
+        EnsureMine(record);
+        scope = (scope ?? "").Trim().ToLowerInvariant();
+        if (scope is not (ScopeProject or ScopeTemplate or ScopeGeneral))
+        {
+            throw new ArgumentException(Loc.T("msg.experience.9", scope,
+                ScopeProject, ScopeTemplate, ScopeGeneral));
+        }
+        if (IsDistributionRule(record.Id))
+        {
+            throw new ArgumentException(Loc.T("msg.experience.10"));
+        }
+        using var conn = _db.Open();
+        string? newProject = null;
+        var newTemplate = "";
+        (string ProjectId, string DisplayId) node = ("", "");
+        switch (scope)
+        {
+            case ScopeProject:
+                if (string.IsNullOrWhiteSpace(projectId))
+                {
+                    throw new ArgumentException(Loc.T("msg.experience.11"));
+                }
+                node = RequireProject(conn, projectId);
+                newProject = projectId;
+                break;
+            case ScopeTemplate:
+                if (string.IsNullOrWhiteSpace(templateTaskId))
+                {
+                    throw new ArgumentException(Loc.T("msg.experience.12"));
+                }
+                node = RequireTemplateNode(conn, templateTaskId);
+                newTemplate = templateTaskId;
+                break;
+            default:
+                EnsureGeneralEnough(record.Text, force);
+                break;
+        }
+        record.ProjectId = newProject;
+        record.TemplateTaskId = newTemplate;
+        record.UpdatedBy = actorId;
+        record.UpdatedAt = DateTime.UtcNow;
+        using var tx = conn.BeginTransaction();
+        Sql.Exec(conn, tx, """
+            UPDATE experience SET project_id=@project, template_task_id=@template,
+                                  updated_by=@by, updated_at=@at
+            WHERE id=@id
+            """,
+            ("@project", newProject), ("@template", newTemplate.Length > 0 ? newTemplate : null),
+            ("@by", actorId), ("@at", Sql.ToDb(record.UpdatedAt)), ("@id", id));
+        Append(conn, tx, EventTypes.ExperienceMoved, record, node, actorId);
+        tx.Commit();
+        return Get(id)!;
+    }
+
+    /// <summary>
+    /// РЕВИЗИЯ ОБЩЕГО ОПЫТА (T-269-S0): общие правила, которые выглядят ПРОЕКТНЫМИ, —
+    /// той же проверкой, что стоит на пути записи. Один проход по этому списку с переносом
+    /// пачкой в выбранный проект — и общий опыт чистый.
+    /// <para>Поставляемые правила дистрибутива в список не попадают: перенести их всё равно
+    /// нельзя, и висеть в ревизии вечным упрёком им незачем.</para>
+    /// </summary>
+    public List<(ExperienceRecord Record, List<ExperienceScopeCheck.Sign> Signs)> GeneralSuspects()
+    {
+        var names = ProjectNames();
+        return ListGeneral()
+            .Where(r => !IsDistributionRule(r.Id))
+            .Select(r => (Record: r, Signs: ExperienceScopeCheck.Signs(r.Text, names)))
+            .Where(row => row.Signs.Count > 0)
+            .ToList();
+    }
+
     /// <summary>Мягкое удаление записи (кнопка вкладки «Опыт»).</summary>
     public void Delete(string id, string? actorId)
     {
@@ -679,6 +1437,7 @@ public sealed class ExperienceService
         using var tx = conn.BeginTransaction();
         Sql.Exec(conn, tx, "UPDATE experience SET deleted_at=@at, updated_by=@by, updated_at=@at WHERE id=@id",
             ("@at", Sql.ToDb(DateTime.UtcNow)), ("@by", actorId), ("@id", id));
+        ExperienceIndex.Remove(conn, tx, id);   // удалённую запись поиск не находит (T-268-S0)
         Append(conn, tx, EventTypes.ExperienceDeleted, record, node, actorId);
         tx.Commit();
     }
@@ -764,6 +1523,9 @@ public sealed class ExperienceService
         Text = r.S("text"),
         // «загружать всегда» (T-24-S0): на базе, где колонки ещё нет, признак выключен
         AlwaysLoad = r.Has("always_load") && r.B("always_load"),
+        // АКТИВНА (T-265-S0): на базе, где колонки ещё нет (приехала от партнёра прежней
+        // версии), запись считается АКТИВНОЙ — иначе обновление молча погасило бы весь опыт
+        IsActive = !r.Has("is_active") || r.B("is_active"),
         CreatedBy = r.SN("created_by"),
         UpdatedBy = r.SN("updated_by"),
         ServerId = r.Has("server_id") ? r.SN("server_id") : null,

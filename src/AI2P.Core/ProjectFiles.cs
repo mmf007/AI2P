@@ -88,6 +88,18 @@ public static class ProjectFiles
     }
 
     /// <summary>
+    /// Звуковая ли это запись по расширению (T-250-S0). Набор — тот же, по которому
+    /// разбирается описание медиа-задания (<see cref="ObjectLoadPlanner.AudioExtensions"/>):
+    /// два списка расширений звука в одной программе разошлись бы молча.
+    /// </summary>
+    public static bool IsAudio(string? path)
+    {
+        var value = (path ?? "").Split('?', '#')[0];
+        var ext = Path.GetExtension(value).ToLowerInvariant();
+        return Array.IndexOf(ObjectLoadPlanner.AudioExtensions, ext) >= 0;
+    }
+
+    /// <summary>
     /// Содержимое каталога внутри папки проекта: подкаталоги и файлы. null — папки проекта
     /// нет, путь уводит за её край или это вообще не каталог. Скрытые и системные записи
     /// не показываются, как в выборе папки проекта.

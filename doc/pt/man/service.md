@@ -188,7 +188,7 @@ de atualização levam isso em conta:
 
 * `install.cmd` / `install.ps1` (Windows) e `./install.sh` (Linux, macOS) param o serviço
   sozinhos antes de copiar os arquivos e o iniciam de volta depois;
-* o **pacote de instalação** (`AI2P_v_1_NN_win64.exe`) faz o mesmo e, ao desinstalar o programa,
+* o **pacote de instalação** (`AI2P_v_1_NN_windows_x64.exe`) faz o mesmo e, ao desinstalar o programa,
   também remove o serviço.
 
 O serviço é procurado **no sistema** — pelo registro no gerenciador de serviços, pelo unit do

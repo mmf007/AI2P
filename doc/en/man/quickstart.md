@@ -17,11 +17,11 @@ There are two files for every system, and choosing between them means answering 
 
 | File | What is inside | When to take it |
 |---|---|---|
-| `AI2P_full_v_1_NN_win64.exe` | the program **together with the runtime** | the usual case: nothing has to be added |
-| `AI2P_v_1_NN_win64.exe` | the program only | if the **ASP.NET Core 8.x** runtime is already installed on the computer |
+| `AI2P_v_1_NN_full_windows_x64.exe` | the program **together with the runtime** | the usual case: nothing has to be added |
+| `AI2P_v_1_NN_windows_x64.exe` | the program only | if the **ASP.NET Core 8.x** runtime is already installed on the computer |
 
 On Linux and macOS it is the same, only with the `.run` extension
-(`AI2P_full_v_1_NN_Linux.run`). `NN` is the version number; take the largest one.
+(`AI2P_v_1_NN_full_linux_x64.run`). `NN` is the version number; take the largest one.
 
 > In doubt — take **`full`**. It is bigger, but it needs nothing except itself.
 
@@ -36,8 +36,8 @@ fine: no administrator rights are needed.
 ### Linux
 
 ```sh
-chmod +x AI2P_full_v_1_NN_Linux.run
-./AI2P_full_v_1_NN_Linux.run
+chmod +x AI2P_v_1_NN_full_linux_x64.run
+./AI2P_v_1_NN_full_linux_x64.run
 ```
 
 It installs into `~/ai/AI2P`. `root` rights are not needed: the server runs as an ordinary user.
@@ -45,8 +45,8 @@ It installs into `~/ai/AI2P`. `root` rights are not needed: the server runs as a
 ### macOS
 
 ```sh
-chmod +x AI2P_full_v_1_NN_macos.run
-./AI2P_full_v_1_NN_macos.run
+chmod +x AI2P_v_1_NN_full_macos_arm64.run
+./AI2P_v_1_NN_full_macos_arm64.run
 ```
 
 It installs into `~/ai/AI2P`. `root` rights are not needed: the server runs as an ordinary user.

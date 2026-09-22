@@ -242,7 +242,7 @@ public sealed class T183Tests : IDisposable
         // v35 — объекты проекта (T-259); v36 — пер-серверная активность моделей (T-8-S1);
         // v37 — заявки на остановку с другого сервера, stop_requests (T-263);
         // v38 — обучение адаптера LoRA (T-12-S1); v39 — смена дирижёра заявкой (T-21-S1)
-        Assert.Equal("46", Sql.Scalar<string>(check, null, "SELECT value FROM meta WHERE key='schema_version'"));
+        Assert.Equal("48", Sql.Scalar<string>(check, null, "SELECT value FROM meta WHERE key='schema_version'"));
 
         // повторный старт той же версии ничего не ломает
         db.Init();

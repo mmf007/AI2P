@@ -42,7 +42,7 @@ public sealed class T40S0Tests : IDisposable
     [Fact]
     public void Org_Schema_Is_V43()
     {
-        Assert.Equal("46", _f.Db.Meta("schema_version"));
+        Assert.Equal("48", _f.Db.Meta("schema_version"));
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public sealed class T40S0Tests : IDisposable
 
         // база архива — ТОЙ ЖЕ схемы: соседи по выпуску читают архив готовыми сервисами
         var archiveDb = new Database(service.DirOf(archive.Code), Archives.DbFile);
-        Assert.Equal("46", archiveDb.Meta("schema_version"));
+        Assert.Equal("48", archiveDb.Meta("schema_version"));
         using var conn = archiveDb.Open();
         var tasks = Sql.Scalar<long>(conn, null,
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tasks'");

@@ -201,7 +201,7 @@ public sealed class FalAiConnector : IAgentConnector
             // честное "supported": false), и план об этом скажет словами
             var plan = _objectLoads?.Plan(task.ProjectId, rawDescription, profile.Lora,
                 profile.RefImage, ModelTitle(executor, profile), ProjectFolder(project),
-                executor.ModelId);
+                executor.ModelId, profile.RefAudio);
             if (plan is not null)
             {
                 foreach (var note in plan.Notes)
@@ -217,7 +217,9 @@ public sealed class FalAiConnector : IAgentConnector
             }
             // стартовый кадр разбирается ПЕРВЫМ (T-258), иначе строка «исходный файл …»
             // достанется разбору указания о результате по слову «файл»
-            var (afterInput, inputRel) = MediaInputDirective.Parse(description);
+            var (afterImage, inputRel) = MediaInputDirective.Parse(description);
+            // эталонная запись (T-249-S0) — тем же разбором, своим набором расширений
+            var (afterInput, audioRel) = MediaInputDirective.ParseAudio(afterImage);
             var (prompt, outputRel) = MediaOutputDirective.Parse(afterInput);
             if (prompt.Length == 0)
             {
@@ -226,6 +228,10 @@ public sealed class FalAiConnector : IAgentConnector
             if (plan is { Images.Count: > 0 })
             {
                 inputRel = plan.Images[0].Path;
+            }
+            if (plan is { Audios.Count: > 0 })
+            {
+                audioRel = plan.Audios[0].Path;
             }
 
             var template = ReadRequestTemplate(profile);
@@ -246,13 +252,30 @@ public sealed class FalAiConnector : IAgentConnector
                 // молчать об этом нельзя: со стороны вышло бы «картинку взяли, а персонаж другой»
                 _console.Write(job.Id, Loc.T("msg.falAiConnector.23", inputRel));
             }
+            // ЭТАЛОННАЯ ЗАПИСЬ (T-249-S0): у шлюза каталога input нет, поэтому запись уходит
+            // в теле запроса адресом data: — ровно как картинка
+            string? audioDataUri = null;
+            if (NeedsRefAudio(template, profile.RefAudio))
+            {
+                if (audioRel is null)
+                {
+                    throw new InvalidOperationException(Loc.T("msg.comfyUiConnector.47"));
+                }
+                audioDataUri = ReadInputFile(project, audioRel, out var audioBytes);
+                _console.Write(job.Id, Loc.T("msg.falAiConnector.26", audioRel, audioBytes));
+            }
+            else if (audioRel is not null)
+            {
+                _console.Write(job.Id, Loc.T("msg.comfyUiConnector.49", audioRel));
+            }
 
             var seed = profile.MediaSeed ?? Random.Shared.NextInt64(0, uint.MaxValue);
-            var body = BuildRequest(profile, prompt, seed, job.DisplayId, imageDataUri);
+            var body = BuildRequest(profile, prompt, seed, job.DisplayId, imageDataUri, audioDataUri);
             var endpoint = $"{BaseUrl(profile)}/{profile.Model.Trim('/')}";
 
             var startLine = Loc.T("msg.falAiConnector.5", profile.Model, seed, prompt.Length) +
                             (inputRel is null ? "" : Loc.T("msg.comfyUiConnector.43", inputRel)) +
+                            (audioRel is null ? "" : Loc.T("msg.comfyUiConnector.50", audioRel)) +
                             (outputRel is null ? "" : Loc.T("msg.comfyUiConnector.7", outputRel));
             Logger.Information("Задание {JobDisplayId} по задаче {TaskDisplayId}: {Line}",
                 job.DisplayId, task.DisplayId, startLine);
@@ -274,6 +297,7 @@ public sealed class FalAiConnector : IAgentConnector
                 endpoint,
                 seed,
                 startImage = inputRel,
+                refAudio = audioRel,
                 prompt,
                 request = JsonDocument.Parse(HideDataUris(body)).RootElement,
             }, DumpOptions);
@@ -418,15 +442,17 @@ public sealed class FalAiConnector : IAgentConnector
     /// Правила ровно те же, что у workflow ComfyUI: одна механика на оба медиа-коннектора.
     /// </summary>
     public string BuildRequest(ModelProfile profile, string prompt, long seed,
-        string jobDisplayId, string? imageDataUri = null)
+        string jobDisplayId, string? imageDataUri = null, string? audioDataUri = null)
     {
         var template = ReadRequestTemplate(profile);
         var imagePlaceholder = ImagePlaceholder(profile.RefImage);
+        var audioPlaceholder = AudioPlaceholder(profile.RefAudio);
         return template
             .Replace("{prompt}", JsonEscape(prompt))
             .Replace("{negative}", JsonEscape(profile.MediaNegative))
             .Replace("{job}", JsonEscape(jobDisplayId))
             .Replace(imagePlaceholder, JsonEscape(imageDataUri ?? ""))
+            .Replace(audioPlaceholder, JsonEscape(audioDataUri ?? ""))
             .Replace("\"{seed}\"", seed.ToString())
             .Replace("\"{width}\"", profile.MediaWidth.ToString())
             .Replace("\"{height}\"", profile.MediaHeight.ToString())
@@ -445,12 +471,23 @@ public sealed class FalAiConnector : IAgentConnector
     private static string ImagePlaceholder(RefImageSettings refImage) =>
         refImage.Placeholder.Length > 0 ? refImage.Placeholder : "{image}";
 
+    /// <summary>Модель ждёт эталонную запись: в шаблоне запроса есть её плейсхолдер (T-249-S0).</summary>
+    public static bool NeedsRefAudio(string template, RefAudioSettings refAudio) =>
+        template.Contains(AudioPlaceholder(refAudio), StringComparison.Ordinal);
+
+    private static string AudioPlaceholder(RefAudioSettings refAudio) =>
+        refAudio.Placeholder.Length > 0 ? refAudio.Placeholder : "{audio}";
+
+    private string ReadStartImage(Core.Entities.Project? project, string inputRel, out long size) =>
+        ReadInputFile(project, inputRel, out size);
+
     /// <summary>
-    /// Стартовый кадр берётся В ПАПКЕ ПРОЕКТА по относительному пути (там же лежат эталонные
-    /// кадры объектов, T-259) и превращается в адрес <c>data:</c>: своего хранилища у нас
-    /// нет, а публиковать файл наружу ссылкой мы не вправе.
+    /// Входной файл (стартовый кадр либо эталонная запись, T-249-S0) берётся В ПАПКЕ ПРОЕКТА
+    /// по относительному пути (там же лежат эталонные файлы объектов, T-259) и превращается
+    /// в адрес <c>data:</c>: своего хранилища у нас нет, а публиковать файл наружу ссылкой
+    /// мы не вправе.
     /// </summary>
-    private string ReadStartImage(Core.Entities.Project? project, string inputRel, out long size)
+    private string ReadInputFile(Core.Entities.Project? project, string inputRel, out long size)
     {
         string source;
         if (ObjectFiles.IsStore(inputRel))
@@ -490,7 +527,8 @@ public sealed class FalAiConnector : IAgentConnector
             ".mp4" => "video/mp4",
             ".wav" => "audio/wav",
             ".mp3" => "audio/mpeg",
-            _ => "image/png",
+            // остальные звуковые расширения (T-249-S0) — по общему списку
+            _ => ObjectLoadPlanner.AudioMimeOf(path) ?? "image/png",
         };
 
     /// <summary>Текст внутрь JSON-строки шаблона (кавычки остаются в шаблоне); кириллица

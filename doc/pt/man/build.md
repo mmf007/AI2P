@@ -277,15 +277,15 @@ para `../../packages` (ou seja, `builds/packages`).
 ```powershell
 # Windows: é preciso o Inno Setup 6 (o install_required.bat o instala)
 cd builds\windows\releasefull
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_full_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_full_windows_x64.exe
 cd ..\release
-.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_win64.exe
+.\MakePackage.cmd                    # -> ..\..\packages\AI2P_v_1_99_windows_x64.exe
 ```
 
 ```sh
 # Linux / macOS: é preciso o makeself (o install_required.sh o instala)
 cd builds/linux/releasefull
-./MakePackage.sh                     # -> ../../packages/AI2P_full_v_1_99_Linux.run
+./MakePackage.sh                     # -> ../../packages/AI2P_v_1_99_full_linux_x64.run
 ```
 
 O nome do arquivo se forma sozinho, a partir do `version.json` da distribuição — não é preciso
@@ -293,8 +293,14 @@ perguntar o número do build `NN`:
 
 | distribuição | Windows | Linux | macOS |
 |---|---|---|---|
-| `releasefull` | `AI2P_full_v_1_NN_win64.exe` | `AI2P_full_v_1_NN_Linux.run` | `AI2P_full_v_1_NN_MacOs.run` |
-| `release` | `AI2P_v_1_NN_win64.exe` | `AI2P_v_1_NN_Linux.run` | `AI2P_v_1_NN_MacOs.run` |
+| `releasefull` | `AI2P_v_1_NN_full_windows_x64.exe` | `AI2P_v_1_NN_full_linux_x64.run` | `AI2P_v_1_NN_full_macos_arm64.run` |
+| `release` | `AI2P_v_1_NN_windows_x64.exe` | `AI2P_v_1_NN_linux_x64.run` | `AI2P_v_1_NN_macos_arm64.run` |
+
+As partes do nome vêm nesta ordem: `AI2P_v_` + o número da versão + `_full` na distribuição
+completa + o sistema (`windows`, `linux`, `macos`) + a arquitetura (`x64`, `arm64`, `arm`, `x86`).
+Na distribuição completa quem indica o sistema e a arquitetura é o seu runtime (`win-x64`,
+`linux-arm64`, `osx-arm64`); na comum, a pasta do SO e a arquitetura do compilador atual
+(T-234-S0).
 
 A extensão define o tipo de instalador: no Windows é o Inno Setup (`.exe`); no Linux e no macOS é
 um arquivo autoextraível do makeself (`.run`), que por dentro executa o mesmo `install.sh`. O

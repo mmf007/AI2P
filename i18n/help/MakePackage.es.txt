@@ -25,9 +25,12 @@ USO (Linux / macOS)
   ./MakePackage.sh --help           esta ayuda
 
 EL NOMBRE DEL ARCHIVO se compone solo, a partir del version.json de la publicación:
-  releasefull -> AI2P_full_v_1_NN_win64.exe / AI2P_full_v_1_NN_Linux.run
-  release     -> AI2P_v_1_NN_win64.exe      / AI2P_v_1_NN_Linux.run
-NN es el número de build (la segunda parte de la versión) y no hay que preguntarlo. En
+  releasefull -> AI2P_v_1_NN_full_windows_x64.exe / AI2P_v_1_NN_full_linux_x64.run
+  release     -> AI2P_v_1_NN_windows_x64.exe      / AI2P_v_1_NN_linux_x64.run
+NN es el número de build (la segunda parte de la versión) y no hay que preguntarlo. La
+palabra full va DESPUÉS del número de versión, y después vienen el sistema (windows,
+linux, macos) y la arquitectura (x64, arm64, arm, x86): en la publicación completa los
+indica su runtime, y en la normal la carpeta del SO y el compilador actual. En
 Windows el instalador lo compila Inno Setup (ISCC.exe), y .exe es su tipo de resultado;
 .run es el tipo de resultado de makeself: un archivo autoextraíble que ejecuta él mismo
 install.sh.

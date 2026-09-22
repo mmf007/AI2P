@@ -87,6 +87,8 @@ AI2P 的设置分放在两个地方，这不是疏忽，而是规矩。
 动作代号（`AI2P.Files.Write`、`AI2P.Tasks.Create`、…）是分层的，用点分隔。安全规则操作的正是它们，
 所以在写规则之前值得先来这里看一眼。
 
+针对分支和循环（“条件”、“前置循环”、“后置循环”类型任务），目录中有四个动作：`AI2P.Tasks.ConditionResult`（`set_condition_result` —— 条件判定，严格为 true/false）、`AI2P.Tasks.LoopResult`（`set_loop_result` —— 循环条件检查结果）、`AI2P.Tasks.FromTemplate`（`create_tasks_from_template` —— 从模板节点创建分支任务）和 `AI2P.Tasks.StopHierarchy`（`stop_hierarchy` —— 结束层级执行）。前两个动作代理只在相应类型的任务中看到。
+
 ### 安全
 
 「智能体可以做什么」的规则：对某个动作（或者一整支动作分支）在某个范围内 —— 整个组织、项目、任务 ——

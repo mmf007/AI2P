@@ -106,19 +106,73 @@ Edited in the model profile ("Connection profile" button):
 | `negative` | empty | negative prompt (unlike Turbo, it works here) |
 | `timeoutMinutes` | 60 | how long to wait for the result |
 
-**About duration.** In this entry `length` means seconds and goes to two places in the
-graph at once: the size of the empty latent and the planner's `duration` field. In the job
-summary it is labelled "frames" — that label is shared by all media models; read it as
-"seconds". The model is designed for tracks of up to roughly ten minutes.
+**About duration.** The duration of each track is named by the **prompter model**
+from the task description ("a minute and a half" becomes `duration: 90`). The profile's
+`length` field is the fallback now: it applies when no prompter is chosen, the prompter did
+not answer, or the task says nothing about duration. The value goes to two places in the
+graph at once — the size of the empty latent and the planner's `duration` field — and its
+bounds are hard: 1 to 1000 seconds (checked against a live ComfyUI). In the job summary
+`length` is labelled "frames" — that label is shared by all media models; read it as
+"seconds".
 
-**About the vocal language.** The `language` field in the graph is set to `unknown` — the
-model detects the language from your text. The official ComfyUI templates put `en` there,
-which would give English pronunciation for non-English lyrics. If you always sing in one
-language, put its code (`ru`, `en`, `zh`, …) directly into the model's workflow template.
+**About the vocal language.** The language is named by the prompter — a code from
+the node's list (`ru`, `en`, `zh`, `ja`, … 51 values in all). If nobody names it, it stays
+`unknown` and the model detects the language from the lyrics itself; the official ComfyUI
+templates put `en` there, which would give English pronunciation to non-English lyrics. A
+permanent language can also be fixed without a prompter — by its code right in the model's
+workflow template.
 
-The task description goes into the prompt as a whole (the model's `tags` field). An
+Without a prompter the task description goes into the prompt as a whole (the model's `tags` field); with a prompter, `tags` gets the style tags it composed. An
 instruction like "put the result into file X.mp3" is executed by the connector: the file
 is copied into the project folder and the line itself is cut out of the prompt.
+
+## The prompter
+
+This entry is marked in its profile as **"needs a prompter"**. The prompter is ANOTHER
+EXECUTOR: before the generation it reads the task description and prepares the control json
+for ACE-Step as a separate job. Any AI executor will do - a CLI subscription, a local model,
+a cloud API: it works through its own connector, just as on an ordinary task. You assign it
+in two places: the field **"Prompter"** in the AI executor's card (the default for all its
+tasks) and the field **"Prompter"** in the task form, next to the list **"Can replace the
+prompter"** - for the case when the assigned one is busy with other work.
+
+The prompter fills seven fields of the `TextEncodeAceStepAudio1.5` node:
+
+| Field | What it is | If not named |
+|---|---|---|
+| `tags` | style tags: genre, tempo, instruments, mood, vocals | the whole task description |
+| `lyrics` | song lyrics | empty — the model writes them itself |
+| `duration` | duration in seconds (1…1000) | `length` of the profile |
+| `language` | vocal language code from the node's list | `unknown` |
+| `bpm` | tempo, beats per minute (10…300) | 120 |
+| `keyscale` | key and mode (`C major` … `B minor`) | `C major` |
+| `timesignature` | time signature: 2, 3, 4 or 6 | 4 |
+
+**What happens if you do not set a prompter.** The task WILL NOT START: it stops with an
+error saying that the executor needs a prompter and there is none, neither on the task nor
+on the executor itself. The system cannot silently go "as usual": the track parameters would
+then be taken out of thin air, and you would see it half an hour later, when the wrong track
+is ready. An answer with no json in it and a failed prompter job end the same way. The other
+two outcomes are softer: if the assigned prompter is busy, the work is taken by the first
+free one from "can replace the prompter", and if all of them are busy the task waits, paused,
+until someone becomes free; if the prompter asked a human a question, the task is paused too
+and continues with the answer.
+
+**Starting it again.** A task that is paused or in error and already has its json goes
+straight to the generation — the prompter is not asked twice. A task in draft, pending or
+needs-fix starts from the beginning: the prompter prepares a new json.
+
+**How to steer the result from the task description.** Write what has to reach the fields:
+the duration ("a minute", "90 seconds"), the vocal language, the tempo, the mode, the time
+signature — and give the lyrics verbatim, the prompter carries them over as they are.
+Describe the style in words: it turns them into tags. What it actually named is visible in
+the job console and in the `prompter.json` file among the task files.
+
+**The rules it follows** live next to the model profile — the file
+`models/prompter_<record id>.md` in the data directory. You may edit it: the text goes into
+the prompter's prompt as a whole, and an edit applies from the next job on. The file is
+rewritten by the installation when its version goes up, and replication does not carry it
+to other servers.
 
 ## How to write the task
 
@@ -134,26 +188,47 @@ SFT follows the text more closely than the other variants, so a detailed descrip
 off most here. Every run takes a **random seed** — if you need a repeatable result, put a
 numeric `seed` into the model profile.
 
+The description is read by the prompter, so write the numbers and the language
+straight into it: "90 seconds", "vocals in Russian", "120 beats per minute", "in a minor
+key". What it made of that is shown in the job console.
+
 ## LoRA training
 
-**Applying — yes, training — no.**
+**Applying — yes, training from AI2P — no.**
 
-The model accepts a ready adapter: ComfyUI knows the official ACE-Step LoRA format, and
-AI2P inserts a `LoraLoaderModelOnly` node into the graph on the fly. Put the file into
-`<model repository>/loras/` and name the adapter object in the task description with an
-`@obj:` reference.
+The model accepts a ready adapter: AI2P inserts a `LoraLoaderModelOnly` node into the
+graph on the fly. Put the file into `<model repository>/loras/` and name the adapter
+object in the task description with an `@obj:` reference.
 
-But **an adapter cannot be trained from AI2P**, and the profile says so honestly
-(`lora.train.kind: external`). There are two reasons:
+An adapter cannot be trained from AI2P, and the profile says so honestly:
+`lora.train.kind: external` with an empty command — the «Train» button refuses at once
+instead of burning half an hour first. Checked against repository files on 2026-09-14:
 
+* **the model does have a trainer** — the official
+  [ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) under the MIT license, and it
+  runs on Windows with a SINGLE GPU: `python -m acestep.training_v2.cli.train_fixed`, no
+  `torchrun`, `--num-devices` defaults to 1, DataLoader workers deliberately 0 on Windows.
+  It needs 16 GB of VRAM at least, 20 GB or more recommended;
+* **but it needs different weights from the ones we install.** The trainer reads a
+  checkpoint directory in HuggingFace layout (`config.json` +
+  `model-0000N-of-00004.safetensors`, about 19.9 GB per variant, plus the VAE and the
+  labelling language model), while AI2P installs the Comfy-Org repack: different files,
+  different layout. A second copy of the weights is not downloaded by the installer;
+* **and the format of the trained file is unverified**: the trainer emits a peft adapter
+  over its own DiT, while the «official ACE-Step format» branch in `comfy/lora.py` sits
+  under the `ACEStep` class, whereas 1.5 is a separate `ACEStep15` class;
 * [musubi-tuner](https://github.com/kohya-ss/musubi-tuner), which AI2P uses to train LoRA
-  for the other local models, does not know ACE-Step at all — it has no acestep script
-  whatsoever (checked on 2026-08-27);
-* the official ACE-Step trainer (<https://github.com/ace-step/ACE-Step-1.5>, `train.py`)
-  trains on **audio recordings**, whereas a LoRA dataset in AI2P is made of image frames.
+  for the other local models, does not know ACE-Step at all (checked on 2026-08-27).
 
-So the adapter is trained outside AI2P with the official trainer and brought here as a
-finished file.
+**The dataset limits are declared nonetheless** — AI2P checks the dataset against them and
+you build it for outside training. The dataset is AUDIO (`media: audio`): recordings up to
+240 s, 48 000 Hz, 2 channels, WAV, MP3, FLAC, OGG, Opus, 10 recordings and up, captions in
+a `.txt` file next to the recording (a transcript or tags). The dataset editor shows
+exactly these fields and stores a recording as is — audio goes through no image squeezing.
+
+The official trainer's order of work: prepare recordings with `<name>.lyrics.txt` and
+captions → preprocess into tensors → start training (LoRA or LoKr, which is about ten
+times faster). Details — [LoRA Training Tutorial](https://github.com/ace-step/ACE-Step-1.5/blob/main/docs/en/LoRA_Training_Tutorial.md).
 
 ## Common problems
 
@@ -164,9 +239,11 @@ finished file.
 * **Too slow** — that is 50 steps with CFG; use Turbo for drafts.
 * **Results are too similar to each other** — a property of SFT; use Base if you want
   spread.
-* **The vocal sings in the wrong language** — put the language code into the `language`
-  field of the workflow template instead of `unknown`.
-* **The track is shorter or longer than expected** — that is `length` in the profile, and
-  it is in seconds.
+* **The vocal sings in the wrong language** — name the language in the task
+  description, the prompter passes it on; without a prompter, put the language code into
+  the `language` field of the workflow template instead of `unknown`.
+* **The track is shorter or longer than expected** — name the duration in the task
+  description (the prompter hands it over in seconds); without a prompter it is `length` in
+  the profile, which is in seconds too.
 * **ComfyUI is busy with someone else's process** — AI2P only shuts down the server it
   started itself; an already running foreign ComfyUI on 8188 is left alone.

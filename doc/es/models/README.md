@@ -12,6 +12,7 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 
 **En la nube (hace falta una clave de API)**
 
+* [Chatterbox-TTS](Chatterbox-TTS.md) — texto + muestra de voz → voz con ese timbre, habilidades `audio-speech` 88
 * [Claude-Fable-5](Claude-Fable-5.md) — API del proveedor Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API del proveedor Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API de Anthropic
@@ -56,6 +57,7 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Veo-3.1](Veo-3.1.md) — texto → vídeo con sonido, 4–8 segundos, hasta 4K, habilidades `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — texto → vídeo de hasta 30 segundos con sonido, habilidades `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Rusia; compatible con OpenAI
+* [Zonos-2-TTS](Zonos-2-TTS.md) — texto + muestra de voz → voz con ese timbre (la muestra es obligatoria), habilidades `audio-speech` 86
 
 **A través de Claude CLI (por suscripción, sin clave)**
 

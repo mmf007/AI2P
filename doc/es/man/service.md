@@ -195,7 +195,7 @@ formas de actualizar lo tienen en cuenta:
 
 * `install.cmd` / `install.ps1` (Windows) y `./install.sh` (Linux, macOS) detienen ellos mismos
   el servicio antes de copiar los archivos y lo vuelven a arrancar después;
-* el **paquete de instalación** (`AI2P_v_1_NN_win64.exe`) hace lo mismo y, al desinstalar el
+* el **paquete de instalación** (`AI2P_v_1_NN_windows_x64.exe`) hace lo mismo y, al desinstalar el
   programa, además quita el servicio.
 
 El servicio se busca **por el sistema** —por el registro del gestor de servicios, la unidad de

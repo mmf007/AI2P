@@ -183,7 +183,7 @@ public sealed class T152Tests : IDisposable
         // v35 — объекты проекта (T-259); v36 — пер-серверная активность моделей (T-8-S1);
         // v37 — заявки на остановку с другого сервера, stop_requests (T-263);
         // v38 — обучение адаптера LoRA (T-12-S1); v39 — смена дирижёра заявкой (T-21-S1)
-        Assert.Equal("46", _f.Db.Meta("schema_version"));
+        Assert.Equal("48", _f.Db.Meta("schema_version"));
 
         var project = _f.Projects.Create("Схема", null, null, null);
         var task = _f.Tasks.Create(new TaskItem { ProjectId = project.Id, Title = "Задача" },

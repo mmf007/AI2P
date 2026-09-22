@@ -21,6 +21,8 @@ public static class AiPauseText
         // блокирующие задачи (T-6-S1): «ждём» — работа впереди, «отменена» — её не будет
         AiPauseKinds.Blocked => l["aiwork.pause.blocked"],
         AiPauseKinds.BlockerCancelled => l["aiwork.pause.blockerCancelled"],
+        // круг тела цикла (T-299-S0)
+        AiPauseKinds.Loop => l["aiwork.pause.loop"],
         _ => "",
     };
 
@@ -37,6 +39,7 @@ public static class AiPauseText
         // это не ожидание, а тупик, и отличаться от ожидания должно с одного взгляда (T-6-S1)
         AiPauseKinds.Blocked => MudBlazor.Icons.Material.Filled.Lock,
         AiPauseKinds.BlockerCancelled => MudBlazor.Icons.Material.Filled.Block,
+        AiPauseKinds.Loop => MudBlazor.Icons.Material.Filled.Loop,
         _ => "",
     };
 

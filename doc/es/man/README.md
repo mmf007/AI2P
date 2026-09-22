@@ -13,8 +13,10 @@ junto a la aplicación instalada.
 
 * [aboutdoc](aboutdoc.md) — Cómo está hecha la documentación de AI2P
 * [Archives](Archives.md) — Archivado
+* [audio](audio.md) — Trabajo con modelos de audio
 * [build](build.md) — AI2P: compilación, publicación y estructura del repositorio
 * [config](config.md) — Configuración
+* [experience](experience.md) — Experiencia
 * [https](https.md) — HTTPS
 * [install](install.md) — Instalación de AI2P y dónde están sus datos
 * [LoRAEditor](LoRAEditor.md) — Editor de LoRA
@@ -28,6 +30,7 @@ junto a la aplicación instalada.
 * [servers](servers.md) — Varios servidores
 * [service](service.md) — Ejecutar AI2P como servicio del sistema operativo
 * [tasks](tasks.md) — Tareas
+* [TaskDo](TaskDo.md) — Algoritmo de ejecución de tareas
 * [teams](teams.md) — Equipos
 * [templates](templates.md) — Plantillas
 
@@ -157,6 +160,24 @@ autosuficiente y al final nombra a sus vecinos.
   lanzamiento manual, automático y jerárquico; las subtareas y la división automática; el
   trabajo con la tarea de otro servidor.
 
+**[Algoritmo de ejecución de tareas](TaskDo.md)**
+
+* El orden del lanzamiento de toda la jerarquía: la pasada de la cola de abajo arriba por
+  prioridad, cuándo una tarea espera, se salta o se lanza, cuándo se cierra la cola; cómo encajan
+  en ese orden «Condición», «Bucle (comprobar antes)» y «Bucle (comprobar después)», el límite de
+  vueltas y la detención.
+
+**[Experiencia](experience.md)**
+
+* La memoria del sistema sobre cómo hay que trabajar: los tres ámbitos (reglas generales de la
+  organización, experiencia del proyecto, experiencia del nodo de plantilla) y la regla que los
+  separa; qué tiene un registro y cómo llega al encargo — actividad, habilidad, «cargar siempre»,
+  las etiquetas como señal, las cuotas por nivel y el límite de inserción; la pestaña «Experiencia
+  utilizada» y las estadísticas de uso; la búsqueda en la experiencia y qué no encuentra; el
+  traslado de un registro entre ámbitos y la revisión de la experiencia general; desactivar un
+  registro y la regla de archivado «todos los inactivos»; los conjuntos de experiencia (estilos de
+  trabajo) y la plantilla «Análisis de la experiencia» en el horario.
+
 **[Editor de LoRA](LoRAEditor.md)**
 
 * Cómo usar el editor de LoRA: qué hay que crear antes del entrenamiento, qué escribir en la
@@ -164,6 +185,14 @@ autosuficiente y al final nombra a sus vecinos.
   entrenamiento y cuál al prompt de generación, cómo lanzar y detener el entrenamiento, si
   importa el orden de los fotogramas del conjunto de datos, los errores frecuentes y lo que el
   editor no hace. Esta misma página se abre con el botón del libro desde el propio editor.
+
+**[Trabajo con modelos de audio](audio.md)**
+
+* Cómo componer una escena sonora con música, una canción, el habla de personas concretas y
+  ruidos: qué modelos de audio hay en el catálogo y qué sabe hacer cada uno, por qué una tarea
+  es una capa de sonido, qué muestras de voz necesita la síntesis de voz y cómo pasarlas, por
+  qué la voz del cantante se describe con palabras, de dónde sacar un efecto de sonido, cómo
+  unir y mezclar las capas, los errores frecuentes.
 
 ### Ejemplos y material auxiliar
 

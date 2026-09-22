@@ -171,7 +171,12 @@ public sealed class JobService
         return jobs.FirstOrDefault(j => waitKind is null || j.WaitKind == waitKind);
     }
 
-    public Job Create(string taskId, string executorId, string requestPath, string? actorId)
+    /// <param name="role">РОЛЬ задания (T-292-S0, <see cref="JobRoles"/>): пусто — работа
+    /// по задаче, "prompter" — подготовка управляющего json моделью-суфлёром. От роли
+    /// зависит исход завершения: обычное задание сдаёт задачу, задание суфлёра — запускает
+    /// следом основного исполнителя.</param>
+    public Job Create(string taskId, string executorId, string requestPath, string? actorId,
+        string role = JobRoles.Work)
     {
         var now = DateTime.UtcNow;
         var job = new Job
@@ -180,6 +185,7 @@ public sealed class JobService
             ExecutorId = executorId,
             State = JobState.Queued,
             RequestPath = requestPath,
+            Role = role,
             CreatedAt = now,
             UpdatedAt = now,
         };
@@ -195,12 +201,14 @@ public sealed class JobService
             "SELECT project_id FROM tasks WHERE id=@id", ("@id", taskId));
 
         Sql.Exec(conn, tx, """
-            INSERT INTO jobs (id, display_id, task_id, executor_id, state, request_path, created_at, updated_at)
-            VALUES (@id, @did, @task, @executor, @state, @request, @created, @updated)
+            INSERT INTO jobs (id, display_id, task_id, executor_id, state, request_path, role,
+                              created_at, updated_at)
+            VALUES (@id, @did, @task, @executor, @state, @request, @role, @created, @updated)
             """,
             ("@id", job.Id), ("@did", job.DisplayId), ("@task", job.TaskId),
             ("@executor", job.ExecutorId), ("@state", job.State.ToDb()),
-            ("@request", job.RequestPath), ("@created", Sql.ToDb(now)), ("@updated", Sql.ToDb(now)));
+            ("@request", job.RequestPath), ("@role", job.Role),
+            ("@created", Sql.ToDb(now)), ("@updated", Sql.ToDb(now)));
 
         _events.Append(conn, tx, new EventRecord
         {
@@ -437,6 +445,8 @@ public sealed class JobService
         StartedAt = r.DtN("started_at"),
         FinishedAt = r.DtN("finished_at"),
         WaitKind = r.SN("wait_kind") ?? "",
+        // роль задания (T-292-S0): пусто — работа, "prompter" — подготовка json суфлёром
+        Role = r.Has("role") ? r.SN("role") ?? "" : "",
         CreatedAt = r.Dt("created_at"),
         UpdatedAt = r.Dt("updated_at"),
         DeletedAt = r.DtN("deleted_at"),

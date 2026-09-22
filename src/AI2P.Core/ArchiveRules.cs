@@ -78,7 +78,15 @@ public static class ArchiveRuleAges
     /// учитываются только года.</summary>
     public const string Calendar = "calendar";
 
-    public static readonly string[] All = [Days, Calendar];
+    /// <summary>
+    /// ВОЗРАСТ НЕ ВАЖЕН (T-265-S0): правило отбирает записи независимо от их давности —
+    /// решают только вид данных и активность. Понадобилось точному требованию заказчика
+    /// «архивировать ВСЕ неактивные записи опыта»: неактивная запись не нужна ни сегодня,
+    /// ни через год, и ждать от неё срока не за чем. Числа у такого правила нет вовсе.
+    /// </summary>
+    public const string Any = "any";
+
+    public static readonly string[] All = [Days, Calendar, Any];
 
     public static bool IsKnown(string? value) => value is not null && All.Contains(value);
 }
@@ -120,7 +128,12 @@ public static class ArchiveAge
     /// <param name="now">Текущий момент (UTC) — передаётся, а не берётся внутри, чтобы
     /// проверку можно было написать на любой дате, а не на сегодняшней.</param>
     public static DateTime Threshold(string ageKind, int days, int months, int years, DateTime now) =>
-        ageKind == ArchiveRuleAges.Calendar
+        ageKind == ArchiveRuleAges.Any
+            // «возраст не важен» (T-265-S0): граница уносится в бесконечность, и по возрасту
+            // подходит ЛЮБАЯ запись. Именно дата, а не отдельная ветка в запросе: условие
+            // отбора остаётся одно на все виды срока, и ошибиться в нём негде
+            ? DateTime.MaxValue
+            : ageKind == ArchiveRuleAges.Calendar
             // AddMonths(0) — тождество, поэтому «месяцы не указаны» отдельной веткой писать
             // не надо: остаются одни года, ровно как сказано в задании
             ? now.AddYears(-Math.Max(0, years)).AddMonths(-Math.Max(0, months))

@@ -62,44 +62,52 @@ if ([string]::IsNullOrWhiteSpace($version)) {
     exit 1
 }
 
-# ---------- 2. под какую систему собрана выкладка ----------
-# у полной выкладки система записана рантаймом (win-x64, linux-x64, osx-arm64),
-# у обычной рантайма нет вовсе — тогда её выдаёт каталог ОС (builds\<ОС>\release)
-function Get-OsTag([string]$rid) {
+# ---------- 2. под какую систему и архитектуру собрана выкладка ----------
+# у полной выкладки и система, и архитектура записаны рантаймом (win-x64, linux-arm64,
+# osx-arm64), у обычной рантайма нет вовсе — тогда систему выдаёт каталог ОС
+# (builds\<ОС>\release), а архитектуру берём у ТЕКУЩЕГО КОМПИЛЯТОРА: выкладка без RID
+# собирается под ту машину, на которой её собирали
+function Get-OsName([string]$rid) {
     switch -Wildcard ($rid) {
-        "win-x64"     { return "win64" }
-        "win-arm64"   { return "win_arm64" }
-        "win-x86"     { return "win32" }
-        "win-*"       { return "win64" }
-        "osx-*"       { return "MacOs" }
-        "linux-arm64" { return "Linux_arm64" }
-        "linux-arm"   { return "Linux_arm" }
-        "linux-*"     { return "Linux" }
+        "win-*"   { return "windows" }
+        "osx-*"   { return "macos" }
+        "linux-*" { return "linux" }
     }
     return ""
 }
-$osTag = Get-OsTag $runtime
-if (-not $osTag) {
+# архитектура RID — это его последняя часть: win-x64 -> x64, osx-arm64 -> arm64
+function Get-ArchTag([string]$rid) {
+    if ($rid -match '-([A-Za-z0-9]+)$') { return $Matches[1].ToLowerInvariant() }
+    return ""
+}
+$osName = Get-OsName $runtime
+$archTag = Get-ArchTag $runtime
+if (-not $osName) {
     # каталог ОС: <...>\builds\windows\release -> windows
     $osDir = Split-Path (Split-Path $srcDir -Parent) -Leaf
     switch ($osDir.ToLowerInvariant()) {
-        "windows" { $osTag = "win64" }
-        "linux"   { $osTag = "Linux" }
-        "macos"   { $osTag = "MacOs" }
-        default   { $osTag = "win64" }   # выкладка в своём каталоге: собираем под эту машину
+        "windows" { $osName = "windows" }
+        "linux"   { $osName = "linux" }
+        "macos"   { $osName = "macos" }
+        default   { $osName = "windows" }   # выкладка в своём каталоге: собираем под эту машину
     }
 }
-if ($osTag -notlike "win*") {
-    Write-Host (L 'scr.pkg.6' $osTag) -ForegroundColor Red
+if (-not $archTag) {
+    # x64, arm64, x86, arm — как их называет сам .NET
+    $archTag = ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture).ToString().ToLowerInvariant()
+}
+if ($osName -ne "windows") {
+    Write-Host (L 'scr.pkg.6' $osName) -ForegroundColor Red
     Write-Host (L 'scr.pkg.7') -ForegroundColor Yellow
     exit 1
 }
 
 # ---------- 3. имя пакета и каталог результата ----------
-# AI2P_full_v_1_98_win64.exe — полная выкладка; AI2P_v_1_98_win64.exe — обычная.
-# «1_98» — это версия с точкой, заменённой на подчёркивание: вторая часть и есть билд NN
-$prefix = if ($selfContained) { "AI2P_full_v_" } else { "AI2P_v_" }
-$baseName = $prefix + ($version -replace '\.', '_') + "_" + $osTag
+# AI2P_v_1_133_full_windows_x64.exe — полная выкладка; AI2P_v_1_133_windows_x64.exe — обычная.
+# «1_133» — это версия с точкой, заменённой на подчёркивание: вторая часть и есть билд NN;
+# «full» стоит ПОСЛЕ номера версии, дальше система и архитектура (T-234-S0)
+$fullTag = if ($selfContained) { "_full" } else { "" }
+$baseName = "AI2P_v_" + ($version -replace '\.', '_') + $fullTag + "_" + $osName + "_" + $archTag
 
 if ([string]::IsNullOrWhiteSpace($Output)) { $Output = Join-Path $srcDir "..\..\packages" }
 if (-not [System.IO.Path]::IsPathRooted($Output)) { $Output = Join-Path $srcDir $Output }

@@ -54,6 +54,11 @@ public static class EventTypes
     public const string AgentResponse = "agent.response";
     /// <summary>Вызовы файловых инструментов агентом (function calling, ТЗ п. 2.4, todo17).</summary>
     public const string AgentToolCalls = "agent.tool_calls";
+    /// <summary>Отработала МОДЕЛЬ-СУФЛЁР перед медиа-заданием (T-288-S0): в полезной нагрузке —
+    /// модель, путь файла управляющего json, токены, стоимость и названные поля. Отдельный тип,
+    /// а не <see cref="AgentRequest"/>: это ВТОРОЙ вызов модели в том же задании, и в журнале
+    /// работ он обязан быть отличим от запроса к самой рабочей модели.</summary>
+    public const string PrompterRun = "job.prompter";
     public const string ChatMessage = "chat.message";
     /// <summary>Вопрос ИИ-агента в чате задачи (ТЗ v1.17): агент ждёт ответа человека.</summary>
     public const string ChatQuestion = "chat.question";
@@ -83,6 +88,12 @@ public static class EventTypes
     // опыт по шаблонам (ТЗ v1.33, todo32): правка и удаление записей опыта
     public const string ExperienceUpdated = "experience.updated";
     public const string ExperienceDeleted = "experience.deleted";
+    /// <summary>Признак активности записи опыта переключён (T-265-S0).</summary>
+    public const string ExperienceActivity = "experience.activity";
+    /// <summary>Запись опыта ПЕРЕНЕСЕНА между областями (T-269-S0): общие правила ↔ опыт
+    /// проекта ↔ опыт узла шаблона. Отдельный тип, а не <see cref="ExperienceUpdated"/>:
+    /// в журнале «запись изменена» не сказало бы главного — что сменился её адресат.</summary>
+    public const string ExperienceMoved = "experience.moved";
     public const string ObjectRegistered = "object.registered";
     public const string TemplateApplied = "template.applied";
     // расписание запуска задач (ТЗ п. 2.12, v1.35)

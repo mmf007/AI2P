@@ -12,8 +12,10 @@ application.
 
 * [aboutdoc](aboutdoc.md) — How the AI2P documentation is arranged
 * [Archives](Archives.md) — Archiving
+* [audio](audio.md) — Working with audio models
 * [build](build.md) — AI2P — building, releasing and the layout of the repository
 * [config](config.md) — Configuration
+* [experience](experience.md) — Experience
 * [https](https.md) — HTTPS
 * [install](install.md) — Installing AI2P and where its data lives
 * [LoRAEditor](LoRAEditor.md) — The LoRA editor
@@ -27,6 +29,7 @@ application.
 * [servers](servers.md) — Several servers
 * [service](service.md) — Running AI2P as an operating system service
 * [tasks](tasks.md) — Tasks
+* [TaskDo](TaskDo.md) — How tasks are executed
 * [teams](teams.md) — Teams
 * [templates](templates.md) — Templates
 
@@ -148,6 +151,22 @@ its neighbours at the end.
   questions and interrupting it in the middle of the work; the manual, the automatic and the
   hierarchical start; the subtasks and the auto-split; working with a task of another server.
 
+**[How tasks are executed](TaskDo.md)**
+
+* The order of a whole-hierarchy run: a queue pass from the bottom up by priority, when a
+  task waits, is skipped or is started, when the queue closes; how "Condition", "Loop (check
+  first)" and "Loop (check after)" fit into that order, the round limit and stopping.
+
+**[Experience](experience.md)**
+
+* The system's memory of how the work should be done: the three scopes (general rules of the
+  organisation, project experience, template node experience) and the rule that divides them; what
+  a record has and how it reaches a job — activity, skill, “always load”, tags as a signal, level
+  quotas and the paste limit; the “Used experience” tab and the usage statistics; searching the
+  experience and what search cannot find; moving a record between scopes and reviewing the general
+  experience; switching a record off and the “all inactive” archiving rule; experience packs
+  (working styles) and the “Experience analysis” template on a schedule.
+
 **[The LoRA editor](LoRAEditor.md)**
 
 * How to use the LoRA editor: what has to exist before the training, what to write in the adapter
@@ -155,6 +174,13 @@ its neighbours at the end.
   the generation prompt, how to start and stop the training, whether the order of the dataset frames
   matters, frequent errors and what the editor does not do. The same page opens from the editor
   itself, by the book button.
+
+**[Working with audio models](audio.md)**
+
+* How to build a sound scene out of music, a song, the speech of particular people and noises:
+  which audio models the catalog has and what each can do, why one task is one sound layer,
+  which voice samples speech synthesis needs and how to pass them, why a singer's voice is set
+  in words, where to get a sound effect, how to join and mix the layers, frequent errors.
 
 ### Examples and the service part
 

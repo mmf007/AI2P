@@ -88,6 +88,43 @@ Two things worth knowing about the form:
   already chosen blocking task always stays an item — otherwise there would be no way to remove
   it.
 
+### Task type: linear, condition, loop
+
+The **Advanced** section has a **Task type** field. Every task and every template node has one
+of four types:
+
+* **Linear** — an ordinary task, as always. This is the default, and every task and template
+  created before the field appeared reads as linear.
+* **Condition** — depending on the outcome of the task, one of two branches runs. For each branch
+  you set the **task on “Yes”** and the **task on “No”** — only a **direct subtask** of this task
+  can be chosen (so a freshly created task has an empty list: create the subtasks first). If a
+  branch has no task, it has a **Create tasks** check box, and when that is cleared — a **Finish
+  running the hierarchy** check box.
+* **Loop (check first)** — the condition is checked before each round of subtasks.
+* **Loop (check after)** — the condition is checked after each round of subtasks.
+
+Both loops have a **loop limit** — how many rounds are allowed (a new task takes it from the
+project's “Re-check rounds” setting; a template copy takes it from the template node) — and
+a **Stop running the whole hierarchy when the limit is exceeded** check box.
+
+The fields appear only for their own type: a linear task shows nothing new in the form. When a
+task is created from a template, the type and all its parameters are carried over to the copy,
+and the condition branch links are pointed at the tasks created from the nodes.
+
+**What the agent does.** Conditions and loops are evaluated by the executor from the task
+description and chat — AI2P does not analyse them. A Condition or Loop task gets a separate
+block in its job: what to return and with which action. A condition decision is strictly
+`true` ("Yes") or `false` ("No") via `set_condition_result`; a loop check result is `true`
+(another pass) or `false` (exit) via `set_loop_result`. There is no third outcome: "yes", "1"
+or nothing is an action error, and then the hierarchy run stops — the system never picks a
+branch for the agent. The branch not taken, the passes and the loop limit are handled by the
+hierarchy queue itself. If the chosen branch has no task and "Create tasks" is set, the agent
+creates them before finishing — with `create_task` or `create_tasks_from_template` (from a
+template node); and if it decides the work must not continue at all, it finishes the
+hierarchy run with `stop_hierarchy`. A CLI agent does the same with the commands
+`ai2p condition`, `ai2p loop`, `ai2p from-template`, `ai2p stop-hierarchy` or the markers
+`AI2P_CONDITION`, `AI2P_LOOP`, `AI2P_FROM_TEMPLATE`, `AI2P_STOP_HIERARCHY`. How a condition and loops are passed during a hierarchy run is described in the chapter [How tasks are executed](TaskDo.md).
+
 ### The description is the prompt
 
 The description field (and the acceptance criteria, and the chat, and the answer in the Inbox) is
@@ -187,6 +224,8 @@ button of a task **inside** an open queue asks what exactly to stop: everything 
 children, or only this task and the queue. Without that question a job that had been stopped would
 be raised back by the queue itself on the next pass.
 
+The step-by-step order of the pass, and conditions and loops in the queue, are described in the chapter [How tasks are executed](TaskDo.md).
+
 **"Turn off subtask auto-start"** — the button is there too. The mark acts on the task
 **and its whole subtree** and closes all three automatic starts (of the children, of those waiting
 for a blocking task, of the auto-split queue). It does not restrict a manual start, and "start the
@@ -222,6 +261,24 @@ finish of any subtask frees the executor and starts the next one.
 
 The first call marks the task as split, so it will not be split a second time.
 
+### Diagram: condition and loops
+
+On the subtask diagram (the tab's third view) tasks of type "Condition" and "Loop" are recognised
+by their shape, and their progress by colour. Only what the system knows for sure is drawn: the
+task type, the branches set in it, the transition actually made and the pass count. Nothing is
+guessed from the description text.
+
+* **Condition** — a triangle above the task rectangle and another below it. The "Yes" branch
+  arrow leaves the upper one, the "No" arrow the lower one. Until the transition is made both
+  arrows are **yellow**; after it the arrow of the branch taken is **green** and the other one
+  **grey**. If a branch has no task and "stop the run" is ticked, its arrow leads to a dark red
+  round **STOP** sign, coloured by the same rules.
+* **Loop before** — the task frame is repeated twice at the bottom and right; **loop after** —
+  at the top and left. The oval at the bottom right shows passes done / pass limit (the task's
+  own limit, or the project's one if the task has none). If the whole hierarchy run stopped on
+  the loop, a **STOP** sign with a red arrow appears on its right.
+* A **linear** task looks as before.
+
 ---
 
 ## A task on another server
@@ -252,6 +309,7 @@ are for the owner only. The details are in [Several servers](servers.md).
 
 ## Next
 
+* [How tasks are executed](TaskDo.md) — the order of a whole-hierarchy run.
 * [Projects](progects.md) — the folder, the objects, the experience and the settings that affect
   tasks.
 * [Templates](templates.md) — so as not to type the same task tree twice.

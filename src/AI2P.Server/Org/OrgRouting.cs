@@ -24,8 +24,14 @@ public static class OrgRouting
         "api", "_blazor", "_framework", "_content", "login", "logout", "server-admin", "no-org",
     };
 
+    /// <summary>ПОСЛЕДНЯЯ ОТКРЫТАЯ ОРГАНИЗАЦИЯ (T-237-S0) — имя cookie. Хранится в браузере,
+    /// а не в памяти сервера и не в базе организации: перезапуск сервера её не теряет, а
+    /// базы, общей для всех организаций, у нас нет — код организации лежит в реестре, но
+    /// «какую открывал ЭТОТ человек в ЭТОМ браузере» принадлежит браузеру.</summary>
+    public const string LastOrgCookie = "ai2p.org";
+
     /// <summary>Разбор сегмента организации; ставится ДО маршрутизации — он меняет путь.</summary>
-    public static void UseAi2pOrgPath(this WebApplication app)
+    public static void UseAi2pOrgPath(this WebApplication app, string basePath)
     {
         var registry = app.Services.GetRequiredService<OrgRegistry>();
         app.Use(async (ctx, next) =>
@@ -53,10 +59,47 @@ public static class OrgRouting
                     // приложение, и маршруты Blazor остаются внутри организации сами собой.
                     ctx.Request.PathBase = ctx.Request.PathBase.Add("/" + first);
                     ctx.Request.Path = rest;
+                    // ЗАПОМИНАЕМ ОТКРЫТУЮ ОРГАНИЗАЦИЮ (T-237-S0). Пишется только у страниц
+                    // приложения: у служебных разделов (api, _blazor, вход) организация
+                    // в адресе — это адресат вызова, а не выбор человека
+                    Remember(ctx, basePath, first);
                 }
             }
             await next();
         });
+    }
+
+    /// <summary>Записать код организации в cookie браузера (T-237-S0). Cookie постоянная —
+    /// смысл в том и состоит, чтобы пережить и закрытие браузера, и перезапуск сервера;
+    /// HttpOnly, потому что читает её только сервер. Путь — базовый путь приложения, чтобы
+    /// две установки на одном хосте не перебивали выбор друг другу.</summary>
+    private static void Remember(HttpContext ctx, string basePath, string code)
+    {
+        if (string.Equals(ctx.Request.Cookies[LastOrgCookie], code, StringComparison.Ordinal))
+        {
+            return; // уже записано — не гоняем Set-Cookie на каждую страницу
+        }
+        ctx.Response.Cookies.Append(LastOrgCookie, code, new CookieOptions
+        {
+            Path = basePath.Length > 0 ? basePath : "/",
+            HttpOnly = true,
+            IsEssential = true,
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTimeOffset.UtcNow.AddYears(1),
+        });
+    }
+
+    /// <summary>Организация из cookie «последняя открытая» (T-237-S0), если вошедший в ней
+    /// состоит. null — cookie нет, организация исчезла либо вошедший ей не участник.</summary>
+    private static OrgContext? Remembered(HttpContext ctx, CurrentUserAccessor current, string accountId)
+    {
+        var code = ctx.Request.Cookies[LastOrgCookie];
+        if (string.IsNullOrWhiteSpace(code) || current.Registry.ByCode(code) is not { } org
+            || !org.Org.IsActive)
+        {
+            return null;
+        }
+        return org.Executors.ByAccount(accountId) is null ? null : org;
     }
 
     /// <summary>
@@ -82,7 +125,12 @@ public static class OrgRouting
                 await next();
                 return;
             }
-            var org = current.Default(accountId);
+            // ПОСЛЕДНЯЯ ОТКРЫТАЯ (T-237-S0) идёт первой, и только потом «первая, где состоит»:
+            // человек с несколькими организациями после перезапуска сервера попадал не туда,
+            // где работал, а в первую по списку. Участие проверяется заново: cookie могла
+            // остаться от другого аккаунта этого браузера или от организации, из которой
+            // человека уже убрали
+            var org = Remembered(ctx, current, accountId) ?? current.Default(accountId);
             if (org is null)
             {
                 // ХОЗЯИН УСТАНОВКИ, ЕЩЁ НЕ СТАВШИЙ УЧАСТНИКОМ (T-148) — это сервер, который

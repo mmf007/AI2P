@@ -89,6 +89,44 @@ Duas coisas que vale saber sobre o formulário:
   uma bloqueadora já escolhida continua sendo um item sempre — caso contrário não haveria como
   removê-la.
 
+### Tipo de tarefa: linear, condição, ciclo
+
+A seção **Avançado** tem o campo **Tipo de tarefa**. Cada tarefa e cada nó de modelo tem um de
+quatro tipos:
+
+* **Linear** — uma tarefa comum, como sempre. É o tipo padrão, e todas as tarefas e modelos
+  criados antes de o campo aparecer são lidos como lineares.
+* **Condição** — conforme o resultado da tarefa, executa-se um de dois ramos. Para cada ramo
+  indica-se a **tarefa se «Sim»** e a **tarefa se «Não»** — só é possível escolher uma
+  **subtarefa direta** desta tarefa (por isso uma tarefa recém-criada tem a lista vazia: crie
+  antes as subtarefas). Se o ramo não tiver tarefa, ele tem a caixa **Criar tarefas** e, quando
+  ela está desmarcada, a caixa **Encerrar a execução da hierarquia**.
+* **Ciclo (verificar antes)** — a condição é verificada antes de cada volta de subtarefas.
+* **Ciclo (verificar depois)** — a condição é verificada depois de cada volta de subtarefas.
+
+Os dois ciclos têm um **limite do ciclo** — quantas voltas são permitidas (uma tarefa nova o
+obtém da configuração do projeto «Rodadas de reverificação»; uma cópia de modelo, do
+nó do modelo) — e a caixa **Parar a execução de toda a hierarquia ao exceder o limite**.
+
+Os campos aparecem só para o seu tipo: uma tarefa linear não mostra nada de novo no formulário.
+Ao criar uma tarefa a partir de um modelo, o tipo e todos os seus parâmetros passam para a
+cópia, e os links dos ramos da condição passam a apontar para as tarefas criadas a partir dos nós.
+
+**O que o agente faz.** As condições e os ciclos são avaliados pelo executor a partir da
+descrição da tarefa e do chat — o AI2P não os analisa. Uma tarefa «Condição» ou de ciclo
+recebe na sua execução um bloco próprio: o que devolver e com que ação. A decisão de uma
+condição é estritamente `true` («Sim») ou `false` («Não») com `set_condition_result`; o
+resultado da verificação de um ciclo é `true` (mais uma volta) ou `false` (sair) com
+`set_loop_result`. Não há terceiro resultado: «sim», «1» ou nada é um erro da ação, e então a
+execução da hierarquia para — o sistema nunca escolhe o ramo pelo agente. O ramo não
+escolhido, as voltas e o limite do ciclo são tratados pela própria fila da hierarquia. Se o
+ramo escolhido não tiver tarefa e estiver marcado «Criar tarefas», o agente cria-as antes de
+entregar — com `create_task` ou `create_tasks_from_template` (a partir de um nó de modelo); e
+se decidir que não se pode continuar de todo, conclui a execução da hierarquia com
+`stop_hierarchy`. Um agente CLI faz o mesmo com os comandos `ai2p condition`, `ai2p loop`,
+`ai2p from-template`, `ai2p stop-hierarchy` ou com os marcadores `AI2P_CONDITION`,
+`AI2P_LOOP`, `AI2P_FROM_TEMPLATE`, `AI2P_STOP_HIERARCHY`. Como a condição e os ciclos são percorridos na execução da hierarquia está no capítulo [Algoritmo de execução das tarefas](TaskDo.md).
+
 ### A descrição é o prompt
 
 O campo da descrição (e o dos critérios de aceitação, e o do chat, e o da resposta na Caixa de
@@ -193,6 +231,8 @@ botão «parar» de uma tarefa **dentro** de uma fila aberta pergunta o que exat
 junto com os descendentes ou apenas esta tarefa e a fila. Sem essa pergunta, o trabalho
 encerrado seria levantado de volta pela própria fila na passagem seguinte.
 
+A ordem da passagem passo a passo, e as condições e os ciclos na fila, estão no capítulo [Algoritmo de execução das tarefas](TaskDo.md).
+
 **«Desligar o início automático das subtarefas»** — o botão fica no mesmo lugar. A marca vale
 para a tarefa **e para toda a subárvore dela** e fecha os três inícios automáticos (dos
 descendentes, dos que esperavam uma bloqueadora e da fila da divisão automática). O início
@@ -230,6 +270,24 @@ executor e inicia a seguinte.
 
 A primeira chamada marca a tarefa como dividida, por isso ela não se divide de novo.
 
+### Diagrama: condição e ciclos
+
+No diagrama de subtarefas (a terceira vista da aba) as tarefas do tipo «Condição» e «Ciclo» são
+reconhecidas pela forma, e o seu andamento pela cor. Só se desenha o que o sistema sabe com
+certeza: o tipo da tarefa, os ramos indicados nela, a transição realizada e a contagem de
+voltas. Nada é adivinhado pelo texto da descrição.
+
+* **Condição** — um triângulo acima do retângulo da tarefa e outro abaixo. Do superior sai a
+  seta do ramo «Sim», do inferior a do «Não». Enquanto a transição não é feita, as duas setas
+  são **amarelas**; depois, a do ramo percorrido fica **verde** e a outra **cinzenta**. Se um
+  ramo não tem tarefa e está marcado «terminar a execução», a seta leva a um sinal redondo
+  **STOP** vermelho-escuro, com a cor pelas mesmas regras.
+* **Ciclo antes** — a moldura da tarefa repete-se duas vezes em baixo e à direita; **ciclo
+  depois** — em cima e à esquerda. O oval em baixo à direita mostra voltas feitas / limite de
+  voltas (o da tarefa ou, se não houver, o do projeto). Se a execução de toda a hierarquia
+  parou no ciclo, à direita aparece o sinal **STOP** com uma seta vermelha.
+* Uma tarefa **linear** tem o aspeto de antes.
+
 ---
 
 ## Uma tarefa em servidor alheio
@@ -261,6 +319,7 @@ exclusão, divisão e retirada de pergunta só no dono. Detalhes em
 
 ## Depois
 
+* [Algoritmo de execução das tarefas](TaskDo.md) — a ordem da execução da hierarquia inteira.
 * [Projetos](progects.md) — a pasta, os objetos, a experiência e as configurações que afetam as
   tarefas.
 * [Modelos de processo](templates.md) — para não digitar duas vezes a mesma árvore de tarefas.

@@ -393,6 +393,10 @@ public sealed class TaskService
         using var tx = conn.BeginTransaction();
 
         Validate(conn, tx, task, isNew: true);
+        // тип задачи (T-298-S0): у новой задачи прямых потомков ещё нет — ссылки на ветви
+        // условия заводятся правкой; лимит цикла берётся из настроек проекта
+        ApplyFlowDefaults(conn, tx, task);
+        ValidateFlow(conn, tx, task);
         task.DisplayId = Database.NextDisplayId(conn, tx, task.Kind == TaskKind.Process ? "P" : "T",
             CodeForNew(task.ServerId));
 
@@ -409,13 +413,17 @@ public sealed class TaskService
                                priority, priority_num,
                                is_not_split, due_date, planned_hours,
                                responsible_id, launch_json, acceptance_path, is_template, template_id,
-                               external_ref, import_url, server_id, created_at, updated_at)
+                               external_ref, import_url, server_id, prompter_executor_id,
+                               created_at, updated_at)
             VALUES (@id, @did, @project, @team, @parent, @kind, @title, @descr, @status, @doneStatus,
                     @parentInPrompt, @siblingsInPrompt, @timeQuality,
                     @priority, @prioNum, @notSplit, @due, @hours, @responsible, @launch, @acceptance,
-                    @template, @templateId, @externalRef, @importUrl, @server, @created, @updated)
+                    @template, @templateId, @externalRef, @importUrl, @server, @prompter,
+                    @created, @updated)
             """,
             ("@server", task.ServerId),
+            // СУФЛЁР ЗАДАЧИ (T-292-S0): пустая строка приводится к null — «суфлёра нет»
+            ("@prompter", Prompter(task.PrompterExecutorId)),
             ("@id", task.Id), ("@did", task.DisplayId), ("@project", task.ProjectId),
             ("@team", task.TeamId), ("@parent", task.ParentId), ("@kind", task.Kind.ToDb()),
             ("@title", task.Title), ("@descr", task.DescriptionPath), ("@status", task.Status),
@@ -489,6 +497,8 @@ public sealed class TaskService
         task.DisplayId = old.DisplayId;
         task.ServerId = old.ServerId;
         Validate(conn, tx, task);
+        ApplyFlowDefaults(conn, tx, task);
+        ValidateFlow(conn, tx, task);
         var slug = ProjectSlug(conn, task.ProjectId, tx);
         task.DescriptionPath = _files.WriteTaskDescription(slug, task.DisplayId, descriptionMd);
         task.AcceptancePath = acceptanceMd.Trim().Length > 0
@@ -505,7 +515,8 @@ public sealed class TaskService
                              planned_hours=@hours, responsible_id=@responsible, launch_json=@launch,
                              acceptance_path=@acceptance, is_template=@template,
                              external_ref=COALESCE(@externalRef, external_ref),
-                             import_url=@importUrl, updated_at=@updated
+                             import_url=@importUrl, prompter_executor_id=@prompter,
+                             updated_at=@updated
             WHERE id=@id
             """,
             ("@project", task.ProjectId), ("@team", task.TeamId), ("@parent", task.ParentId),
@@ -529,9 +540,12 @@ public sealed class TaskService
             // Update, обязаны нести её в задаче; форма несёт (TaskDialog), остальные правят
             // задачу, прочитанную из базы
             ("@importUrl", NormalizeImportUrl(task.ImportUrl)),
+            // суфлёр задачи (T-292-S0) пишется КАК ЕСТЬ — форма несёт его всегда
+            ("@prompter", Prompter(task.PrompterExecutorId)),
             ("@updated", Sql.ToDb(now)), ("@id", task.Id));
         Sql.Exec(conn, tx, "DELETE FROM task_executors WHERE task_id=@id", ("@id", task.Id));
         Sql.Exec(conn, tx, "DELETE FROM task_alt_executors WHERE task_id=@id", ("@id", task.Id));
+        Sql.Exec(conn, tx, "DELETE FROM task_prompter_alt_executors WHERE task_id=@id", ("@id", task.Id));
         Sql.Exec(conn, tx, "DELETE FROM task_skills WHERE task_id=@id", ("@id", task.Id));
         Sql.Exec(conn, tx, "DELETE FROM task_blockers WHERE task_id=@id", ("@id", task.Id));
         Sql.Exec(conn, tx, "DELETE FROM task_tags WHERE task_id=@id", ("@id", task.Id));
@@ -1073,7 +1087,10 @@ public sealed class TaskService
                 DueDate = node.DueDate is { } due && shift is { } delta ? due + delta : node.DueDate,
                 PlannedHours = node.PlannedHours,
                 ResponsibleId = responsibleId,
-                LaunchJson = node.LaunchJson,
+                // тип задачи и его параметры (T-298-S0) переезжают вместе с launch_json;
+                // ссылки ветвей условия указывают на узлы шаблона и ставятся ниже, когда
+                // заведены все копии (у новой задачи потомков ещё нет — проверка их не пустит)
+                LaunchJson = WithoutIfBranches(node.LaunchJson),
                 IsTemplate = false,
                 TemplateId = node.Id,
                 ExecutorIds = executorIds,
@@ -1081,6 +1098,10 @@ public sealed class TaskService
                 // иначе копия шаблона, запущенная при занятом исполнителе, встала бы ждать,
                 // хотя в шаблоне замена как раз и была расписана
                 AltExecutorIds = altExecutorIds,
+                // СУФЛЁР и его замена (T-292-S0) переезжают по той же причине: без суфлёра
+                // копия шаблона с медиа-моделью не запустится вовсе
+                PrompterExecutorId = node.PrompterExecutorId,
+                PrompterAltExecutorIds = node.PrompterAltExecutorIds.ToList(),
                 SkillIds = node.SkillIds.ToList(),
                 // тэги узла шаблона переезжают в созданную задачу (T-222): ими размечают
                 // тему работы, а тема у копии та же самая
@@ -1111,6 +1132,30 @@ public sealed class TaskService
                     }
                 }
             }
+        }
+
+        // ветви условия (T-298-S0): ссылки на узлы шаблона заменяются на созданные из них
+        // задачи; ссылка на не скопированный узел отбрасывается — ветвь остаётся без задачи
+        foreach (var node in nodes)
+        {
+            var flow = node.Flow;
+            if (flow.Type != TaskFlow.If || (flow.IfTrueTaskId is null && flow.IfFalseTaskId is null))
+            {
+                continue;
+            }
+            flow.IfTrueTaskId = flow.IfTrueTaskId is { } trueNode && idMap.TryGetValue(trueNode, out var trueCopy) ? trueCopy : null;
+            flow.IfFalseTaskId = flow.IfFalseTaskId is { } falseNode && idMap.TryGetValue(falseNode, out var falseCopy) ? falseCopy : null;
+            WithLaunch(idMap[node.Id], root =>
+            {
+                if (flow.IfTrueTaskId is { } trueId)
+                {
+                    root[TaskFlow.IfTrueTaskKey] = trueId;
+                }
+                if (flow.IfFalseTaskId is { } falseId)
+                {
+                    root[TaskFlow.IfFalseTaskKey] = falseId;
+                }
+            });
         }
 
         // правила безопасности узлов шаблона копируются в новые задачи (ТЗ пп. 2.4, гл. 12, todo25)
@@ -1770,6 +1815,23 @@ public sealed class TaskService
         return waiting;
     }
 
+    // --- ветвление и циклы: состояние выполнения (T-299-S0) ---
+
+    /// <summary>
+    /// РЕШЕНИЕ АГЕНТА по задаче типа «Условие» или «Цикл» (T-299-S0): true — «Да» / «условия
+    /// цикла выполнены, на круг», false — «Нет» / «выход». Пишется ключом
+    /// <see cref="TaskFlowRun.DecisionKey"/> в launch_json задачи; дальше его читает очередь
+    /// иерархии (<c>JobOrchestrator</c>), когда задание завершится. Зовёт действие агента
+    /// (T-300-S0) — повторный вызов в том же задании просто переписывает решение.
+    /// </summary>
+    public void SetFlowDecision(string taskId, bool decision) =>
+        WithLaunch(taskId, root => TaskFlowRun.WriteDecision(root, decision));
+
+    /// <summary>Правка ключей состояния ветвления/цикла (<see cref="TaskFlowRun"/>) одной
+    /// транзакцией — для очереди иерархии, которой приватная правка launch_json недоступна.</summary>
+    public void EditFlowRun(string taskId, Action<System.Text.Json.Nodes.JsonObject> edit) =>
+        WithLaunch(taskId, edit);
+
     /// <summary>Правка launch_json задачи одной транзакцией (T-31-S0): прочитали, изменили
     /// объект, записали. Испорченный JSON заменяется пустым объектом — как в соседних
     /// правках launch_json.</summary>
@@ -2163,15 +2225,20 @@ public sealed class TaskService
             return dto;
         }
         using var conn = _db.Open();
-        dto.DefaultHours = ProjectSettings.DefaultTaskHours(Sql.Query(conn, null,
+        var projectSettings = Sql.Query(conn, null,
                 "SELECT settings_json FROM projects WHERE id=@p",
-                r => r.SN("settings_json"), ("@p", (object?)root.ProjectId)).FirstOrDefault());
+                r => r.SN("settings_json"), ("@p", (object?)root.ProjectId)).FirstOrDefault();
+        dto.DefaultHours = ProjectSettings.DefaultTaskHours(projectSettings);
+        // предел кругов цикла по умолчанию — проекта корня (T-301-S0, овал «проходы/максимум»)
+        var projectLoopLimit = ProjectSettings.RecheckLimit(projectSettings);
 
-        // всё поддерево: шаблоны и удалённые в очередь иерархии не попадают вовсе
+        // всё поддерево: удалённые в очередь иерархии не попадают вовсе. Шаблон рисуется
+        // своими узлами-шаблонами (T-312-S0): отбор «is_template = 0» оставлял у шаблона
+        // один корень, и диаграммы не было вовсе
         var all = Sql.Query(conn, null, $"""
             SELECT t.*, {PendingQuestionsSql} FROM tasks t
-            WHERE t.deleted_at IS NULL AND t.is_template = 0
-            """, Map);
+            WHERE t.deleted_at IS NULL AND t.is_template = @tpl
+            """, Map, ("@tpl", (object?)(root.IsTemplate ? 1 : 0)));
         foreach (var task in all)
         {
             LoadLinks(conn, task);
@@ -2227,13 +2294,14 @@ public sealed class TaskService
         var args = ids.Select((id, i) => ($"@t{i}", (object?)id)).ToArray();
         var list = string.Join(",", ids.Select((_, i) => $"@t{i}"));
         var jobs = Sql.Query(conn, null, $"""
-            SELECT task_id, executor_id, state, started_at, finished_at, created_at
+            SELECT task_id, executor_id, state, wait_kind, started_at, finished_at, created_at
             FROM jobs WHERE deleted_at IS NULL AND task_id IN ({list})
             ORDER BY created_at
             """, r => (
                 Task: r.S("task_id"),
                 Executor: r.SN("executor_id") ?? "",
                 State: r.S("state"),
+                WaitKind: r.SN("wait_kind") ?? "",
                 Started: r.DtN("started_at") ?? r.Dt("created_at"),
                 Finished: r.DtN("finished_at")), args);
 
@@ -2251,9 +2319,19 @@ public sealed class TaskService
                 Math.Max(((j.Finished ?? now) - j.Started).TotalHours, 0));
             var planned = task.PlannedHours is > 0 ? task.PlannedHours.Value : dto.DefaultHours;
             var settled = TaskStatuses.Settled(task.Status);
-            var duration = settled && spent > 0 ? spent : Math.Max(planned, active ? spent : 0);
+            // ОТМЕНЁННАЯ задача (T-312-S0) рисуется наименьшей ширины: её работы не будет,
+            // а затраченное на неё время на диаграмме только растягивало шкалу
+            var duration = task.Status == TaskStatuses.Cancelled ? 0
+                : settled && spent > 0 ? spent : Math.Max(planned, active ? spent : 0);
             var lastExecutor = taskJobs.Count > 0 ? taskJobs[^1].Executor : "";
             var lastState = taskJobs.Count > 0 ? taskJobs[^1].State : "";
+            // ВРЕМЯ РАБОТЫ И ПРИЧИНА ОЖИДАНИЯ (T-312-S0) — те же, что в представлении «в работе
+            // у ИИ»: начало живого задания и AiPause по заданию, переносу старта и очереди
+            var liveJob = active ? taskJobs[^1] : default;
+            var pause = settled ? null : AiPause.Of(lastState == "waiting_human", liveJob.WaitKind ?? "",
+                LaunchStartAfter(task.LaunchJson), task.PendingQuestions, now,
+                HasLaunchFlag(task.LaunchJson, HierarchyFlag) && lastState is not ("queued" or "running"),
+                loopBody: task.Status == TaskStatuses.Paused && TaskFlowRun.InLoopBody(task.LaunchJson));
             // кто РЕАЛЬНО делает или делал задачу (по заданию): последнее задание, иначе
             // отметка о замене исполнителя (T-221), иначе назначенный
             var executorId = (lastExecutor.Length > 0 ? lastExecutor : task.ActualExecutorId)
@@ -2271,6 +2349,8 @@ public sealed class TaskService
                 // когда работа НАЧАЛАСЬ на самом деле (первое задание): по этому времени
                 // раскладка ставит уже случившееся в настоящем порядке (T-164-S0)
                 StartedAt = taskJobs.Count > 0 ? taskJobs[0].Started : null,
+                WorkStartedAt = active ? liveJob.Started : null,
+                Pause = pause,
                 DurationHours = duration,
                 Actual = settled && spent > 0,
                 BlockerIds = task.BlockerIds.ToList(),
@@ -2283,6 +2363,14 @@ public sealed class TaskService
                 // приоритет нужен раскладке: незаконченные задачи стоят в порядке очереди,
                 // и взятая в работу обгоняет ждущую только среди равных ей (T-192-S0)
                 PriorityNum = task.PriorityNum,
+                // тип задачи и параметры ветвей/цикла (T-298-S0): развилки и циклы диаграммы
+                Flow = task.Flow,
+                // ФАКТ хода условия и цикла (T-301-S0): только то, что записали агент и движок
+                FlowDecision = TaskFlowRun.Decision(task.LaunchJson),
+                FlowApplied = TaskFlowRun.Applied(task.LaunchJson),
+                FlowStopped = TaskFlowRun.Stopped(task.LaunchJson),
+                LoopPass = TaskFlowRun.LoopPass(task.LaunchJson),
+                LoopLimit = TaskFlow.IsLoop(task.Flow.Type) ? TaskFlowRun.LoopLimit(task.Flow, projectLoopLimit) : 0,
             });
         }
         TaskDiagram.Layout(dto.Nodes);
@@ -2558,6 +2646,74 @@ public sealed class TaskService
         return links;
     }
 
+    /// <summary>
+    /// УМОЛЧАНИЕ ЛИМИТА ЦИКЛА (T-298-S0): у «цикла до» и «цикла после» без заданного
+    /// <c>recheckLimit</c> он берётся из настроек проекта задачи (<see cref="ProjectSettings.RecheckLimit"/>;
+    /// нет проекта — умолчание 3). Копия шаблона приходит с лимитом узла, и он не трогается.
+    /// Заодно launch_json приводится к нормальному виду: ключи чужого типа снимаются.
+    /// </summary>
+    private static void ApplyFlowDefaults(SqliteConnection conn, SqliteTransaction tx, TaskItem task)
+    {
+        var flow = task.Flow;
+        if (TaskFlow.IsLoop(flow.Type) && flow.RecheckLimit is null)
+        {
+            flow.RecheckLimit = ProjectSettings.RecheckLimit(task.ProjectId is { Length: > 0 }
+                ? Sql.Scalar<string>(conn, tx, "SELECT settings_json FROM projects WHERE id=@id",
+                    ("@id", task.ProjectId))
+                : null);
+        }
+        if (flow.Type != TaskFlow.Linear)
+        {
+            task.LaunchJson = TaskFlow.Write(task.LaunchJson, flow);
+        }
+    }
+
+    /// <summary>launch_json без ссылок на задачи ветвей условия (T-298-S0): копия узла
+    /// шаблона получает их после того, как заведены все копии.</summary>
+    private static string WithoutIfBranches(string launchJson)
+    {
+        var flow = TaskFlow.Read(launchJson);
+        if (flow.Type != TaskFlow.If || (flow.IfTrueTaskId is null && flow.IfFalseTaskId is null))
+        {
+            return launchJson;
+        }
+        flow.IfTrueTaskId = null;
+        flow.IfFalseTaskId = null;
+        return TaskFlow.Write(launchJson, flow);
+    }
+
+    /// <summary>
+    /// Ветви УСЛОВИЯ (T-298-S0): задача при «Да» и при «Нет» — только ПРЯМЫЕ потомки этой
+    /// задачи (живые), и не одна и та же задача на обе ветви. Проверяется только при
+    /// создании и правке задачи: перенос потомка в другое место ссылку не чинит, и движок
+    /// иерархии обязан считать ссылку на не-потомка «ветвь без задачи».
+    /// </summary>
+    private static void ValidateFlow(SqliteConnection conn, SqliteTransaction tx, TaskItem task)
+    {
+        var flow = task.Flow;
+        if (flow.Type != TaskFlow.If)
+        {
+            return;
+        }
+        if (flow.IfTrueTaskId is { Length: > 0 } && flow.IfTrueTaskId == flow.IfFalseTaskId)
+        {
+            throw new ArgumentException(Loc.T("msg.taskFlow.2"));
+        }
+        foreach (var branchId in new[] { flow.IfTrueTaskId, flow.IfFalseTaskId })
+        {
+            if (branchId is not { Length: > 0 })
+            {
+                continue;
+            }
+            var parentId = Sql.Scalar<string>(conn, tx,
+                "SELECT parent_id FROM tasks WHERE id=@id AND deleted_at IS NULL", ("@id", branchId));
+            if (parentId != task.Id)
+            {
+                throw new ArgumentException(Loc.T("msg.taskFlow.1", branchId));
+            }
+        }
+    }
+
     /// <summary>Проверки ядра (ТЗ пп. 2.1, 6.4.2); у шаблонов поля могут быть пустыми (п. 2.3).</summary>
     private void Validate(SqliteConnection conn, SqliteTransaction tx, TaskItem task,
         bool isNew = false)
@@ -2728,6 +2884,24 @@ public sealed class TaskService
         return result;
     }
 
+    /// <summary>Суфлёр задачи к записи (T-292-S0): пустая строка — это «суфлёра нет», и
+    /// хранить её надо как null, иначе «не назначен» пришлось бы проверять двумя способами.</summary>
+    private static string? Prompter(string? executorId) =>
+        executorId is { } id && id.Trim().Length > 0 ? id.Trim() : null;
+
+    /// <summary>
+    /// НАЗНАЧИТЬ ЗАДАЧЕ СУФЛЁРА (T-292-S0) — одним полем, не переписывая записи целиком.
+    /// Зовётся запуском: суфлёр задачи не задан, а у выбранного основного исполнителя он
+    /// назван — подставляем, чтобы человек видел в карточке, кто именно готовил json.
+    /// </summary>
+    public void SetPrompter(string taskId, string? executorId)
+    {
+        using var conn = _db.Open();
+        Sql.Exec(conn, null,
+            "UPDATE tasks SET prompter_executor_id=@p, updated_at=@updated WHERE id=@id",
+            ("@p", Prompter(executorId)), ("@updated", Sql.ToDb(DateTime.UtcNow)), ("@id", taskId));
+    }
+
     private static void SaveLinks(SqliteConnection conn, SqliteTransaction tx, TaskItem task)
     {
         foreach (var executorId in task.ExecutorIds)
@@ -2744,6 +2918,17 @@ public sealed class TaskService
             Sql.Exec(conn, tx,
                 "INSERT OR IGNORE INTO task_alt_executors (task_id, executor_id, ord) VALUES (@t, @e, @o)",
                 ("@t", task.Id), ("@e", task.AltExecutorIds[i]), ("@o", i));
+        }
+        // «могут заменить СУФЛЁРА» (T-292-S0) — тем же правилом, что и замена исполнителя:
+        // порядок списка есть порядок предпочтения, назначенный суфлёр сам себя не заменяет
+        task.PrompterAltExecutorIds = NormalizeAlt(task.PrompterAltExecutorIds,
+            task.PrompterExecutorId is { Length: > 0 } p ? [p] : []);
+        for (var i = 0; i < task.PrompterAltExecutorIds.Count; i++)
+        {
+            Sql.Exec(conn, tx,
+                "INSERT OR IGNORE INTO task_prompter_alt_executors (task_id, executor_id, ord) "
+                + "VALUES (@t, @e, @o)",
+                ("@t", task.Id), ("@e", task.PrompterAltExecutorIds[i]), ("@o", i));
         }
         foreach (var skillId in task.SkillIds)
         {
@@ -2793,6 +2978,10 @@ public sealed class TaskService
         task.AltExecutorIds = Sql.Query(conn, tx,
             "SELECT executor_id FROM task_alt_executors WHERE task_id=@id ORDER BY ord, executor_id",
             r => r.S("executor_id"), ("@id", task.Id));
+        // замена СУФЛЁРА (T-292-S0) — в том же порядке предпочтения
+        task.PrompterAltExecutorIds = Sql.Query(conn, tx,
+            "SELECT executor_id FROM task_prompter_alt_executors WHERE task_id=@id ORDER BY ord, executor_id",
+            r => r.S("executor_id"), ("@id", task.Id));
         task.SkillIds = Sql.Query(conn, tx,
             "SELECT skill_id FROM task_skills WHERE task_id=@id", r => r.S("skill_id"), ("@id", task.Id));
         task.BlockerIds = Sql.Query(conn, tx,
@@ -2810,6 +2999,10 @@ public sealed class TaskService
     /// <para>ДО версии 1.88 отменённая блокирующая считалась завершённой и отпускала ждущие
     /// задачи. Теперь отмена — отдельный исход: работа по этой ветке не состоится, значит
     /// ждущие задачи запускать не за чем (<see cref="BlockersState.Cancelled"/>).</para>
+    /// <para>С T-299-S0 снова: блокирующая завершена при статусе «готово» ИЛИ «отменена».
+    /// Иначе отменённая ветка задачи-условия (её отменяет сама очередь иерархии) намертво
+    /// останавливала бы всю очередь. <see cref="BlockersState.Cancelled"/> этот метод больше
+    /// не отдаёт; значение перечисления оставлено для разбора прежних мест.</para>
     /// </summary>
     public BlockersState BlockersStateOf(TaskItem task)
     {
@@ -2823,13 +3016,7 @@ public sealed class TaskService
         {
             var status = Sql.Scalar<string>(conn, null,
                 "SELECT status FROM tasks WHERE id=@id AND deleted_at IS NULL", ("@id", blockerId));
-            if (status == TaskStatuses.Cancelled)
-            {
-                // отмена сильнее ожидания: сколько бы блокирующих ни осталось в работе,
-                // запускать ждущую задачу автоматически уже не будут
-                return BlockersState.Cancelled;
-            }
-            if (status is not (null or TaskStatuses.Done))
+            if (status is not (null or TaskStatuses.Done or TaskStatuses.Cancelled))
             {
                 waiting = true;
             }
@@ -2881,8 +3068,8 @@ public sealed class TaskService
         return !had;
     }
 
-    /// <summary>Все блокирующие задачи переведены в «готово» — задачу можно запускать
-    /// автоматически (ТЗ п. 2.12; с T-6-S1 отменённая блокирующая запуск НЕ отпускает).</summary>
+    /// <summary>Все блокирующие задачи в «готово» или «отменена» — задачу можно запускать
+    /// автоматически (ТЗ п. 2.12; с T-299-S0 отменённая блокирующая запуск снова отпускает).</summary>
     public bool BlockersDone(TaskItem task) => BlockersStateOf(task) == BlockersState.Done;
 
     /// <summary>Хотя бы одна блокирующая задача отменена (T-6-S1): автоматических запусков
@@ -2969,6 +3156,8 @@ public sealed class TaskService
         // кто реально ведёт задачу сейчас (T-221): при замене занятого исполнителя запасным
         // основной не меняется, поэтому фактический хранится отдельной колонкой
         ActualExecutorId = r.Has("actual_executor_id") ? r.SN("actual_executor_id") : null,
+        // суфлёр задачи (T-292-S0): исполнитель, готовящий управляющий json для медиа-модели
+        PrompterExecutorId = r.Has("prompter_executor_id") ? r.SN("prompter_executor_id") : null,
         // сервер-владелец (ТЗ гл. 6, этап 42); код, имя и «только чтение» подставляет Decorate
         ServerId = r.Has("server_id") ? r.SN("server_id") : null,
         CreatedAt = r.Dt("created_at"),

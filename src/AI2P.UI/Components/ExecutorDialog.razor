@@ -80,6 +80,24 @@
                         <MudSelectItem T="string" Value="@model.Id">@model.Name</MudSelectItem>
                     }
                 </MudSelect>
+                @* СУФЛЁР (T-286-S0; с T-292-S0 это ИСПОЛНИТЕЛЬ, а не модель). Поле
+                   спрашивается не у всех: только у МЕДИЙНОЙ модели, которая сама сказала,
+                   что ей нужен управляющий json (prompter.required в профайле). В суфлёры
+                   годится любой ДРУГОЙ ИИ-исполнитель: он приносит с собой свой коннектор,
+                   поэтому суфлёром работают и подписка CLI, и локальная модель *@
+                @if (PrompterNeeded)
+                {
+                    <MudSelect T="string" Value="@_executor.PrompterExecutorId" ValueChanged="OnPrompterChanged"
+                               Label="@L["executors.prompterExecutor"]" Clearable="true"
+                               HelperText="@L["executors.prompterExecutor.hint"]"
+                               ToStringFunc="@PrompterNick"
+                               data-executor-prompter="1">
+                        @foreach (var candidate in PrompterChoices)
+                        {
+                            <MudSelectItem T="string" Value="@candidate.Id">@candidate.Nick</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
             }
             else
             {
@@ -233,6 +251,30 @@
     private IEnumerable<AiModel> ModelChoices =>
         State.Models.Where(m => (m.IsActive || m.Id == _executor.ModelId)
                                 && (State.IsConductor || m.IsLocal));
+
+    /// <summary>Выбранная рабочая модель исполнителя-ИИ; null — ещё не выбрана.</summary>
+    private AiModel? SelectedModel =>
+        State.Models.FirstOrDefault(m => m.Id == _executor.ModelId);
+
+    /// <summary>
+    /// Спрашивать ли модель-суфлёра (T-286-S0): рабочая модель медийная И у неё в профайле
+    /// стоит «нужен суфлёр». Оба условия вместе: текстовой модели суфлёр не нужен по сути
+    /// дела, а медиа-модель, которой хватает одного промпта, о нём не просила.
+    /// </summary>
+    private bool PrompterNeeded =>
+        _executor.Kind == ExecutorKind.Ai && SelectedModel is { IsMedia: true, Prompter.Required: true };
+
+    /// <summary>Кого предлагать в суфлёры (T-292-S0): активные ИИ-исполнители, кроме себя
+    /// самого, плюс уже выбранный — иначе выключенный суфлёр исчез бы из формы молча, и
+    /// человек не понял бы, почему поле пусто. Вид модели здесь не проверяется: суфлёр —
+    /// обычный исполнитель, и что он умеет, знает его собственная декларация.</summary>
+    private IEnumerable<Executor> PrompterChoices =>
+        State.Executors.Where(e => e.Kind == ExecutorKind.Ai && e.Id != _executor.Id
+                                   && (e.IsActive || e.Id == _executor.PrompterExecutorId));
+
+    /// <summary>Ник суфлёра по id — значение поля ставится программно (наука todo34_3).</summary>
+    private string PrompterNick(string? id) =>
+        id is { Length: > 0 } && State.Executors.FirstOrDefault(e => e.Id == id) is { } e ? e.Nick : "";
 
     /// <summary>Исполнитель принадлежит ДРУГОМУ серверу: список плагинов оттуда нам не виден,
     /// и менять пару «плагин + операция» здесь нельзя (правится она на своём сервере).</summary>
@@ -393,6 +435,8 @@
                 Kind = Source.Kind,
                 SystemRole = Source.SystemRole,
                 ModelId = Source.ModelId,
+                // модель-суфлёр (T-286-S0): вторая модель исполнителя
+                PrompterExecutorId = Source.PrompterExecutorId,
                 // «авто ПО» (T-153-S0): пара «плагин + операция» и сервер, где стоит программа
                 PluginCode = Source.PluginCode,
                 PluginOp = Source.PluginOp,
@@ -440,6 +484,7 @@
         _executor.Kind = kind;
         // при смене типа связка с моделью, плагином, аккаунтом и файлами теряет смысл — сбрасываем
         _executor.ModelId = null;
+        _executor.PrompterExecutorId = null;
         _executor.AccountId = null;
         _executor.PluginCode = "";
         _executor.PluginOp = "";
@@ -466,7 +511,17 @@
             _executor.ProfilePath = model.ProfilePath;
             _executor.CapabilitiesPath = model.CapabilitiesPath;
         }
+        // новая рабочая модель суфлёра не просит — забываем прежнего (T-286-S0): иначе
+        // в базе осталась бы ссылка, которой никто не пользуется и которой не видно в форме
+        if (!PrompterNeeded)
+        {
+            _executor.PrompterExecutorId = null;
+        }
     }
+
+    /// <summary>Выбор суфлёра; очистка поля даёт null — «суфлёра нет».</summary>
+    private void OnPrompterChanged(string? executorId) =>
+        _executor.PrompterExecutorId = executorId is { Length: > 0 } ? executorId : null;
 
     private Task EditProfileAsync()
     {
