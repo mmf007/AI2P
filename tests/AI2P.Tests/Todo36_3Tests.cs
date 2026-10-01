@@ -65,9 +65,9 @@ public sealed class Todo36_3Tests : IDisposable
         // T-18-S0 — три варианта ACE-Step 1.5 XL, звук, T-19-S0 — ещё шесть моделей
         // изображений: FLUX.2 klein 4B в двух режимах, FLUX.2 dev, Kandinsky Image Lite,
         // SD 3.5 Large и SDXL 1.0, T-20-S0 — три локальные 3D-модели: Hunyuan3D 2.1,
-        // TRELLIS 2 и TripoSplat)
+        // TRELLIS 2 и TripoSplat, T-347-S0 — лёгкая локальная Qwen3.5-4B для роли суфлёра)
         var all = service.StatusAll();
-        Assert.Equal(30, all.Count);
+        Assert.Equal(31, all.Count);
         Assert.Contains(all, s => s.ModelId == KandinskyId);
     }
 

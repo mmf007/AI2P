@@ -2,7 +2,34 @@
 
 # AI2P — AI to People
 
-**Un planificador de trabajos en el que las tareas no las ejecutan sólo las personas, sino también los agentes de IA.**
+### Un planificador de tareas autoalojado en el que el ejecutor puede ser un agente de IA.<br>Su Jira, donde parte de las tarjetas se hacen solas.
+
+<p align="center"><img src="../images/ai2p-demo.gif" alt="Demo de AI2P: crear una tarea, asignar un agente de IA, pulsar Iniciar, obtener el resultado" width="960"></p>
+
+* **Autoalojado: los datos se quedan con usted.** La base, los archivos de los proyectos y las claves están junto al programa. Windows, Linux, macOS.
+* **Cualquier modelo, también los locales.** Claude, GPT, Gemini, DeepSeek, Qwen por API, Claude Code por suscripción, modelos locales en su propia tarjeta de vídeo, y un clúster de varios ordenadores.
+* **Personas e IA en una sola cola.** No es «un agente de IA en lugar del equipo»: la IA toma lo que sabe hacer y lo demás espera a las personas, como en cualquier planificador.
+
+**[Inicio rápido](man/quickstart.md)** · **[Sitio web](https://ai2p.org/ai2p)** · **[Descargar](https://github.com/mmf007/AI2P/releases)** · Sin clave de API, AI2P funciona como un planificador corriente para personas.
+
+<sub>Descripción completa más abajo ↓</sub>
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+---
 
 AI2P es lo que suele ser Trello o Jira: proyectos, tareas, ejecutores, tablero e historial. La
 diferencia es una sola y lo cambia todo: **el ejecutor de una tarea puede ser una IA**. Lo que la
@@ -17,6 +44,7 @@ claves están junto al programa.
 
 * [Qué hace](#qué-hace)
 * [Cómo se ve en la práctica](#cómo-se-ve-en-la-práctica)
+* [AI2P se construye a sí mismo](#ai2p-se-construye-a-sí-mismo)
 * [Qué hace falta](#qué-hace-falta)
 * [Inicio rápido](#inicio-rápido)
 * [Documentación](#documentación)
@@ -65,18 +93,30 @@ claves están junto al programa.
    preguntas las hace en el chat de la tarea, donde usted mismo le responde.
 4. El resultado terminado queda como artefacto de la tarea, y la tarea pasa a revisión.
 
+## AI2P se construye a sí mismo
+
+AI2P se desarrolla en AI2P. Más de 140 versiones y cientos de tareas: especificaciones,
+código, pruebas, documentación y compilación de versiones los hacen ejecutores de IA; una
+persona plantea las tareas y acepta el resultado. Cada versión es un árbol de tareas: un
+agente divide el trabajo en subtareas, las reparte entre ejecutores y la última tarea hace
+el balance y devuelve a revisión lo que no cuadra. No es una demo sobre una lista de la
+compra, sino un producto que cada día demuestra que funciona sobre sí mismo, con los
+errores honestos de los agentes y su corrección incluidos.
+
 ## Qué hace falta
 
 * Windows 10/11, Linux o macOS; permisos de administrador, sólo para la instalación.
-* El runtime **ASP.NET Core 8.x**: o bien se instala aparte, o bien se toma del paquete de
-  instalación completo (`AI2P_v_1_NN_full_…`), que ya lo lleva dentro.
+* Nada más: coja el **paquete completo** — `AI2P_v_1_NN_full_windows_x64.exe` para Windows,
+  `AI2P_v_1_NN_full_linux_x64.run` para Linux, `AI2P_v_1_NN_full_macos_arm64.run` para macOS.
+  Todo lo necesario para arrancar va dentro, no hace falta instalar .NET aparte.
+  (El paquete sin `full` en el nombre es más pequeño, pero espera que el runtime ASP.NET Core 8.x ya esté instalado.)
 * La clave de API de la IA que vaya a usar, o una suscripción de Claude Code, o una tarjeta
   gráfica para los modelos locales. Sin modelo, el sistema funciona como un planificador normal
   para personas.
 
 ## Inicio rápido  
 Para el primer arranque en unos minutos consulte [Inicio rápido](man/quickstart.md)  
-[Los distributivos están aquí](https://github.com/mmf007/AI2P/releases) 
+[Los distributivos están aquí](https://github.com/mmf007/AI2P/releases) — coja el paquete con `full` en el nombre  
 
 ## Documentación
 Para la documentación detallada consulte [Documentación](index.md)

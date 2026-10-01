@@ -54,6 +54,11 @@ public static class EventTypes
     public const string AgentResponse = "agent.response";
     /// <summary>Вызовы файловых инструментов агентом (function calling, ТЗ п. 2.4, todo17).</summary>
     public const string AgentToolCalls = "agent.tool_calls";
+    /// <summary>ПОДМЕНА МОДЕЛИ (T-359-S0): фактически ответила не та модель, которую просили
+    /// в профайле записи справочника. У Claude Code CLI такое даёт подписка без доступа к
+    /// старшей модели, а прежде это было видно только строкой в логе — запись
+    /// «Claude-Opus-5.5_cli», молча работающая на Sonnet, выглядела исправной.</summary>
+    public const string AgentModelMismatch = "agent.model_mismatch";
     /// <summary>Отработала МОДЕЛЬ-СУФЛЁР перед медиа-заданием (T-288-S0): в полезной нагрузке —
     /// модель, путь файла управляющего json, токены, стоимость и названные поля. Отдельный тип,
     /// а не <see cref="AgentRequest"/>: это ВТОРОЙ вызов модели в том же задании, и в журнале

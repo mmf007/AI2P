@@ -1003,8 +1003,34 @@ public sealed class ServerService
     /// </summary>
     public bool IsLocalConductor(string orgId)
     {
-        return Conductor(orgId)?.IsLocal ?? true;
+        // ОТВЕТ ЖИВЁТ СЕКУНДУ (T-363-S0). Из него считается «строка только для чтения», то
+        // есть спрашивают его на КАЖДУЮ строку любого списка — задач, расписаний, моделей, —
+        // а стоит он открытия соединения с серверной БД и запроса с объединением. На списке
+        // в полтысячи задач это давало полтысячи таких походов, и открытие карточки задачи
+        // упиралось именно в них. Срок годности нужен потому, что смена дирижёра приезжает
+        // и репликацией — мимо DropCache; секунда достаточно мала, чтобы человек разницы
+        // не заметил, и достаточно велика, чтобы список обошёлся одним запросом
+        lock (_cacheLock)
+        {
+            if (_conductors.TryGetValue(orgId, out var cached)
+                && DateTime.UtcNow - cached.At < ConductorTtl)
+            {
+                return cached.Value;
+            }
+        }
+        var isLocal = Conductor(orgId)?.IsLocal ?? true;
+        lock (_cacheLock)
+        {
+            _conductors[orgId] = (isLocal, DateTime.UtcNow);
+        }
+        return isLocal;
     }
+
+    /// <summary>Ответ «мы ли дирижёр» по организациям и когда он получен (T-363-S0).</summary>
+    private readonly Dictionary<string, (bool Value, DateTime At)> _conductors =
+        new(StringComparer.Ordinal);
+
+    private static readonly TimeSpan ConductorTtl = TimeSpan.FromSeconds(1);
 
     /// <summary>Код локального сервера в организации (S0, S1, …) — показывается в настройках
     /// только для чтения (todo41, замечание 2); пусто — сервер с организацией не связан.</summary>
@@ -1087,6 +1113,7 @@ public sealed class ServerService
             _names = null;
             _codes = null;
             _localId = null;
+            _conductors.Clear(); // смена дирижёра здесь же (T-363-S0)
         }
     }
 

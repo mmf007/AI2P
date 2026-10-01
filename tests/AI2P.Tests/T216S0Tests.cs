@@ -155,13 +155,20 @@ public sealed class T216S0Tests : IDisposable
     {
         var models = _f.Models.List();
 
+        // каждый идентификатор списка обязан называть СУЩЕСТВУЮЩУЮ запись справочника:
+        // опечатка в списке гасила бы пустоту и молча ничего не делала
         foreach (var id in AiModelService.RetiredSeedModels)
         {
-            var model = models.SingleOrDefault(m => m.Id == id);
-            Assert.NotNull(model);
-            Assert.Contains(model!.Name, Retired);
+            Assert.NotNull(models.SingleOrDefault(m => m.Id == id));
         }
-        Assert.Equal(Retired.Length, AiModelService.RetiredSeedModels.Count);
+        // ПОЛНЫЙ состав списка здесь не сверяется: каждый следующий обход рынка дописывает
+        // в него свои записи (T-347-S0 — две записи Wan 2.2), и равенство длин краснело бы
+        // при исправном продукте. Своё сверяем по именам
+        foreach (var name in Retired)
+        {
+            var model = models.Single(m => m.Name == name);
+            Assert.Contains(model.Id, AiModelService.RetiredSeedModels);
+        }
     }
 
     [Fact]

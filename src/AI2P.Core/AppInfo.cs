@@ -16,7 +16,7 @@ public static class AppInfo
     /// <see cref="Version"/> — единственные два места, где он задаётся; их согласованность
     /// проверяется тестом. Порядок работ с новым заданием — <c>doc/AI2P_release.md</c>.
     /// </summary>
-    public const int Build = 142;
+    public const int Build = 150;
 
     /// <summary>
     /// Версия приложения в формате <c>1.&lt;номер билда&gt;</c> (ТЗ гл. 4.3): показывается
@@ -25,7 +25,7 @@ public static class AppInfo
     /// (<c>doc/AI2P_ТЗ_vX.Y.md</c>) ОДИНАКОВЫ: с каждой новой версией выпускается ТЗ
     /// с тем же номером.
     /// </summary>
-    public const string Version = "1.142";
+    public const string Version = "1.150";
 
     /// <summary>
     /// Номер билда из строки версии вида <c>1.46</c>; 0 — разобрать не удалось. Нужна

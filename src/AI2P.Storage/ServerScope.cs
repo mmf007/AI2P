@@ -61,9 +61,12 @@ public sealed class ServerScope
     public string NameOf(string? serverId) =>
         serverId is { Length: > 0 } id ? _nameOf(id) : "";
 
-    /// <summary>Строку с таким владельцем можно править здесь (ТЗ гл. 6).</summary>
+    /// <summary>Строку с таким владельцем можно править здесь (ТЗ гл. 6). Правило то же, что
+    /// в <see cref="Ownership.CanWrite"/>, но дирижёрство спрашивается ТОЛЬКО у бесхозной
+    /// строки (T-363-S0): у общего метода оба довода считаются до вызова, а «мы ли дирижёр» —
+    /// это поход в серверную БД, и в списке задач он случался на каждую строку.</summary>
     public bool CanWrite(string? ownerServerId) =>
-        Ownership.CanWrite(ownerServerId, ServerId, IsConductor);
+        ownerServerId is { Length: > 0 } owner ? owner == ServerId : IsConductor;
 
     /// <summary>Владелец строки — ЭТОТ сервер (не «дирижёр правит бесхозное», а именно свой).</summary>
     public bool IsMine(string? ownerServerId) =>

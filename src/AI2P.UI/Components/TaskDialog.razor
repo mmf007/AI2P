@@ -504,7 +504,10 @@
 
     /// <summary>Прямые потомки задачи для ветвей условия (T-298-S0): задачи её проекта
     /// (у узла шаблона — узлы шаблонов) с этим родителем.</summary>
-    private async Task LoadFlowChildrenAsync()
+    /// <param name="known">Уже прочитанный список задач проекта — тот же самый, что нужен
+    /// полю блокирующих (T-363-S0). Без него открытие формы делало ДВА одинаковых запроса
+    /// подряд, а список задач проекта — самый тяжёлый запрос карточки.</param>
+    private async Task LoadFlowChildrenAsync(List<TaskItem>? known = null)
     {
         if (_task.Id.Length == 0)
         {
@@ -512,9 +515,9 @@
         }
         try
         {
-            var all = _task.IsTemplate
+            var all = known ?? (_task.IsTemplate
                 ? await Api.GetTasksAsync(templatesOnly: true)
-                : await Api.GetTasksAsync(projectId: _task.ProjectId);
+                : await Api.GetTasksAsync(projectId: _task.ProjectId));
             _flowChildren = all.Where(t => t.ParentId == _task.Id)
                 .OrderBy(t => t.DisplayId, StringComparer.Ordinal).ToList();
         }
@@ -776,7 +779,9 @@
         await ReloadBlockersAsync();
         await ResolveChosenBlockersAsync();
         _blockersLoaded = true;
-        await LoadFlowChildrenAsync();
+        // ветви условия берутся из УЖЕ прочитанного списка задач проекта (T-363-S0):
+        // при открытии формы поиска по кандидатам нет, значит список полный
+        await LoadFlowChildrenAsync(_blockerSearch.Trim().Length == 0 ? _blockerCandidates : null);
         try
         {
             // тэги организации (T-222): предлагаются в списке выбора; свои тэги задачи

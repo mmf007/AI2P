@@ -94,6 +94,8 @@
     /// </summary>
     private bool CanEdit(Executor executor) =>
         State.IsConductor
+        // общий ИИ (облачная модель, подписка CLI) — смена модели нужна на любом сервере (T-374-S0)
+        || (executor.Kind == ExecutorKind.Ai && executor.ServerId is not { Length: > 0 })
         || (executor.Kind != ExecutorKind.Human
             && executor.ServerId is { Length: > 0 } server && server == State.ServerId);
 

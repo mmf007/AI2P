@@ -140,8 +140,13 @@ public sealed class UiState
     /// организации, получает там обычную роль: сеанс с сервером за NAT начинает он сам.
     /// <para>В АРХИВЕ — нет (T-45-S0): список серверов и репликация к архивной среде
     /// отношения не имеют, а «сменить сервер» у задачи запрещено прямо заданием.</para>
+    /// <para>ЛОКАЛЬНОМУ АДМИНИСТРАТОРУ — ВСЕГДА (T-345-S0), какой бы ни была его роль в
+    /// организации и что бы ни было открыто сейчас: он вправе отключить свой сервер от
+    /// кластера и править его настройки, и именно в этих случаях роли у него может не быть
+    /// вовсе. Ровно так же считает и сервер — ApiPermissions пропускает <c>/api/servers</c>
+    /// администратору сервера без проверки роли.</para>
     /// </summary>
-    public bool CanManageServers => !InArchive && (CanAdmin || IsServerAdmin);
+    public bool CanManageServers => IsServerAdmin || (!InArchive && CanAdmin);
 
     /// <summary>
     /// Может смотреть и править СПИСОК ОРГАНИЗАЦИЙ этой установки (T-201-S0) — раздел
@@ -815,6 +820,10 @@ public sealed class UiState
             OpenView(CurrentProjectId is null || CurrentProject is null ? ViewProjects : ViewTasks);
         }
         Initialized = true;
+        // тема прочитана из лейаута (T-237-S0), а MudThemeProvider стоит в MainLayout —
+        // тот перерисовывается только по Changed; без оповещения тёмная тема включалась
+        // лишь после первого клика (T-394-S0)
+        NotifyChanged();
     }
 
     public async Task RefreshReferenceDataAsync()

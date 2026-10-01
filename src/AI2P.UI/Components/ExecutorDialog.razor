@@ -73,8 +73,11 @@
             else if (_executor.Kind == ExecutorKind.Ai)
             {
                 @* внутреннее имя ИИ — из справочника активных моделей; model_id подставляется синхронно *@
+                @* имя по id (T-377-S0): без ToStringFunc поле показывает сам id, если выбранной
+                   модели в списке нет или список ещё не отрисован (наука todo34_3) *@
                 <MudSelect T="string" Value="@_executor.ModelId" ValueChanged="OnModelChanged"
-                           Label="@L["executors.internalName"]">
+                           Label="@L["executors.internalName"]" ToStringFunc="@ModelName"
+                           data-executor-model="1">
                     @foreach (var model in ModelChoices)
                     {
                         <MudSelectItem T="string" Value="@model.Id">@model.Name</MudSelectItem>
@@ -250,7 +253,19 @@
     /// </summary>
     private IEnumerable<AiModel> ModelChoices =>
         State.Models.Where(m => (m.IsActive || m.Id == _executor.ModelId)
-                                && (State.IsConductor || m.IsLocal));
+                                && (State.IsConductor || m.IsLocal || EditsAi));
+
+    /// <summary>
+    /// Правится УЖЕ ЗАВЕДЁННЫЙ ИИ-исполнитель (T-377-S0). С T-374-S0 модель такому исполнителю
+    /// меняют на любом сервере (ExecutorService.IsSharedAi), и выбирать её надо из всего
+    /// справочника — иначе у агента по подписке CLI поле показывало id модели без выбора.
+    /// Заводить НОВОГО общего исполнителя по-прежнему может только дирижёр.
+    /// </summary>
+    private bool EditsAi => Source is { Kind: ExecutorKind.Ai };
+
+    /// <summary>Имя модели по id для показа в поле; неизвестный id — сам id.</summary>
+    private string ModelName(string? id) =>
+        id is { Length: > 0 } ? State.Models.FirstOrDefault(m => m.Id == id)?.Name ?? id : "";
 
     /// <summary>Выбранная рабочая модель исполнителя-ИИ; null — ещё не выбрана.</summary>
     private AiModel? SelectedModel =>
@@ -411,7 +426,7 @@
     private bool KindNotAllowedHere =>
         !State.IsConductor
         && (_executor.Kind == ExecutorKind.Human
-            || (_executor.Kind == ExecutorKind.Ai
+            || (_executor.Kind == ExecutorKind.Ai && !EditsAi
                 && State.Models.FirstOrDefault(m => m.Id == _executor.ModelId) is not { IsLocal: true }));
 
     private bool SaveDisabled =>

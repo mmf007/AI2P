@@ -86,6 +86,7 @@ public static partial class Md
         // картинки <img> прячутся ДО Markdig и возвращаются ПОСЛЕ (T-262): иначе их адрес
         // разбирается как обычный текст и портится разметкой
         var source = HideImgTags(markdown, out var images);
+        source = HideLayoutTags(source, images);
         var html = RestoreImgTags(Markdown.ToHtml(source, Pipeline), images);
         html = LinkifyBareUrls(html);
         html = ToLocalLinks(html, ownBases, peers);
@@ -110,6 +111,7 @@ public static partial class Md
         var source = markdown.IndexOf("<img", StringComparison.OrdinalIgnoreCase) < 0
             ? markdown
             : ImgTagRegex().Replace(markdown, m => ParseImgTag(m.Value) is { } img ? img.Alt : m.Value);
+        source = LayoutTagRegex().Replace(source, "");
         return Markdown.ToPlainText(source, Pipeline).Replace("\r\n", "\n").TrimEnd();
     }
 
@@ -274,9 +276,17 @@ public static partial class Md
     /// <c>&lt;em&gt;</c>, и ссылка обрывалась сразу после «?jwt=» — картинка не открывалась
     /// даже вручную (жалоба заказчика в T-262).
     /// </summary>
-    private sealed record ImgTag(string Original, string Src, string Alt, string Width, string Height)
+    /// <summary>Тег, спрятанный меткой до Markdig: исходный текст (им тег остаётся внутри
+    /// кода) и собственная разметка, печатаемая на месте метки.</summary>
+    private abstract record HiddenTag(string Original)
     {
-        public string Html()
+        public abstract string Html();
+    }
+
+    private sealed record ImgTag(string Original, string Src, string Alt, string Width, string Height)
+        : HiddenTag(Original)
+    {
+        public override string Html()
         {
             var sb = new StringBuilder("<img src=\"").Append(Attr(Src)).Append('"');
             sb.Append(" alt=\"").Append(Attr(Alt)).Append('"');
@@ -315,7 +325,7 @@ public static partial class Md
     [GeneratedRegex("""^[0-9]{1,5}(?:px|%)?$""", RegexOptions.IgnoreCase)]
     private static partial Regex SizeRegex();
 
-    private static string HideImgTags(string markdown, out List<ImgTag> images)
+    private static string HideImgTags(string markdown, out List<HiddenTag> images)
     {
         images = [];
         // ToHtml зовётся на каждое сообщение чата и каждую карточку доски, а тег картинки
@@ -324,7 +334,7 @@ public static partial class Md
         {
             return markdown;
         }
-        List<ImgTag>? found = null;
+        List<HiddenTag>? found = null;
         // символ метки, написанный человеком, — мусор из приватной области Юникода; убираем,
         // иначе он выдал бы себя за спрятанную картинку
         if (markdown.IndexOf(ImgMark) >= 0)
@@ -344,6 +354,99 @@ public static partial class Md
         });
         images = found ?? [];
         return images.Count == 0 ? markdown : hidden;
+    }
+
+    // --- ТЕГИ ОФОРМЛЕНИЯ ИЗ README (T-382-S0) ---
+
+    /// <summary>Тег оформления, который пишут в README ради GitHub: перенос строки,
+    /// подстрочный/надстрочный текст и выравнивание блока атрибутом align.</summary>
+    [GeneratedRegex("""<(?<close>/?)(?<name>br|sub|sup|p|div|center)(?:\s+align\s*=\s*["']?(?<align>left|right|center)["']?)?\s*/?>""",
+        RegexOptions.IgnoreCase)]
+    private static partial Regex LayoutTagRegex();
+
+    private sealed record LayoutTag(string Original, string Markup) : HiddenTag(Original)
+    {
+        public override string Html() => Markup;
+    }
+
+    /// <summary>
+    /// ТЕГИ ОФОРМЛЕНИЯ (T-382-S0). README пишется для GitHub и выравнивает картинку
+    /// <c>&lt;p align="center"&gt;</c>, мелкую подпись — <c>&lt;sub&gt;</c>, отступ —
+    /// <c>&lt;br&gt;</c>; при выключенном сыром HTML всё это показывалось текстом. Как и
+    /// картинка, такой тег не «включается», а заменяется своей разметкой без атрибутов
+    /// (кроме выравнивания). Блок <c>p</c>/<c>div</c>/<c>center</c> печатается как
+    /// <c>div</c>: <c>p</c> внутри абзаца Markdig браузер разорвал бы. Парные теги
+    /// заменяются только ПАРОЙ: одинокий <c>&lt;/div&gt;</c> из текста задачи закрыл бы
+    /// чужой блок страницы, поэтому непарный тег остаётся текстом, как раньше.
+    /// </summary>
+    private static string HideLayoutTags(string markdown, List<HiddenTag> hidden)
+    {
+        if (markdown.IndexOf('<') < 0)
+        {
+            return markdown;
+        }
+        var matches = LayoutTagRegex().Matches(markdown);
+        if (matches.Count == 0)
+        {
+            return markdown;
+        }
+        if (hidden.Count == 0 && markdown.IndexOf(ImgMark) >= 0)
+        {
+            // см. HideImgTags: чужая метка выдала бы себя за спрятанный тег
+            markdown = markdown.Replace(ImgMark.ToString(), "");
+            matches = LayoutTagRegex().Matches(markdown);
+        }
+        static string Group(string name) => name is "p" or "div" or "center" ? "block" : name;
+        var markup = new string?[matches.Count];
+        var open = new Stack<int>();
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var m = matches[i];
+            var name = m.Groups["name"].Value.ToLowerInvariant();
+            if (name == "br")
+            {
+                markup[i] = "<br />";
+                continue;
+            }
+            if (m.Groups["close"].Value.Length == 0)
+            {
+                open.Push(i);
+                continue;
+            }
+            if (open.Count == 0 || Group(matches[open.Peek()].Groups["name"].Value.ToLowerInvariant()) != Group(name))
+            {
+                continue; // непарный — остаётся текстом
+            }
+            var j = open.Pop();
+            var start = matches[j];
+            if (Group(name) == "block")
+            {
+                var align = start.Groups["align"].Success ? start.Groups["align"].Value.ToLowerInvariant()
+                    : start.Groups["name"].Value.Equals("center", StringComparison.OrdinalIgnoreCase) ? "center" : "";
+                markup[j] = align.Length > 0 ? $"<div style=\"text-align:{align}\">" : "<div>";
+                markup[i] = "</div>";
+            }
+            else
+            {
+                markup[j] = $"<{name}>";
+                markup[i] = $"</{name}>";
+            }
+        }
+        var sb = new StringBuilder(markdown.Length);
+        var pos = 0;
+        for (var i = 0; i < matches.Count; i++)
+        {
+            if (markup[i] is not { } html)
+            {
+                continue;
+            }
+            var m = matches[i];
+            sb.Append(markdown, pos, m.Index - pos);
+            hidden.Add(new LayoutTag(m.Value, html));
+            sb.Append(ImgMark).Append(hidden.Count - 1).Append(ImgMark);
+            pos = m.Index + m.Length;
+        }
+        return sb.Append(markdown, pos, markdown.Length - pos).ToString();
     }
 
     private static ImgTag? ParseImgTag(string tag)
@@ -397,7 +500,7 @@ public static partial class Md
     /// рисуется: там тег написан как ПРИМЕР и обязан остаться текстом (мы для этого и не
     /// разбираем блоки кода отдельно — их узнаёт уже готовый HTML).
     /// </summary>
-    private static string RestoreImgTags(string html, List<ImgTag> images) =>
+    private static string RestoreImgTags(string html, List<HiddenTag> images) =>
         images.Count == 0
             ? html
             : MapTextNodes(html, ["code", "pre"], (text, opaque) =>

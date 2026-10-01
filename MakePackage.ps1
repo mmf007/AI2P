@@ -253,7 +253,7 @@ Name: "{group}\{cm:UninstallProgram,AI2P}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\AI2P"; Filename: "{app}\AI2P.Server.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\AI2P.Server.exe"; Description: "{cm:LaunchProgram,AI2P}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\AI2P.Server.exe"; Description: "{cm:LaunchProgram,AI2P}"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 ; данные пользователя (data\, secrets\, secrets.json, config.json) удаление НЕ трогает —
 ; их сюда не вписываем намеренно

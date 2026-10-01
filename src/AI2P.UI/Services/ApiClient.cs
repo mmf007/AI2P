@@ -734,8 +734,10 @@ public sealed class ApiClient
 
     /// <summary>Диаграмма подзадач (T-132-S0): поддерево задачи по дорожкам исполнителей
     /// и по времени — всё считает сервер одним вызовом.</summary>
-    public Task<TaskDiagramDto> GetTaskDiagramAsync(string id) =>
-        Get<TaskDiagramDto>($"api/tasks/{id}/diagram");
+    /// <param name="alone">Корень нужен и без подзадач (T-353-S0) — так диаграмму просит
+    /// представление «Диаграммы в работе»: запущенная одиночная задача тоже рисуется.</param>
+    public Task<TaskDiagramDto> GetTaskDiagramAsync(string id, bool alone = false) =>
+        Get<TaskDiagramDto>($"api/tasks/{id}/diagram" + (alone ? "?alone=true" : ""));
 
     public Task<TaskItem> CreateTaskAsync(TaskSaveDto dto) => Post<TaskItem>("api/tasks", dto);
 

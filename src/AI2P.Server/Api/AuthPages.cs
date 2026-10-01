@@ -225,8 +225,13 @@ public static class AuthPages
 
         // --- вход admin'а сервера (локальный, не реплицируется; ТЗ гл. 12) ---
 
+        // ВОЗВРАТ ПОСЛЕ ВХОДА (T-345-S0): адрес, с которого пришли, ездит тем же полем
+        // returnUrl, что и у обычного входа, и так же проверяется (Safe — без открытого
+        // редиректа). Нужен он затем, что вход админом сервера меняет ВИД приложения
+        // (появляется вкладка «Серверы»): человек обязан вернуться ровно туда, откуда ушёл,
+        // а полный переход браузера заодно перечитывает состояние целиком
         app.MapGet("/server-admin", (HttpContext ctx) =>
-            Results.Content(AdminPage(ctx, i18n, antiforgery, secrets, basePath, ""),
+            Results.Content(AdminPage(ctx, i18n, antiforgery, secrets, basePath, "", ReturnUrl(ctx)),
                 "text/html; charset=utf-8"));
 
         app.MapPost("/server-admin", async (HttpContext ctx) =>
@@ -234,15 +239,16 @@ public static class AuthPages
             if (!await ValidAsync(ctx, antiforgery))
             {
                 return Results.Content(AdminPage(ctx, i18n, antiforgery, secrets, basePath,
-                    i18n["login.error.expired"]), "text/html; charset=utf-8");
+                    i18n["login.error.expired"], ReturnUrl(ctx)), "text/html; charset=utf-8");
             }
             // настройки сервера меняет только физический хозяин компьютера (ТЗ гл. 12)
             if (!Ai2pAuth.IsLocalRequest(ctx))
             {
                 return Results.Content(AdminPage(ctx, i18n, antiforgery, secrets, basePath,
-                    i18n["login.error.adminRemote"]), "text/html; charset=utf-8");
+                    i18n["login.error.adminRemote"], ReturnUrl(ctx)), "text/html; charset=utf-8");
             }
             var form = await ctx.Request.ReadFormAsync();
+            var back = Safe(form["returnUrl"].ToString(), basePath);
             var password = form["password"].ToString();
             // пароль ещё не задан — первый вход его задаёт (переспрос двумя полями)
             if (!Ai2pAuth.AdminPasswordSet(secrets))
@@ -250,17 +256,17 @@ public static class AuthPages
                 if (password.Trim().Length == 0 || password != form["password2"].ToString())
                 {
                     return Results.Content(AdminPage(ctx, i18n, antiforgery, secrets, basePath,
-                        i18n["login.error.mismatch"]), "text/html; charset=utf-8");
+                        i18n["login.error.mismatch"], back), "text/html; charset=utf-8");
                 }
                 Ai2pAuth.SetAdminPassword(secrets, password);
             }
             else if (!Ai2pAuth.VerifyAdminPassword(secrets, password))
             {
                 return Results.Content(AdminPage(ctx, i18n, antiforgery, secrets, basePath,
-                    i18n["login.error.badPassword"]), "text/html; charset=utf-8");
+                    i18n["login.error.badPassword"], back), "text/html; charset=utf-8");
             }
             await SignInAdminAsync(ctx, secrets);
-            return Results.Redirect(basePath + "/");
+            return Results.Redirect(back);
         }).DisableAntiforgery();
     }
 
@@ -1523,7 +1529,7 @@ public static class AuthPages
     };
 
     private static string AdminPage(HttpContext ctx, I18nService i18n, IAntiforgery antiforgery,
-        SecretStore secrets, string basePath, string error)
+        SecretStore secrets, string basePath, string error, string returnUrl = "")
     {
         var setup = !Ai2pAuth.AdminPasswordSet(secrets);
         var body = new StringBuilder();
@@ -1547,6 +1553,8 @@ public static class AuthPages
         }
         body.Append($"<form method=\"post\" action=\"{H(basePath)}/server-admin\">");
         body.Append(Token(ctx, antiforgery));
+        // куда вернуться после входа (T-345-S0) — пустое значение Safe превратит в корень
+        body.Append($"<input type=\"hidden\" name=\"returnUrl\" value=\"{H(returnUrl)}\" />");
         body.Append($"<div class=\"row\"><label>{H(i18n["login.admin.login"])}</label>"
                     + $"<div class=\"ro\">{H(Ai2pAuth.AdminLogin(secrets))}</div></div>");
         body.Append(Field("password", i18n["login.password"], "", "password", autofocus: true,

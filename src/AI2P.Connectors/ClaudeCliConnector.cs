@@ -851,6 +851,14 @@ public sealed class ClaudeCliConnector : AiConnectorBase
                 Loc.In(tools.Language, "prompt.cli.43"), _ => "wait_for_recheck", ct));
         }
 
+        // ПОДМЕНА МОДЕЛИ (T-359-S0) — в сводку результата: событие журнала пишет
+        // AiConnectorBase, но человек читает прежде всего результат, а «работу сделал не тот,
+        // кого выбрали» — это оговорка к самому результату, а не к телеметрии
+        if (!ModelIdMatch.Matches(profile.Model, output.Model))
+        {
+            answer += Loc.In(tools.Language, "prompt.cli.48", profile.Model, output.Model);
+        }
+
         // сводки выполненных маркеров — в конец результата (их видит человек): каждая написана
         // тогда, когда действие уже выполнено, в том числе на промежуточном витке
         if (applied.Count > 0)
@@ -1442,10 +1450,16 @@ public sealed class ClaudeCliConnector : AiConnectorBase
         return question.Length > 0;
     }
 
-    /// <summary>Проба: CLI установлен и запускается (`claude --version`), а сеанс входа жив
-    /// (`claude auth status --json`, todo96). До 1.96 вход не проверялся вовсе — «бесплатной
-    /// команды нет», — и протухший сеанс обнаруживался только падением задания. Старый CLI
-    /// команды auth не знает: тогда состояние входа неизвестно и пробу это не рушит.</summary>
+    /// <summary>Пробы одного CLI — по очереди (T-393-S0): одновременные процессы claude делят
+    /// файл настроек пользователя и вместе не укладываются в предел пробы.</summary>
+    protected override string? ProbeGateKey(ModelProfile profile) =>
+        "claude-cli:" + (profile.CliCommand.Trim().Length > 0 ? profile.CliCommand.Trim() : DefaultCommand);
+
+    /// <summary>Проба: CLI установлен и запускается (`claude --version`), сеанс входа жив
+    /// (`claude auth status --json`, todo96), а модель профайла CLI знает и подписка к ней
+    /// пускает (T-359-S0). До 1.96 вход не проверялся вовсе — «бесплатной команды нет», —
+    /// и протухший сеанс обнаруживался только падением задания. Старый CLI команды auth
+    /// не знает: тогда состояние входа неизвестно и пробу это не рушит.</summary>
     protected override async Task<string?> ProbeAsync(ModelProfile profile, string apiKey, CancellationToken ct)
     {
         var (fileName, baseArgs) = LocalModelProcessService.SplitCommand(
@@ -1461,7 +1475,7 @@ public sealed class ClaudeCliConnector : AiConnectorBase
                 var auth = await ClaudeCliAuth.StatusAsync(profile.CliCommand, ct);
                 return auth is { Known: true, LoggedIn: false }
                     ? Loc.T("msg.claudeCliConnector.29")
-                    : null;
+                    : await ProbeModelAsync(profile, fileName, baseArgs, ct);
             }
             return Loc.T("msg.claudeCliConnector.23", exitCode,
                 FirstNonEmpty(stderr, stdout, Loc.T("msg.claudeCliConnector.4")));
@@ -1475,6 +1489,55 @@ public sealed class ClaudeCliConnector : AiConnectorBase
             Logger.Warning(ex, "Проба: Claude CLI {FileName} — исключение", fileName);
             return Loc.T("msg.claudeCliConnector.19", fileName, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// ПРОВЕРКА ИДЕНТИФИКАТОРА МОДЕЛИ (T-359-S0). Команды «claude models» у CLI нет, поэтому
+    /// узнать, знает ли он наш id и пускает ли к нему подписка, можно только вызовом. Проба
+    /// делает самый короткий: <c>-p --output-format json --model &lt;id&gt; «ok»</c> — секунды
+    /// и копейки подписки. Проверено живым запуском 24.09.2026: неизвестный id даёт код
+    /// возврата 1, stderr «[claude-code:unrecognized_model]» и is_error=true в json; молчаливой
+    /// подмены модели не случилось ни разу, но проверяем и её — подписка без доступа к старшей
+    /// модели вправе ответить младшей, и такую запись справочника от исправной не отличить.
+    /// Без этой пробы неверный id обнаруживался только падением задания через минуты работы.
+    /// Пустая модель в профайле («выбирает сам CLI») — проверять нечего.
+    /// </summary>
+    private async Task<string?> ProbeModelAsync(ModelProfile profile, string fileName,
+        string baseArgs, CancellationToken ct)
+    {
+        var model = profile.Model.Trim();
+        if (model.Length == 0)
+        {
+            return null;
+        }
+        Logger.Information("Проба: Claude CLI --model {Model}", model);
+        var args = (baseArgs + " -p --output-format json --model " + model).Trim();
+        var (exitCode, stdout, stderr) = await RunProcessAsync(
+            fileName, args, Environment.CurrentDirectory, stdin: "ok", ct);
+        if (exitCode != 0)
+        {
+            return Loc.T("msg.claudeCliConnector.30", model,
+                FirstNonEmpty(stderr, stdout, Loc.T("msg.claudeCliConnector.4")));
+        }
+        CliOutput output;
+        try
+        {
+            output = ParseCliOutput(stdout, model);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Loc.T("msg.claudeCliConnector.30", model, ex.Message);
+        }
+        if (output.IsError)
+        {
+            return Loc.T("msg.claudeCliConnector.30", model,
+                FirstNonEmpty(output.Text, stderr, Loc.T("msg.claudeCliConnector.4")));
+        }
+        // подмена: ответила не та модель, которую просили (алиас «opus» → «claude-opus-5»
+        // подменой не считается — см. ModelIdMatch)
+        return ModelIdMatch.Matches(model, output.Model)
+            ? null
+            : Loc.T("msg.claudeCliConnector.31", model, output.Model);
     }
 
     /// <summary>

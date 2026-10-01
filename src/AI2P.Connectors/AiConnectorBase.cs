@@ -216,6 +216,21 @@ public abstract class AiConnectorBase : IAgentConnector
     protected abstract Task<string?> ProbeAsync(ModelProfile profile, string apiKey, CancellationToken ct);
 
     /// <summary>
+    /// Ключ ОЧЕРЕДИ проб (T-393-S0): пробы с одним ключом идут строго по одной, а удачная
+    /// переиспользуется <see cref="ProbeOkTtl"/>. null — пробы независимы (HTTP-провайдеры).
+    /// Нужно CLI-агенту: два участника на одной CLI-модели, поднятые подряд, запускали пробу
+    /// одновременно — два процесса CLI делили общий файл настроек и не укладывались в предел
+    /// пробы, и вставали с ошибкой ОБА.
+    /// </summary>
+    protected virtual string? ProbeGateKey(ModelProfile profile) => null;
+
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> ProbeGates = new();
+
+    private static readonly ConcurrentDictionary<string, DateTime> ProbeOkAt = new();
+
+    private static readonly TimeSpan ProbeOkTtl = TimeSpan.FromMinutes(2);
+
+    /// <summary>
     /// Токен вызова провайдера с таймаутом ожидания ответа (T-124): значение — из формы
     /// исполнителя (<see cref="AgentToolset.CallTimeout"/>), не задано (0 в форме) — ждём
     /// столько, сколько модель считает, и обрывает только кнопка «остановить».
@@ -358,9 +373,44 @@ public abstract class AiConnectorBase : IAgentConnector
                 profile.BaseUrl.Length > 0 ? profile.BaseUrl : "(стандартный)",
                 profile.SecretRef, keySource, apiKey.Length);
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            var error = await ProbeAsync(profile, apiKey, timeout.Token);
+            // очередь проб одного CLI (T-393-S0): ожидание очереди в предел пробы не входит
+            var gateKey = ProbeGateKey(profile);
+            var okKey = gateKey + "|" + profile.Model.Trim();
+            var gate = gateKey is null ? null : ProbeGates.GetOrAdd(gateKey, _ => new SemaphoreSlim(1, 1));
+            if (gate is not null)
+            {
+                await gate.WaitAsync(ct);
+            }
+            string? error;
+            try
+            {
+                if (gate is not null && ProbeOkAt.TryGetValue(okKey, out var okAt)
+                    && DateTime.UtcNow - okAt < ProbeOkTtl)
+                {
+                    Logger.Information("Проба подключения: исполнитель {Nick} — проба {Key} удалась " +
+                                       "{Ago:0} с назад, повтор не нужен", executor.Nick, okKey,
+                        (DateTime.UtcNow - okAt).TotalSeconds);
+                    return null;
+                }
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                error = await ProbeAsync(profile, apiKey, timeout.Token);
+                if (gate is not null)
+                {
+                    if (error is null)
+                    {
+                        ProbeOkAt[okKey] = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        ProbeOkAt.TryRemove(okKey, out _);
+                    }
+                }
+            }
+            finally
+            {
+                gate?.Release();
+            }
             if (error is null)
             {
                 Logger.Information("Проба подключения: исполнитель {Nick} подключен за {Elapsed} мс",
@@ -368,20 +418,22 @@ public abstract class AiConnectorBase : IAgentConnector
             }
             else
             {
-                Logger.Warning("Проба подключения: исполнитель {Nick} — ошибка за {Elapsed} мс: {Error}",
+                // уровень Error (T-393-S0): ошибка подключения видна в подсказке исполнителя
+                // и обязана быть в журнале при любом пороге журнала
+                Logger.Error("Проба подключения: исполнитель {Nick} — ошибка за {Elapsed} мс: {Error}",
                     executor.Nick, sw.ElapsedMilliseconds, error);
             }
             return error;
         }
         catch (OperationCanceledException)
         {
-            Logger.Warning("Проба подключения: исполнитель {Nick} — таймаут за {Elapsed} мс",
+            Logger.Error("Проба подключения: исполнитель {Nick} — таймаут за {Elapsed} мс",
                 executor.Nick, sw.ElapsedMilliseconds);
             return Loc.T("msg.openAiCompatibleConnector.4");
         }
         catch (Exception ex)
         {
-            Logger.Warning(ex, "Проба подключения: исполнитель {Nick} — исключение", executor.Nick);
+            Logger.Error(ex, "Проба подключения: исполнитель {Nick} — исключение", executor.Nick);
             return ex.Message;
         }
     }
@@ -610,6 +662,20 @@ public abstract class AiConnectorBase : IAgentConnector
             }
 
             var result = outcome.Result!;
+            // ПОДМЕНА МОДЕЛИ (T-359-S0): ответила не та модель, которую назвала запись
+            // справочника. Прежде это было видно только строкой Logger.Information —
+            // то есть практически никому. Теперь это заметное событие журнала задания
+            // и строка консоли: запись «Claude-Opus-5.5_cli», молча работающая на Sonnet,
+            // обязана отличаться от исправной
+            if (!ModelIdMatch.Matches(profile.Model, result.Model))
+            {
+                Logger.Warning(
+                    "Задание {JobDisplayId}: просили модель {Requested}, ответила {Actual} — подмена модели",
+                    job.DisplayId, profile.Model, result.Model);
+                AppendEvent(task, job, EventTypes.AgentModelMismatch,
+                    new { requested = profile.Model, actual = result.Model });
+                _console.Write(job.Id, Loc.T("msg.aiConnectorBase.31", profile.Model, result.Model));
+            }
             if (result.LimitPercent is not null)
             {
                 // провайдер прислал текущий % использования лимита — показывается

@@ -235,10 +235,7 @@ public sealed class TaskService
             $"SELECT t.*, {PendingQuestionsSql} FROM tasks t " +
             $"WHERE {string.Join(" AND ", where)} ORDER BY t.priority_num DESC, t.created_at",
             Map, args.ToArray());
-        foreach (var task in tasks)
-        {
-            LoadLinks(conn, task);
-        }
+        LoadLinks(conn, tasks);
         // полнотекстный поиск: заголовок — по проекции, описание — по файлу .md (объёмы локальные)
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -776,10 +773,7 @@ public sealed class TaskService
             var children = Sql.Query(conn, null,
                 "SELECT * FROM tasks WHERE parent_id=@p AND deleted_at IS NULL ORDER BY created_at",
                 Map, ("@p", nodes[i].Id));
-            foreach (var child in children)
-            {
-                LoadLinks(conn, child);
-            }
+            LoadLinks(conn, children);
             nodes.AddRange(children);
         }
         return nodes;
@@ -1732,11 +1726,8 @@ public sealed class TaskService
             """, Map)
             .Where(t => HasLaunchFlag(t.LaunchJson, HierarchyFlag))
             .ToList();
-        foreach (var task in tasks)
-        {
-            LoadLinks(conn, task);
-            Decorate(task);
-        }
+        LoadLinks(conn, tasks);
+        Decorate(tasks);
         return tasks;
     }
 
@@ -2041,11 +2032,8 @@ public sealed class TaskService
             """, Map)
             .Where(t => HasLaunchFlag(t.LaunchJson, WaitAuthFlag))
             .ToList();
-        foreach (var task in tasks)
-        {
-            LoadLinks(conn, task);
-            Decorate(task);
-        }
+        LoadLinks(conn, tasks);
+        Decorate(tasks);
         return tasks;
     }
 
@@ -2068,11 +2056,8 @@ public sealed class TaskService
             """, Map)
             .Where(t => LaunchStartAfter(t.LaunchJson) is { } at && at <= nowUtc)
             .ToList();
-        foreach (var task in tasks)
-        {
-            LoadLinks(conn, task);
-            Decorate(task);
-        }
+        LoadLinks(conn, tasks);
+        Decorate(tasks);
         return tasks;
     }
 
@@ -2179,10 +2164,10 @@ public sealed class TaskService
                 item.JobId = "";
             }
             item.Paused = item.Pause is not null;
-            LoadLinks(conn, item.Task);
             Decorate(item.Task);
             items.Add(item);
         }
+        LoadLinks(conn, items.Select(i => i.Task).ToList());
         return items;
     }
 
@@ -2216,7 +2201,12 @@ public sealed class TaskService
     /// её подзадачи тоже красные, а красная стрелка ведёт от неё к задержанной задаче.</item>
     /// </list>
     /// </summary>
-    public TaskDiagramDto Diagram(string taskId)
+    /// <param name="alone">ОДИНОЧНАЯ ЗАДАЧА ТОЖЕ ДИАГРАММА (T-353-S0). У вкладки «Подзадачи»
+    /// карточки правило прежнее: подзадач нет — рисовать нечего. А представлению «Диаграммы в
+    /// работе» (T-328-S0) корень нужен ЛЮБОЙ: запущенная задача без подзадач — обычное дело, и
+    /// без этого во вкладке проекта не было видно ничего, а в общем списке рисовалась пустая
+    /// полоса проекта.</param>
+    public TaskDiagramDto Diagram(string taskId, bool alone = false)
     {
         var dto = new TaskDiagramDto();
         var root = Get(taskId);
@@ -2232,18 +2222,12 @@ public sealed class TaskService
         // предел кругов цикла по умолчанию — проекта корня (T-301-S0, овал «проходы/максимум»)
         var projectLoopLimit = ProjectSettings.RecheckLimit(projectSettings);
 
-        // всё поддерево: удалённые в очередь иерархии не попадают вовсе. Шаблон рисуется
-        // своими узлами-шаблонами (T-312-S0): отбор «is_template = 0» оставлял у шаблона
-        // один корень, и диаграммы не было вовсе
-        var all = Sql.Query(conn, null, $"""
-            SELECT t.*, {PendingQuestionsSql} FROM tasks t
-            WHERE t.deleted_at IS NULL AND t.is_template = @tpl
-            """, Map, ("@tpl", (object?)(root.IsTemplate ? 1 : 0)));
-        foreach (var task in all)
-        {
-            LoadLinks(conn, task);
-            Decorate(task);
-        }
+        // ПОДДЕРЕВО КОРНЯ, а не все задачи организации (T-363-S0): диаграмма считается при
+        // каждом открытии карточки задачи, и чтение всей таблицы вместе со связями каждой
+        // строки было самой дорогой частью этого открытия. Отбор прежний: удалённые в очередь
+        // иерархии не попадают вовсе, а шаблон рисуется своими узлами-шаблонами (T-312-S0) —
+        // отбор «is_template = 0» оставлял у шаблона один корень, и диаграммы не было вовсе
+        var all = SubtreeOf(conn, [root.Id], root.IsTemplate);
         var byParent = all.Where(t => t.ParentId is not null).ToLookup(t => t.ParentId!);
         var ordered = new List<TaskItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -2266,18 +2250,31 @@ public sealed class TaskService
             into.Add(node);
         }
         Walk(root, 0, ordered);
-        if (ordered.Count <= 1)
+        if (ordered.Count <= 1 && !alone)
         {
-            return dto; // подзадач нет: один корень — это не диаграмма
+            return dto; // подзадач нет: один корень — это не диаграмма подзадач (T-353-S0)
         }
 
         // БЛОКИРУЮЩИЕ ВНЕ ИЕРАРХИИ (T-135-S0): каждая рисуется сама, со своим поддеревом и
         // своим исполнителем. Дальше вглубь (блокирующие блокирующей) не идём намеренно:
         // диаграмма показывает, кто держит ЭТУ иерархию, а не всю сеть зависимостей проекта
         var byId = all.ToDictionary(t => t.Id, StringComparer.Ordinal);
+        var blockerIds = ordered.SelectMany(t => t.BlockerIds)
+            .Distinct(StringComparer.Ordinal).ToList();
+        // блокирующая живёт и ВНЕ поддерева корня (у неё может быть другой родитель и даже
+        // другой проект) — её поддерево дочитывается отдельным запросом (T-363-S0). Прежде
+        // ради этого случая заранее читалась вся таблица задач
+        var missing = blockerIds.Where(id => !byId.ContainsKey(id)).ToList();
+        if (missing.Count > 0)
+        {
+            foreach (var task in SubtreeOf(conn, missing, root.IsTemplate))
+            {
+                byId.TryAdd(task.Id, task);
+            }
+            byParent = byId.Values.Where(t => t.ParentId is not null).ToLookup(t => t.ParentId!);
+        }
         var outside = new List<TaskItem>();
-        foreach (var blockerId in ordered.SelectMany(t => t.BlockerIds)
-                     .Distinct(StringComparer.Ordinal).ToList())
+        foreach (var blockerId in blockerIds)
         {
             if (!seen.Contains(blockerId) && byId.TryGetValue(blockerId, out var blocker))
             {
@@ -2423,10 +2420,7 @@ public sealed class TaskService
         var children = Sql.Query(conn, null,
             "SELECT * FROM tasks WHERE parent_id=@p AND deleted_at IS NULL ORDER BY created_at",
             Map, ("@p", parentId));
-        foreach (var child in children)
-        {
-            LoadLinks(conn, child);
-        }
+        LoadLinks(conn, children);
         return children;
     }
 
@@ -2994,6 +2988,111 @@ public sealed class TaskService
     }
 
     /// <summary>
+    /// СВЯЗИ ЦЕЛОГО СПИСКА задач — по одному запросу на таблицу вместо шести на КАЖДУЮ
+    /// задачу (T-363-S0). Поштучное чтение (<see cref="LoadLinks(SqliteConnection, TaskItem,
+    /// SqliteTransaction?)"/>) на проекте в полтысячи задач давало больше трёх тысяч обращений
+    /// к базе, и все они шли при каждом открытии карточки задачи: список задач проекта читают
+    /// и карточка, и форма правки, а диаграмма подзадач читала так вообще все задачи
+    /// организации. Состав полей и порядок строк тот же, что у поштучного чтения.
+    /// </summary>
+    private static void LoadLinks(SqliteConnection conn, IReadOnlyList<TaskItem> tasks,
+        SqliteTransaction? tx = null)
+    {
+        if (tasks.Count == 0)
+        {
+            return;
+        }
+        var ids = tasks.Select(t => t.Id).ToList();
+        var executors = LinkMap(conn, tx, ids, "task_executors", "executor_id", null);
+        // запасные исполнители и запасные суфлёры — В ПОРЯДКЕ ПРЕДПОЧТЕНИЯ (T-221, T-292-S0):
+        // общий ORDER BY выборки относительный порядок внутри одной задачи сохраняет
+        var alt = LinkMap(conn, tx, ids, "task_alt_executors", "executor_id", "ord, executor_id");
+        var prompterAlt = LinkMap(conn, tx, ids, "task_prompter_alt_executors", "executor_id",
+            "ord, executor_id");
+        var skills = LinkMap(conn, tx, ids, "task_skills", "skill_id", null);
+        var blockers = LinkMap(conn, tx, ids, "task_blockers", "blocker_task_id", null);
+        var tags = LinkMap(conn, tx, ids, "task_tags", "tag", "tag");
+        foreach (var task in tasks)
+        {
+            task.ExecutorIds = executors.GetValueOrDefault(task.Id) ?? [];
+            task.AltExecutorIds = alt.GetValueOrDefault(task.Id) ?? [];
+            task.PrompterAltExecutorIds = prompterAlt.GetValueOrDefault(task.Id) ?? [];
+            task.SkillIds = skills.GetValueOrDefault(task.Id) ?? [];
+            task.BlockerIds = blockers.GetValueOrDefault(task.Id) ?? [];
+            task.Tags = tags.GetValueOrDefault(task.Id) ?? [];
+        }
+    }
+
+    /// <summary>
+    /// ПОДДЕРЕВЬЯ указанных задач вместе с ними самими — одним запросом (T-363-S0):
+    /// обход parent_id делает SQLite рекурсивным запросом. Удалённые не попадают ни в
+    /// выдачу, ни в обход: потомок удалённой задачи в очередь иерархии не идёт, и раньше
+    /// он тоже оставался за бортом (до корня от него хода не было). Связи и сервер-владелец
+    /// проставляются, как у списка задач.
+    /// </summary>
+    private List<TaskItem> SubtreeOf(SqliteConnection conn, IReadOnlyList<string> rootIds,
+        bool templates)
+    {
+        if (rootIds.Count == 0)
+        {
+            return [];
+        }
+        var names = new string[rootIds.Count];
+        var args = new List<(string, object?)>(rootIds.Count + 1);
+        for (var i = 0; i < rootIds.Count; i++)
+        {
+            names[i] = "@r" + i;
+            args.Add((names[i], rootIds[i]));
+        }
+        args.Add(("@tpl", templates ? 1 : 0));
+        var tasks = Sql.Query(conn, null, $"""
+            WITH RECURSIVE sub(id) AS (
+              SELECT id FROM tasks WHERE id IN ({string.Join(",", names)}) AND deleted_at IS NULL
+              UNION
+              SELECT t.id FROM tasks t JOIN sub ON t.parent_id = sub.id WHERE t.deleted_at IS NULL
+            )
+            SELECT t.*, {PendingQuestionsSql} FROM tasks t
+            WHERE t.id IN (SELECT id FROM sub) AND t.deleted_at IS NULL AND t.is_template = @tpl
+            """, Map, args.ToArray());
+        LoadLinks(conn, tasks);
+        Decorate(tasks);
+        return tasks;
+    }
+
+    /// <summary>Значения связи «задача → строки таблицы» для списка задач (T-363-S0).
+    /// Идентификаторы идут в запрос пачками: число параметров у SQLite ограничено.</summary>
+    private static Dictionary<string, List<string>> LinkMap(SqliteConnection conn,
+        SqliteTransaction? tx, List<string> ids, string table, string column, string? order)
+    {
+        var map = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        const int chunk = 400;
+        for (var start = 0; start < ids.Count; start += chunk)
+        {
+            var count = Math.Min(chunk, ids.Count - start);
+            var names = new string[count];
+            var args = new (string, object?)[count];
+            for (var i = 0; i < count; i++)
+            {
+                names[i] = "@k" + i;
+                args[i] = (names[i], ids[start + i]);
+            }
+            var sql = $"SELECT task_id, {column} AS val FROM {table} "
+                      + $"WHERE task_id IN ({string.Join(",", names)})"
+                      + (order is null ? "" : " ORDER BY " + order);
+            foreach (var row in Sql.Query(conn, tx, sql,
+                         r => (Task: r.S("task_id"), Value: r.S("val")), args))
+            {
+                if (!map.TryGetValue(row.Task, out var list))
+                {
+                    map[row.Task] = list = [];
+                }
+                list.Add(row.Value);
+            }
+        }
+        return map;
+    }
+
+    /// <summary>
     /// Состояние блокирующих задач (ТЗ п. 2.12, T-6-S1): готовы / ждём / одна из них отменена.
     /// Удалённая блокирующая держать задачу не может — она считается пройденной.
     /// <para>ДО версии 1.88 отменённая блокирующая считалась завершённой и отпускала ждущие
@@ -3086,10 +3185,7 @@ public sealed class TaskService
             JOIN task_blockers b ON b.task_id = t.id
             WHERE b.blocker_task_id=@id AND t.deleted_at IS NULL
             """, Map, ("@id", blockerTaskId));
-        foreach (var task in tasks)
-        {
-            LoadLinks(conn, task);
-        }
+        LoadLinks(conn, tasks);
         return tasks;
     }
 

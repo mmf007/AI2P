@@ -161,7 +161,7 @@
                 }
                 @* фильтр по тэгу и навыку — «отобрать фильтром», а галочки ниже — «руками» *@
                 <MudTextField T="string" @bind-Value="_filter" Label="@L["packs.export.filter"]"
-                              Dense="true" data-packs-export-filter="1" Style="max-width: 240px;" />
+                              Margin="Margin.Dense" data-packs-export-filter="1" Style="max-width: 240px;" />
                 <MudButton Size="Size.Small" Variant="Variant.Outlined" data-packs-export-load="1"
                            OnClick="LoadSourceAsync">@L["packs.export.load"]</MudButton>
             </MudStack>
@@ -188,11 +188,11 @@
                 <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2"
                           Style="flex-wrap: wrap;">
                     <MudTextField T="string" @bind-Value="_newCode" Label="@L["packs.export.code"]"
-                                  Dense="true" data-packs-export-code="1" Style="max-width: 260px;" />
+                                  Margin="Margin.Dense" data-packs-export-code="1" Style="max-width: 260px;" />
                     <MudTextField T="string" @bind-Value="_newName" Label="@L["packs.export.name"]"
-                                  Dense="true" Style="max-width: 260px;" />
+                                  Margin="Margin.Dense" Style="max-width: 260px;" />
                     <MudTextField T="string" @bind-Value="_newDescription" Label="@L["packs.export.desc"]"
-                                  Dense="true" Style="max-width: 320px;" />
+                                  Margin="Margin.Dense" Style="max-width: 320px;" />
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" data-packs-export-run="1"
                                Disabled="@(_picked.Count == 0 || _newCode.Trim().Length == 0 || _busy)"
                                OnClick="ExportAsync">@L["packs.export.run"]</MudButton>

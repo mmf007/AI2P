@@ -57,14 +57,25 @@ public sealed class ExecutorService
         executor.Kind != ExecutorKind.Human && executor.ServerId is { Length: > 0 };
 
     /// <summary>
+    /// ОБЩИЙ ИИ-исполнитель (T-374-S0): агент с облачной моделью или по подписке CLI —
+    /// сервера-владельца у него нет, запись одна на всю организацию. Смена модели такому
+    /// исполнителю (выбор другой записи справочника) нужна на каждом сервере, а не только
+    /// на дирижёре: правка едет журналом изменений в обе стороны, как у местных исполнителей.
+    /// Заводить новых общих исполнителей по-прежнему может только дирижёр.
+    /// </summary>
+    public static bool IsSharedAi(Executor executor) =>
+        executor.Kind == ExecutorKind.Ai && executor.ServerId is not { Length: > 0 };
+
+    /// <summary>
     /// Право править ЭТУ запись здесь: на дирижёре — любую, на остальных серверах — только
     /// свою местную (T-177-S0). Проверка идёт по СВОЕМУ серверу записи, а не по «бесхозное
     /// правит дирижёр»: чужой местный исполнитель правится там, где стоит его модель или
     /// программа, — здесь про них ничего не известно.
     /// </summary>
-    private void EnsureCanManage(Executor executor)
+    private void EnsureCanManage(Executor executor, bool update = false)
     {
-        if (CanManage || (IsLocal(executor) && _scope.IsMine(executor.ServerId)))
+        if (CanManage || (IsLocal(executor) && _scope.IsMine(executor.ServerId))
+            || (update && IsSharedAi(executor)))
         {
             return;
         }
@@ -476,10 +487,16 @@ public sealed class ExecutorService
             // «авто ПО» со своим сервером можно было бы забрать себе чужую общую запись
             var stored = Sql.Query(conn, tx, "SELECT * FROM executors WHERE id=@id", Map,
                 ("@id", executor.Id)).FirstOrDefault();
-            EnsureCanManage(stored ?? executor);
+            EnsureCanManage(stored ?? executor, update: true);
+            if (stored is not null && IsSharedAi(stored) && executor.Kind != ExecutorKind.Ai)
+            {
+                throw new ArgumentException(Loc.T("msg.executor.1"));
+            }
         }
         Validate(conn, tx, executor, isNew: false);
-        EnsureCanManage(executor);
+        // общий ИИ остаётся общим ИИ либо становится СВОИМ местным; сменой типа на «авто ПО»
+        // или человека забрать его себе нельзя (IsSharedAi требует Kind == Ai)
+        EnsureCanManage(executor, update: true);
         var limits = Limits(executor);
 
         Sql.Exec(conn, tx, """

@@ -68,6 +68,21 @@ else
                    прокруткой *@
                 <MudStack Row="true" AlignItems="AlignItems.Center">
                     <MudSpacer />
+                    @* ВХОД АДМИНИСТРАТОРА ЭТОГО СЕРВЕРА (T-345-S0) — здесь, ЛЕВЕЕ «изменить»,
+                       а не на вкладке «Серверы», как было с todo41: самой вкладки у человека
+                       может не быть вовсе (её и открывает этот вход), и кнопка пряталась
+                       ровно от того, кому нужна.
+                       Href у MudButton — обычная ссылка (полный переход), это и нужно: вход
+                       ставит отдельную cookie на своей странице, а возврат перечитывает
+                       состояние целиком, и вкладка «Серверы» появляется сразу.
+                       Адрес ВСЕГДА петлевой (T-174): вход админа сервера принимается только
+                       с этого компьютера, и внешнее имя вело в отказ *@
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                               Href="@ServerAdminUrl"
+                               data-server-admin="1"
+                               StartIcon="@Icons.Material.Filled.AdminPanelSettings">
+                        @(State.IsServerAdmin ? L["account.serverAdmin.in"] : L["account.serverAdmin"])
+                    </MudButton>
                     @if (_editingMain)
                     {
                         <MudButton Variant="Variant.Filled" Color="Color.Primary" Size="Size.Small"
@@ -286,17 +301,8 @@ else
                     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 1100px;">
                         <MudText Typo="Typo.h6">@L["servers.title"]</MudText>
                         <MudSpacer />
-                        @* вход администратора сервера — НАД списком серверов (todo41 п. 4).
-                           Href у MudButton — обычная ссылка (полный переход), это и нужно:
-                           вход ставит отдельную cookie на своей странице.
-                           Адрес ВСЕГДА петлевой (T-174): вход админа сервера принимается
-                           только с этого компьютера, и внешнее имя вело в отказ *@
-                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
-                                   Href="@(State.LocalBaseUrl + "/server-admin")"
-                                   data-server-admin="1"
-                                   StartIcon="@Icons.Material.Filled.AdminPanelSettings">
-                            @(State.IsServerAdmin ? L["account.serverAdmin.in"] : L["account.serverAdmin"])
-                        </MudButton>
+                        @* вход администратора сервера переехал отсюда на вкладку «Основное»
+                           (T-345-S0): эта вкладка без него могла быть не видна вовсе *@
                         <MudTooltip Text="@L["servers.add"]">
                             <MudIconButton Icon="@Icons.Material.Filled.Dns"
                                            OnClick="@(() => EditServerAsync(null))" />
@@ -1585,6 +1591,16 @@ else
     }
 
     // --- серверы кластера (ТЗ гл. 6, этап 41) ---
+
+    /// <summary>
+    /// Адрес входа администратора ЭТОГО сервера (T-345-S0). Хост всегда петлевой (T-174):
+    /// вход принимается только с этого компьютера. В <c>ReturnUrl</c> — адрес страницы, на
+    /// которой человек сейчас стоит: после входа он возвращается сюда же, а полный переход
+    /// браузера перечитывает состояние целиком, и вкладка «Серверы» появляется сразу.
+    /// </summary>
+    private string ServerAdminUrl =>
+        State.LocalBaseUrl + "/server-admin?ReturnUrl="
+        + Uri.EscapeDataString(new Uri(Nav.Uri).PathAndQuery);
 
     /// <summary>Код локального сервера в ТЕКУЩЕЙ организации: S0, S1, … (только чтение).</summary>
     private string LocalCode => _localServer?.Code ?? "";

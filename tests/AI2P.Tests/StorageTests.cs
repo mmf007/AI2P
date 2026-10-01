@@ -405,8 +405,18 @@ public sealed class AiModelAndExecutorTests : IDisposable
         //   MiniMax-H3-Max — медиа через шлюз fal.ai)
         // + 2 записи с референсным аудио через шлюз fal.ai (T-251-S0, сверка каталога
         //   14.09.2026: Chatterbox-TTS и Zonos-2-TTS — синтез речи по образцу голоса)
+        // + 10 записей актуализации справочника по рынку (T-347-S0, сверка 23.09.2026:
+        //   GPT-6-Sol, GPT-6-Luna, Claude-Opus-5.5, Grok-4.7, Qwen3.8-Omni-Flash — текст;
+        //   Seedream-5-Flash, Meshy-7.1, Tripo-P2, ElevenLabs-Music-v2.5 — медиа через шлюз
+        //   fal.ai; Qwen3.5-4B-Local — лёгкая локальная модель для роли суфлёра)
+        // + 2 записи версий Claude Code CLI (T-359-S0, сверка живым запуском 24.09.2026:
+        //   Claude-Fable-5.1_cli и Claude-Haiku-4.5_cli — версии сосуществуют, человек
+        //   выбирает исполнителю нужную)
+        // + 1 запись Opus 5.5 по CLI (T-370-S0, живой запуск 24.09.2026 на Claude Code
+        //   2.1.281: Claude-Opus-5.5_cli — в 1.144 её не было, прежний CLI 2.1.278 модель
+        //   не знал)
         // — точный состав проверяет T214Tests
-        Assert.Equal(79, models.Count);
+        Assert.Equal(92, models.Count);
         Assert.All(models, m => Assert.False(m.IsCustom));           // из дистрибутива
         var claude = models.Single(m => m.Name == "Claude-Fable-5");
         Assert.Equal($"models/profile_{claude.Id}.json", claude.ProfilePath);

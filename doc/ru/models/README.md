@@ -16,11 +16,13 @@
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API провайдера Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API провайдера Anthropic
+* [Claude-Opus-5.5](Claude-Opus-5.5.md) — API провайдера Anthropic
 * [Claude-Sonnet-5](Claude-Sonnet-5.md) — API Anthropic
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md) — API DeepSeek, OpenAI-совместимый
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md) — API DeepSeek, OpenAI-совместимый
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md) — API DeepSeek, OpenAI-совместимый
 * [ElevenLabs-Music](ElevenLabs-Music.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 89, `audio-music` 89
+* [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 92, `audio-music` 92
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — текст → речь, навыки `audio-speech` 96
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, через OpenAI-совместимый слой (**погашена 11.09.2026**)
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, через OpenAI-совместимый слой (**погашена 11.09.2026**)
@@ -33,14 +35,18 @@
 * [GPT-5.6-Sol](GPT-5.6-Sol.md) — API OpenAI, OpenAI-совместимый
 * [GPT-5.6-Terra](GPT-5.6-Terra.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Astra](GPT-6-Astra.md) — API OpenAI, OpenAI-совместимый
+* [GPT-6-Luna](GPT-6-Luna.md) — API OpenAI, OpenAI-совместимый
+* [GPT-6-Sol](GPT-6-Sol.md) — API OpenAI, OpenAI-совместимый
 * [GPT-Image-2](GPT-Image-2.md) — текст → изображение, счёт по токенам, навыки `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [GPT-Image-2.5](GPT-Image-2.5.md) — текст → изображение, счёт по токенам, навыки `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [Grok-4.6](Grok-4.6.md) — API xAI, OpenAI-совместимый
+* [Grok-4.7](Grok-4.7.md) — API xAI, OpenAI-совместимый
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, через шлюз OpenRouter
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-совместимый
 * [Kling-3.0](Kling-3.0.md) — картинка → видео со звуком, до 15 секунд, навыки `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, через шлюз OpenRouter
 * [Meshy-7](Meshy-7.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 87
+* [Meshy-7.1](Meshy-7.1.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 89
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — текст → видео до 15 секунд, навыки `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-совместимый
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Франция; OpenAI-совместимый
@@ -50,9 +56,12 @@
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — текст → изображение до 4K, лучший текст в кадре, навыки `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, через шлюз OpenRouter
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, OpenAI-совместимый
+* [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, OpenAI-совместимый
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — картинка → видео со звуком, навыки `video-animate` 95
 * [Seedance-2.5](Seedance-2.5.md) — текст → видео до 30 секунд со звуком, навыки `video-generate` 97
+* [Seedream-5-Flash](Seedream-5-Flash.md) — текст → изображение, навыки `image-generate` 92, `image-concept` 90, `image-photo` 90
 * [Tripo-H3.1](Tripo-H3.1.md) — картинка → 3D-модель с PBR-текстурами, навыки `3d-image` 92
+* [Tripo-P2](Tripo-P2.md) — картинка → 3D-модель с PBR-текстурами четырёх уровней, навыки `3d-image` 94
 * [Veo-3.1](Veo-3.1.md) — текст → видео со звуком, 4–8 секунд, до 4K, навыки `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — текст → видео до 30 секунд со звуком, навыки `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Россия; OpenAI-совместимый
@@ -63,10 +72,14 @@
 * [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
 * [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
 * [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
+* [Claude-Fable-5.1_cli](Claude-Fable-5.1_cli.md)
+* [Claude-Haiku-4.5_cli](Claude-Haiku-4.5_cli.md)
+* [Claude-Opus-5.5_cli](Claude-Opus-5.5_cli.md)
 
 **Локальные (считает ваш компьютер)**
 
 * [Muse-Glimmer-30B-Local](Muse-Glimmer-30B-Local.md) — тексты и код, оценки навыков 73–80
+* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — лёгкая модель для роли суфлёра: 3 ГБ видеопамяти, оценки навыков 62–74
 * [Qwen3.6-27B-Local](Qwen3.6-27B-Local.md) — код и тексты, оценки навыков 75–82
 * [Qwen3.6-35B-A3B-Local](Qwen3.6-35B-A3B-Local.md) — код и тексты, оценки навыков 72–80
 * [Qwen3.8-27B-Local](Qwen3.8-27B-Local.md) — код и тексты, оценки навыков 80–87
@@ -96,8 +109,8 @@
 * [SDXL-1.0](SDXL-1.0.md) — текст → изображение, навыки `image-generate` 70, `image-concept` 70, `image-photo` 68
 * [TRELLIS-2](TRELLIS-2.md) — изображение → 3D-модель С ЦВЕТОМ, навык `3d-image` 85
 * [TripoSplat](TripoSplat.md) — изображение → ГАУССОВЫ СПЛАТЫ, навык `3d-image` 80
-* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — картинка + текст → видео, навыки `video-animate` 80, `video-generate` 74
-* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — текст → видео, навык `video-generate` 80
+* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — картинка + текст → видео, навыки `video-animate` 80, `video-generate` 74 — **погашена 23.09.2026** (после 2.2 вышли Wan 2.6, 2.7 и 3.0)
+* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — текст → видео, навык `video-generate` 80 — **погашена 23.09.2026** (после 2.2 вышли Wan 2.6, 2.7 и 3.0)
 * [Z-Image-Turbo](Z-Image-Turbo.md) — текст → изображение, навыки `image-generate` 85, `image-photo` 84, `image-concept` 82, `image-text` 78
 
 ## Три способа подключения

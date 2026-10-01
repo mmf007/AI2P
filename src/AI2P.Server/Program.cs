@@ -555,6 +555,22 @@ try
     // у служебных разделов (api, ресурсы Blazor, вход) сегмент организации отрезается,
     // а страницам путь не меняется: Blazor сопоставляет маршруты относительно base href
     app.UseAi2pOrgPath(basePath);
+    // МЕДЛЕННЫЕ ЗАПРОСЫ В ЖУРНАЛ (T-363-S0). Жалобу «открытие задачи идёт 7–12 секунд»
+    // разбирать было нечем: замеров у сервера не было вовсе, и виновника приходилось искать
+    // чтением кода. Пишется только то, что и правда идёт долго, поэтому журнал обычной работы
+    // от этой записи не растёт, а у следующей жалобы сразу есть путь и время
+    const double slowRequestMs = 1000; // порог «долго» — секунда: человек это уже замечает
+    app.Use(async (ctx, next) =>
+    {
+        var started = Stopwatch.GetTimestamp();
+        await next();
+        var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        if (elapsed >= slowRequestMs)
+        {
+            Log.Warning("Долгий запрос {Method} {Path} — {Elapsed:F0} мс",
+                ctx.Request.Method, ctx.Request.Path.Value ?? "", elapsed);
+        }
+    });
     app.UseStaticFiles();
     // UseRouting вызывается явно: иначе WebApplication поставит её в самое начало конвейера,
     // и правка пути выше уже не повлияла бы на выбор эндпойнта
@@ -766,6 +782,19 @@ static void OpenBrowser(string url)
 {
     try
     {
+        // НА WINDOWS БРАУЗЕР ОТКРЫВАЕТ ПРОВОДНИК, А НЕ МЫ (T-388-S0): при ShellExecute адреса
+        // браузер стартует ДОЧЕРНИМ процессом сервера и наследует его маркер доступа и окружение.
+        // Сервер, запущенный от администратора (установщик «для всех пользователей» запускает
+        // программу с правами установщика), поднимал Firefox тоже с повышенными правами —
+        // обычный экземпляр с ним разговаривать не может (UIPI), и получается «вторая копия»
+        // браузера: сеанс не восстанавливается, вкладки теряются, наш адрес не открывается.
+        // explorer.exe передаёт адрес уже работающему проводнику пользователя, и браузер
+        // стартует так же, как по щелчку по ссылке на рабочем столе
+        if (OperatingSystem.IsWindows())
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { url }, UseShellExecute = false, CreateNoWindow = true });
+            return;
+        }
         Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
     }
     catch (Exception ex)

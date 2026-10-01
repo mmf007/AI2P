@@ -200,14 +200,17 @@ public sealed class TeamWorkService
             }
             catch (Exception ex)
             {
-                Logger.Warning(ex, "Команда {TeamName}: исполнитель {Nick} — исключение при подключении",
+                Logger.Error(ex, "Команда {TeamName}: исполнитель {Nick} — исключение при подключении",
                     team.Name, executor.Nick);
                 result = (ExecutorWorkState.Error, ex.Message, attempt);
                 detail = ex.ToString();
             }
             // записываем только если эта попытка всё ещё актуальна (не было Stop / нового Start)
             var applied = _aiStates.TryUpdate(executor.Id, result, connecting);
-            Logger.Information(
+            // ошибка подключения — уровнем Error (T-393-S0): её текст человек видит в подсказке
+            // статуса, и найти его в журнале он обязан при любом пороге журнала
+            Logger.Write(result.Error is null ? Serilog.Events.LogEventLevel.Information
+                    : Serilog.Events.LogEventLevel.Error,
                 "Команда {TeamName}: исполнитель {Nick} → {State}{Error} (результат учтён: {Applied})",
                 team.Name, executor.Nick, result.State,
                 result.Error is null ? "" : $" — {result.Error}", applied);
@@ -238,7 +241,9 @@ public sealed class TeamWorkService
         var state = error is null ? ExecutorWorkState.Connected : ExecutorWorkState.Error;
         // своя попытка: фоновый результат Start, начатый раньше, эту запись уже не перепишет
         _aiStates[executor.Id] = (state, error, Guid.NewGuid());
-        Logger.Information("Запуск задания: исполнитель {Nick} → {State}{Error}",
+        Logger.Write(error is null ? Serilog.Events.LogEventLevel.Information
+                : Serilog.Events.LogEventLevel.Error,
+            "Запуск задания: исполнитель {Nick} → {State}{Error}",
             executor.Nick, state, error is null ? "" : $" — {error}");
     }
 

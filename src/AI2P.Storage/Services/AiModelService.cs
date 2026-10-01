@@ -2228,6 +2228,161 @@ public sealed class AiModelService
               "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
             }
             """),
+        // ВЕРСИИ CLI ОТДЕЛЬНЫМИ ЗАПИСЯМИ (T-359-S0). Переключение модели у Claude Code CLI
+        // делается полем "model" профайла — оно уходит флагом --model. Команды «claude models»
+        // у CLI нет, поэтому идентификаторы сверены живым запуском 24.09.2026
+        // (claude -p --output-format json --model <id> «ok», смотрели modelUsage ответа):
+        //   fable  → claude-fable-5-1     claude-fable-5   → claude-fable-5
+        //   opus   → claude-opus-5        claude-sonnet-5  → claude-sonnet-5
+        //   sonnet → claude-sonnet-5      claude-haiku-4-5 → claude-haiku-4-5
+        //   haiku  → claude-haiku-4-5-20251001
+        // Подмены модели не было ни разу: неизвестный id даёт код возврата 1 и
+        // «[claude-code:unrecognized_model]», а не молчаливую замену. Полное имя надёжнее
+        // алиаса: алиас «fable» уже означает 5.1, и с выходом 5.2 он молча переедет.
+        // Записи версий СОСУЩЕСТВУЮТ: старые не гасим — человек выбирает исполнителю нужную.
+        ("6f1a45e0-0d31-4c65-9a01-000000000060", "Claude-Fable-5.1_cli",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "transport": "cli",
+              "cliCommand": "claude --permission-mode acceptEdits",
+              "model": "claude-fable-5-1",
+              "baseUrl": "",
+              "secretRef": "",
+              "params": {},
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-fable-5-1",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 99 },
+                { "name": "code-review",          "score": 98 },
+                { "name": "code-debug",           "score": 98 },
+                { "name": "code-test",            "score": 96 },
+                { "name": "code-refactor",        "score": 97 },
+                { "name": "text-write",           "score": 96 },
+                { "name": "text-docs",            "score": 96 },
+                { "name": "text-edit",            "score": 95 },
+                { "name": "text-translate",       "score": 94 },
+                { "name": "text-summarize",       "score": 97 },
+                { "name": "analyze-requirements", "score": 98 },
+                { "name": "analyze-plan",         "score": 97 },
+                { "name": "analyze-data",         "score": 96 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+            }
+            """),
+        ("6f1a45e0-0d31-4c65-9a01-000000000061", "Claude-Haiku-4.5_cli",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "transport": "cli",
+              "cliCommand": "claude --permission-mode acceptEdits",
+              "model": "claude-haiku-4-5",
+              "baseUrl": "",
+              "secretRef": "",
+              "params": {},
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-haiku-4-5",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 76 },
+                { "name": "code-review",          "score": 74 },
+                { "name": "code-debug",           "score": 73 },
+                { "name": "code-test",            "score": 74 },
+                { "name": "code-refactor",        "score": 73 },
+                { "name": "text-write",           "score": 76 },
+                { "name": "text-docs",            "score": 75 },
+                { "name": "text-edit",            "score": 75 },
+                { "name": "text-translate",       "score": 78 },
+                { "name": "text-summarize",       "score": 80 },
+                { "name": "analyze-requirements", "score": 72 },
+                { "name": "analyze-plan",         "score": 70 },
+                { "name": "analyze-data",         "score": 70 }
+              ],
+              "limits":  { "context": 200000, "max_output": 64000 },
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+            }
+            """),
+        // T-370-S0: Opus 5.5 по CLI. В 1.144 записи не было намеренно — установленный тогда
+        // Claude Code 2.1.278 отвечал отказом «[claude-code:unrecognized_model]: does not
+        // support this model; version 2.1.280 or newer is required». CLI обновлён, и живой
+        // запуск 24.09.2026 на 2.1.281 подтвердил: `claude -p --model claude-opus-5-5` даёт
+        // код возврата 0 и modelUsage ["claude-opus-5-5"]. Тем же запуском проверено, что
+        // алиас `opus` УЖЕ переехал на 5.5 (в 1.144 он означал claude-opus-5) — лишнее
+        // подтверждение правила «в записи дистрибутива только полное имя версии».
+        // Запись 006 (Claude-Opus-5.0_cli) остаётся на claude-opus-5: версии сосуществуют.
+        ("6f1a45e0-0d31-4c65-9a01-000000000062", "Claude-Opus-5.5_cli",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "transport": "cli",
+              "cliCommand": "claude --permission-mode acceptEdits",
+              "model": "claude-opus-5-5",
+              "baseUrl": "",
+              "secretRef": "",
+              "params": {},
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-opus-5-5",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 98 },
+                { "name": "code-review",          "score": 98 },
+                { "name": "code-debug",           "score": 97 },
+                { "name": "code-test",            "score": 95 },
+                { "name": "code-refactor",        "score": 96 },
+                { "name": "text-write",           "score": 95 },
+                { "name": "text-docs",            "score": 95 },
+                { "name": "text-edit",            "score": 94 },
+                { "name": "text-translate",       "score": 93 },
+                { "name": "text-summarize",       "score": 96 },
+                { "name": "analyze-requirements", "score": 97 },
+                { "name": "analyze-plan",         "score": 97 },
+                { "name": "analyze-data",         "score": 95 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+            }
+            """),
         ("6f1a45e0-0d31-4c65-9a01-000000000011", "Claude-Haiku-4.5",
             """
             {
@@ -5732,6 +5887,541 @@ public sealed class AiModelService
               "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
             }
             """),
+
+        // ---------------------------------------------------------------------------------
+        // ОБХОД РЫНКА 23.09.2026 (T-347-S0). Прошлый обход — T-216-S0, 11.09.2026; здесь
+        // только то, что вышло ПОСЛЕ него. Идентификаторы, длина контекста, цены и модальности
+        // текстовых записей сверены запросом к публичному каталогу OpenRouter
+        // (GET https://openrouter.ai/api/v1/models, 454 записи), медиа — к каталогу fal.ai
+        // (GET https://fal.ai/api/models, 1514 записей) плюс схема очереди каждого эндпойнта.
+        // СУФЛЁР ни одной из этих записей не нужен: управляющий json читает только
+        // ComfyUiConnector (JobOrchestrator → ComfyUiConnector.UsePrompter), а у записей
+        // openai-compatible / anthropic / fal-ai он ушёл бы в никуда.
+        // ---------------------------------------------------------------------------------
+
+        // OpenAI GPT-6 Sol (каталог: openai/gpt-6-sol, 22.09.2026) — рабочая лошадка нового
+        // поколения: вчетверо дешевле Astra ($2/$10 против $10/$50) при том же контексте.
+        // Записи gpt-6-sol-pro нет намеренно: это тот же id с reasoning.mode=pro, вариант,
+        // а не версия (так же решено у Astra).
+        ("6f1a45e0-0d31-4c65-9a01-000000000094", "GPT-6-Sol",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gpt-6-sol",
+              "baseUrl": "https://api.openai.com/v1",
+              "secretRef": "openai.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gpt-6-sol",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 95 },
+                { "name": "code-review",          "score": 94 },
+                { "name": "code-debug",           "score": 94 },
+                { "name": "code-test",            "score": 92 },
+                { "name": "code-refactor",        "score": 93 },
+                { "name": "text-write",           "score": 93 },
+                { "name": "text-docs",            "score": 92 },
+                { "name": "text-edit",            "score": 92 },
+                { "name": "text-translate",       "score": 91 },
+                { "name": "text-summarize",       "score": 94 },
+                { "name": "analyze-requirements", "score": 94 },
+                { "name": "analyze-plan",         "score": 93 },
+                { "name": "analyze-data",         "score": 93 }
+              ],
+              "limits":  { "context": 1050000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 2.0, "out_per_1m": 10.0 }
+            }
+            """),
+
+        // OpenAI GPT-6 Luna (каталог: openai/gpt-6-luna, 22.09.2026) — САМАЯ ДЕШЁВАЯ запись
+        // поколения: $0,10/$0,50 за миллион при контексте 1 050 000. Место в справочнике —
+        // массовая черновая работа (перевод, сводка, разбор данных), где Astra и Sol
+        // переплата в 20–100 раз.
+        ("6f1a45e0-0d31-4c65-9a01-000000000095", "GPT-6-Luna",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gpt-6-luna",
+              "baseUrl": "https://api.openai.com/v1",
+              "secretRef": "openai.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gpt-6-luna",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 86 },
+                { "name": "code-review",          "score": 84 },
+                { "name": "code-debug",           "score": 84 },
+                { "name": "code-test",            "score": 83 },
+                { "name": "code-refactor",        "score": 84 },
+                { "name": "text-write",           "score": 88 },
+                { "name": "text-docs",            "score": 87 },
+                { "name": "text-edit",            "score": 88 },
+                { "name": "text-translate",       "score": 88 },
+                { "name": "text-summarize",       "score": 90 },
+                { "name": "analyze-requirements", "score": 85 },
+                { "name": "analyze-plan",         "score": 84 },
+                { "name": "analyze-data",         "score": 86 }
+              ],
+              "limits":  { "context": 1050000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 0.10, "out_per_1m": 0.50 }
+            }
+            """),
+
+        // Anthropic Claude Opus 5.5 (каталог: anthropic/claude-opus-5.5, 22.09.2026) — новая
+        // версия старшей линейки, и притом ДЕШЕВЛЕ Opus 5 ($4/$20 против $5/$25). Нативный id
+        // получен правилом производителя «точка → дефис» (claude-haiku-4.5 → claude-haiku-4-5,
+        // запись 011; claude-fable-5.1 → claude-fable-5-1, запись 084) и живым вызовом НЕ
+        // проверен — поэтому, как и у Fable 5.1, оставлены запасные модели.
+        ("6f1a45e0-0d31-4c65-9a01-000000000096", "Claude-Opus-5.5",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "model": "claude-opus-5-5",
+              "baseUrl": "",
+              "secretRef": "anthropic.apiKey",
+              "params": {
+                "maxTokens": 16000,
+                "effort": "high",
+                "fallbacks": ["claude-opus-5", "claude-sonnet-5"]
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-opus-5-5",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 98 },
+                { "name": "code-review",          "score": 98 },
+                { "name": "code-debug",           "score": 97 },
+                { "name": "code-test",            "score": 95 },
+                { "name": "code-refactor",        "score": 96 },
+                { "name": "text-write",           "score": 95 },
+                { "name": "text-docs",            "score": 95 },
+                { "name": "text-edit",            "score": 94 },
+                { "name": "text-translate",       "score": 93 },
+                { "name": "text-summarize",       "score": 96 },
+                { "name": "analyze-requirements", "score": 97 },
+                { "name": "analyze-plan",         "score": 97 },
+                { "name": "analyze-data",         "score": 95 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 4.0, "out_per_1m": 20.0 }
+            }
+            """),
+
+        // xAI Grok 4.7 (каталог: x-ai/grok-4.7, 21.09.2026) — следующая версия после 4.6 и
+        // на 20 % дешевле её ($1,60/$4,80 против $2/$6). Запись 017 (Grok-4.6) НЕ гасится:
+        // более старших версий семейства у неё пока одна, а порог гашения — три.
+        ("6f1a45e0-0d31-4c65-9a01-000000000097", "Grok-4.7",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "grok-4.7",
+              "baseUrl": "https://api.x.ai/v1",
+              "secretRef": "xai.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "grok-4.7",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 93 },
+                { "name": "code-review",          "score": 92 },
+                { "name": "code-debug",           "score": 92 },
+                { "name": "code-test",            "score": 90 },
+                { "name": "code-refactor",        "score": 91 },
+                { "name": "text-write",           "score": 91 },
+                { "name": "text-docs",            "score": 90 },
+                { "name": "text-edit",            "score": 90 },
+                { "name": "text-translate",       "score": 89 },
+                { "name": "text-summarize",       "score": 92 },
+                { "name": "analyze-requirements", "score": 92 },
+                { "name": "analyze-plan",         "score": 92 },
+                { "name": "analyze-data",         "score": 91 }
+              ],
+              "limits":  { "context": 500000, "max_output": 64000 },
+              "cost":    { "in_per_1m": 1.60, "out_per_1m": 4.80 }
+            }
+            """),
+
+        // Alibaba Qwen3.8 Omni Flash (каталог: qwen/qwen3.8-omni-flash, 21.09.2026). Из всей
+        // линейки 3.8 это ЕДИНСТВЕННАЯ запись, принимающая ЗВУК (модальности каталога:
+        // text,image,audio,video → text), и стоит она как Flash — $0,15/$0,47. Выход у неё
+        // только текстовый, поэтому навыков audio-* в декларации нет: подбор исполнителя
+        // (SkillIo) обнулил бы оценку записи, у которой пара «вход → выход» не сошлась.
+        ("6f1a45e0-0d31-4c65-9a01-000000000098", "Qwen3.8-Omni-Flash",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "qwen3.8-omni-flash",
+              "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+              "secretRef": "qwen.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "qwen3.8-omni-flash",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "audio/wav", "audio/mpeg"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",           "score": 85 },
+                { "name": "code-review",          "score": 83 },
+                { "name": "code-debug",           "score": 83 },
+                { "name": "code-test",            "score": 82 },
+                { "name": "code-refactor",        "score": 83 },
+                { "name": "text-write",           "score": 87 },
+                { "name": "text-docs",            "score": 86 },
+                { "name": "text-edit",            "score": 86 },
+                { "name": "text-translate",       "score": 89 },
+                { "name": "text-summarize",       "score": 89 },
+                { "name": "analyze-requirements", "score": 85 },
+                { "name": "analyze-plan",         "score": 84 },
+                { "name": "analyze-data",         "score": 87 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 32768 },
+              "cost":    { "in_per_1m": 0.15, "out_per_1m": 0.47 }
+            }
+            """),
+
+        // ByteDance Seedream V5 Flash (каталог fal.ai: bytedance/seedream/v5/flash/
+        // text-to-image, 23.09.2026) — первая запись семейства Seedream в справочнике.
+        // Поля запроса сверены со схемой очереди эндпойнта (обязателен только prompt;
+        // image_size по умолчанию auto_2K, output_format — jpeg|png).
+        // ЦЕНА ШЛЮЗОМ НЕ ОПУБЛИКОВАНА (pricingInfoOverride = null на 23.09.2026), поэтому
+        // per_unit не выдуман, а оставлен нулём — как у записи 045 (ElevenLabs-TTS-v3).
+        ("6f1a45e0-0d31-4c65-9a01-000000000099", "Seedream-5-Flash",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "bytedance/seedream/v5/flash/text-to-image",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "num_images": 1,
+                "output_format": "png",
+                "image_size": "auto_2K",
+                "enable_safety_checker": true
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "bytedance/seedream/v5/flash/text-to-image",
+              "inputs":  ["text/plain"],
+              "outputs": ["image/png"],
+              "skills":  [
+                { "name": "image-generate", "score": 92 },
+                { "name": "image-concept",  "score": 90 },
+                { "name": "image-photo",    "score": 90 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+            }
+            """),
+
+        // Meshy 7.1 (каталог fal.ai: meshy/v7.1/text-to-3d, 19.09.2026) — следующая версия
+        // после Meshy V7 (запись 047, она остаётся активной: более старшая версия у неё одна).
+        // Поля запроса сверены со схемой очереди: mode=full|preview, topology=quad|triangle,
+        // target_polycount, enable_pbr, seed. Цена каталога: $0,80 без текстур, $1,20 с
+        // текстурами — в декларации стоит тариф «с текстурами», как и у записи 047.
+        ("6f1a45e0-0d31-4c65-9a01-000000000100", "Meshy-7.1",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "meshy/v7.1/text-to-3d",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 60
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "mode": "full",
+                "topology": "quad",
+                "target_polycount": 30000,
+                "enable_pbr": true,
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "meshy/v7.1/text-to-3d",
+              "inputs":  ["text/plain"],
+              "outputs": ["model/glb"],
+              "skills":  [
+                { "name": "3d-generate", "score": 89 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 1.2, "unit": "model" }
+            }
+            """),
+
+        // Tripo P2 (каталог fal.ai: tripo3d/p2/image-to-3d, 20.09.2026) — старшая линейка
+        // Tripo: дороже H3.1 (запись 046) втрое, но с четырьмя уровнями качества текстур.
+        // Промпта эндпойнт не принимает вовсе (required=['image_url']), поэтому в inputs
+        // объявлена только картинка — иначе проверка форматов отдала бы ему задачу «сделай
+        // модель по описанию». Цена каталога: $1,10 за модель со стандартными текстурами.
+        ("6f1a45e0-0d31-4c65-9a01-000000000101", "Tripo-P2",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "tripo3d/p2/image-to-3d",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "image_url": "{image}",
+                "texture": true,
+                "pbr": true,
+                "texture_quality": "standard",
+                "quad": false
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "request-field",
+                "placeholder": "{image}",
+                "field": "image_url",
+                "maxCount": 1,
+                "formats": ["image/png", "image/jpeg", "image/webp"],
+                "required": true
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "tripo3d/p2/image-to-3d",
+              "inputs":  ["image/*"],
+              "outputs": ["model/glb"],
+              "skills":  [
+                { "name": "3d-image", "score": 94 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 1.1, "unit": "model" }
+            }
+            """),
+
+        // ElevenLabs Music v2.5 (каталог fal.ai: elevenlabs/music/v2.5, 14.09.2026). У записи
+        // 044 версия в идентификатор не вынесена вовсе (эндпойнт fal-ai/elevenlabs/music) —
+        // теперь у шлюза есть ЯВНЫЕ версии v2 и v2.5, и берётся старшая. Прежняя запись
+        // остаётся активной: её эндпойнт из каталога не исчез. Поля сверены со схемой
+        // очереди, цена подтверждена строкой тарифа: $0,6 за минуту звука с округлением вверх.
+        ("6f1a45e0-0d31-4c65-9a01-000000000102", "ElevenLabs-Music-v2.5",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "elevenlabs/music/v2.5",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "music_length_ms": 30000,
+                "output_format": "mp3_44100_128",
+                "force_instrumental": false
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "elevenlabs/music/v2.5",
+              "inputs":  ["text/plain"],
+              "outputs": ["audio/mpeg"],
+              "skills":  [
+                { "name": "audio-song",  "score": 92 },
+                { "name": "audio-music", "score": 92 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.6, "unit": "minute" }
+            }
+            """),
+
+        // ЛОКАЛЬНАЯ МОДЕЛЬ ДЛЯ РОЛИ СУФЛЁРА (T-347-S0, дополнительная задача). Работа суфлёра
+        // всегда одна и та же и всегда простая: прочитать описание задачи и вернуть маленький
+        // json по схеме профайла — тяжёлую модель ради этого поднимать незачем. Qwen3.5-4B в
+        // кванте Q4_K_S весит 2 590 430 368 байт (2,41 ГиБ; размер снят HEAD-запросом к
+        // HuggingFace 23.09.2026, ответ 200 без токена, репозиторий unsloth/Qwen3.5-4B-GGUF
+        // не закрыт согласием, лицензия apache-2.0), то есть целиком ложится в 3 ГиБ
+        // видеопамяти; контекст 16 384 с квантованным KV-кэшем (--cache-type-k/v q8_0)
+        // добавляет к этому меньше 200 МиБ, а всей машине хватает 10 ГиБ ОЗУ. Порт 8084:
+        // 8080–8083 уже заняты другими локальными записями, иначе второй llama-server
+        // не поднимется рядом с первым.
+        // ЗАПИСЬ НЕ ГАСИТСЯ ПО ВЫСЛУГЕ ВЕРСИЙ, пока файл доступен для скачивания у
+        // производителя: правило «три более старших версии» здесь неприменимо — её ценность
+        // не в качестве, а в размере, и замены с такими требованиями к железу у нас нет.
+        ("6f1a45e0-0d31-4c65-9a01-000000000103", "Qwen3.5-4B-Local",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "qwen3.5-4b",
+              "baseUrl": "http://localhost:8084/v1",
+              "secretRef": "",
+              "launchCommand": "",
+              "params": { "maxTokens": 8192 },
+              "install": {
+                "group": "Qwen3.5-4B",
+                "packages": ["llama.cpp"],
+                "launchCommand": "\"{package:llama.cpp:llama-server.exe}\" -m \"{model:Qwen3.5-4B-Q4_K_S.gguf}\" -ngl 99 -c 16384 --cache-type-k q8_0 --cache-type-v q8_0 --jinja --port 8084 --alias qwen3.5-4b",
+                "files": [
+                  {
+                    "name": "Qwen3.5-4B-Q4_K_S.gguf",
+                    "url": "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_S.gguf",
+                    "size": 2590430368
+                  }
+                ]
+              },
+              "lora": {
+                "supported": true,
+                "engine": "llama-cpp",
+                "apply": {
+                  "kind": "launch-arg",
+                  "field": "--lora-scaled",
+                  "strength": 1.0,
+                  "dir": "loras",
+                  "maxCount": 1,
+                  "formats": [".gguf"]
+                },
+                "train": {
+                  "kind": "external",
+                  "docUrl": "https://github.com/ggml-org/llama.cpp/discussions/10123",
+                  "dataset": { "kind": "none" },
+                  "start": { "kind": "none" },
+                  "wait": { "kind": "none" },
+                  "result": {
+                    "kind": "file",
+                    "target": "loras/{object}.gguf"
+                  }
+                }
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "qwen3.5-4b",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "analyze-data",         "score": 74 },
+                { "name": "text-summarize",       "score": 72 },
+                { "name": "text-translate",       "score": 70 },
+                { "name": "text-edit",            "score": 68 },
+                { "name": "analyze-requirements", "score": 66 },
+                { "name": "text-write",           "score": 65 },
+                { "name": "code-write",           "score": 62 }
+              ],
+              "limits":  { "context": 16384, "max_output": 8192 },
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+            }
+            """),
         .. KandinskyLiteVariants(),
         .. AceStep15Variants(),
     ];
@@ -7825,11 +8515,17 @@ public sealed class AiModelService
     /// <item><c>…014</c> Gemini-3-Ultra — после версии 3 у Google вышли 3.1, 3.5, 3.6, 3.7 и
     /// 3.8; идентификатора <c>gemini-3-ultra</c> в публичном каталоге моделей уже нет;</item>
     /// <item><c>…015</c> Gemini-3.1-Pro — после 3.1 вышли 3.5, 3.6, 3.7 и 3.8; в каталоге
-    /// остались только <c>gemini-3.1-pro-preview</c>, обычного идентификатора нет.</item>
+    /// остались только <c>gemini-3.1-pro-preview</c>, обычного идентификатора нет;</item>
+    /// <item><c>…048</c> Wan-2.2-T2V-A14B и <c>…049</c> Wan-2.2-I2V-A14B (T-347-S0,
+    /// 23.09.2026) — после 2.2 у Alibaba вышли Wan 2.6, Wan 2.7 и Wan 3.0 (плюс вариант
+    /// 3.0 Prime, он у нас заведён записью …090), то есть порог «три более старших версии
+    /// того же семейства» набран с запасом. Записи остаются в справочнике и включаются
+    /// галочкой обратно: веса по манифесту по-прежнему качаются, и у кого Wan 2.2 уже
+    /// установлен, тот ничего не теряет.</item>
     /// </list>
     ///
     /// Список действует в двух местах: на ЧИСТОЙ установке — при вставке записи (сид), на уже
-    /// работающей — разовым шагом обновления (<c>Upgrade.Steps</c>, билд 132), который зовёт
+    /// работающей — разовым шагом обновления (<c>Upgrade.Steps</c>, билды 132 и 143), который зовёт
     /// <see cref="RetireOutdatedSeedModels"/>. Включить погашенную запись обратно человек
     /// по-прежнему может галочкой «активна»: шаг разовый и второй раз не сработает.
     /// </summary>
@@ -7837,6 +8533,8 @@ public sealed class AiModelService
     {
         "6f1a45e0-0d31-4c65-9a01-000000000014",
         "6f1a45e0-0d31-4c65-9a01-000000000015",
+        "6f1a45e0-0d31-4c65-9a01-000000000048",
+        "6f1a45e0-0d31-4c65-9a01-000000000049",
     };
 
     /// <summary>
@@ -7856,6 +8554,15 @@ public sealed class AiModelService
                 WHERE id=@id AND is_custom=0 AND is_active<>0 AND deleted_at IS NULL
                 """,
                 ("@now", Sql.ToDb(DateTime.UtcNow)), ("@id", id));
+            // У ЛОКАЛЬНОЙ записи общая колонка активности не читается вовсе (T-8-S1):
+            // включена она или нет, решает строка ЭТОГО сервера в ai_model_servers. Без
+            // этой правки гашение локальной записи (в 1.143 — две записи Wan 2.2) не гасило
+            // бы ничего: в справочнике галочка снята, а исполнитель продолжал бы работать
+            changed += Sql.Exec(conn, tx, """
+                UPDATE ai_model_servers SET is_active=0, updated_at=@now
+                WHERE model_id=@id AND server_id=@s AND is_active<>0 AND deleted_at IS NULL
+                """,
+                ("@now", Sql.ToDb(DateTime.UtcNow)), ("@id", id), ("@s", _scope.ServerId));
             if (changed > 0)
             {
                 done += changed;

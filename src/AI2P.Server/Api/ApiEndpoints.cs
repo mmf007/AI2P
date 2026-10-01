@@ -1774,8 +1774,10 @@ public static class ApiEndpoints
         api.MapGet("/tasks/ai-work", () => Handle(() => Results.Ok(Tasks().AiWork())));
         // диаграмма подзадач (T-132-S0): поддерево задачи по дорожкам исполнителей и по
         // времени — считается целиком на сервере (задания, команда, порядок очереди)
-        api.MapGet("/tasks/{id}/diagram", (string id) =>
-            Handle(() => Results.Ok(Tasks().Diagram(id))));
+        // alone=true — корень рисуется и без подзадач (T-353-S0): так его просят «Диаграммы
+        // в работе», где запущенная одиночная задача давала пустое представление
+        api.MapGet("/tasks/{id}/diagram", (string id, bool alone = false) =>
+            Handle(() => Results.Ok(Tasks().Diagram(id, alone))));
         api.MapGet("/tasks/{id}", (string id) =>
         {
             var task = Tasks().Get(id);

@@ -1535,19 +1535,27 @@ else
         try
         {
             _details = await Api.GetTaskAsync(TaskId);
-            _events = await Api.GetEventsAsync(taskId: TaskId);
-            _chat = await Api.GetChatAsync(TaskId);
-            if (_details.Task.IsTemplate)
-            {
-                // вкладка шаблона «Статистика» (ТЗ п. 2.11, todo32); опыт грузит ExperienceTab
-                _stats = await Api.GetTemplateStatsAsync(TaskId);
-            }
+            // ОСТАЛЬНОЕ ГРУЗИТСЯ РАЗОМ (T-363-S0): события, чат, использованный опыт и список
+            // задач проекта друг от друга не зависят, а шли цепочкой — открытие карточки стоило
+            // суммы всех ожиданий. От _details зависит только проект, поэтому он идёт первым
+            var eventsTask = Api.GetEventsAsync(taskId: TaskId);
+            var chatTask = Api.GetChatAsync(TaskId);
+            // подзадачи: серверный список по проекту, отбор по parent_id
+            var candidatesTask = Api.GetTasksAsync(projectId: _details.Task.ProjectId, includeTemplates: true);
+            // вкладка шаблона «Статистика» (ТЗ п. 2.11, todo32); опыт грузит ExperienceTab
+            var statsTask = _details.Task.IsTemplate ? Api.GetTemplateStatsAsync(TaskId) : null;
             // ИСПОЛЬЗОВАННЫЙ ОПЫТ (T-266-S0): что система подставила агенту в задание.
             // Список короткий (до десятков строк), поэтому грузится вместе с карточкой —
             // от него зависит, показывать ли вкладку и что стоит в её итоге
-            await ReloadUsedExperienceAsync();
-            // подзадачи: серверный список по проекту, отбор по parent_id
-            var candidates = await Api.GetTasksAsync(projectId: _details.Task.ProjectId, includeTemplates: true);
+            var usedTask = ReloadUsedExperienceAsync();
+            _events = await eventsTask;
+            _chat = await chatTask;
+            if (statsTask is not null)
+            {
+                _stats = await statsTask;
+            }
+            await usedTask;
+            var candidates = await candidatesTask;
             _subtasks = candidates.Where(t => t.ParentId == TaskId).ToList();
             // поддерево целиком (T-132-S0) — для представления «иерархия»
             _subtree = Subtree(candidates, TaskId);

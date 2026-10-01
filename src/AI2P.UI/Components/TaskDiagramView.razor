@@ -589,7 +589,8 @@ else
         var laneIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var rootId in rootIds)
         {
-            var part = await Api.GetTaskDiagramAsync(rootId);
+            // alone: запущенная задача БЕЗ подзадач — тоже диаграмма (T-353-S0)
+            var part = await Api.GetTaskDiagramAsync(rootId, alone: true);
             if (nodeIds.Count == 0)
             {
                 merged.DefaultHours = part.DefaultHours;

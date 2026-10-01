@@ -2,7 +2,34 @@
 
 # AI2P — AI to People
 
-**A work planner in which tasks are carried out not only by people, but by AI agents as well.**
+### A self-hosted task planner where the executor can be an AI agent.<br>Your Jira, where some of the cards get done by themselves.
+
+<p align="center"><img src="../images/ai2p-demo.gif" alt="AI2P demo: create a task, assign an AI agent, press Start, get the result" width="960"></p>
+
+* **Self-hosted — your data stays with you.** The database, the project files and the keys lie next to the program. Windows, Linux, macOS.
+* **Any model, including local ones.** Claude, GPT, Gemini, DeepSeek, Qwen over an API, Claude Code by subscription, local models on your own video card — and a cluster of several computers.
+* **People and AI in one queue.** Not "an AI agent instead of the team": the AI takes what it can do, the rest waits for people, as in any planner.
+
+**[Quick start](man/quickstart.md)** · **[Website](https://ai2p.org/ai2p)** · **[Download](https://github.com/mmf007/AI2P/releases)** · Without an API key AI2P works as an ordinary planner for people.
+
+<sub>Full description below ↓</sub>
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
+---
 
 AI2P is what Trello or Jira usually are: projects, tasks, executors, a board, a history. There is one
 difference, and it changes everything: **the executor of a task may be an AI**. Whatever the AI can
@@ -16,6 +43,7 @@ The data goes nowhere: the database, the project files and the keys lie next to 
 
 * [What it does](#what-it-does)
 * [What it looks like in work](#what-it-looks-like-in-work)
+* [AI2P builds itself](#ai2p-builds-itself)
 * [What is needed](#what-is-needed)
 * [Quick start](#quick-start)
 * [Documentation](#documentation)
@@ -65,17 +93,28 @@ The data goes nowhere: the database, the project files and the keys lie next to 
    asks its questions in the task chat — and that is where you answer it.
 4. The finished result lands as the task's artifact, and the task itself moves to review.
 
+## AI2P builds itself
+
+AI2P is developed in AI2P. More than 140 releases and hundreds of tasks: specifications,
+code, tests, documentation and release builds are done by AI executors, while a human sets
+the tasks and accepts the results. Every release is a task tree: an agent splits the work
+into subtasks, hands them out to executors, and the final task sums up and sends back for
+rework whatever did not add up. So this is not a demo on a shopping list, but a product that
+proves itself on itself every day — honest agent mistakes and their fixes included.
+
 ## What is needed
 
 * Windows 10/11, Linux or macOS; administrator rights only for the installation.
-* The **ASP.NET Core 8.x** runtime — either installed separately or taken from the full installation
-  package (`AI2P_v_1_NN_full_…`), which already holds it inside.
+* Nothing else: take the **full package** — `AI2P_v_1_NN_full_windows_x64.exe` for Windows,
+  `AI2P_v_1_NN_full_linux_x64.run` for Linux, `AI2P_v_1_NN_full_macos_arm64.run` for macOS.
+  Everything needed to run is inside it, there is no need to install .NET separately.
+  (The package without `full` in its name is smaller, but expects the ASP.NET Core 8.x runtime to be installed already.)
 * An API key of the AI you are going to use — or a Claude Code subscription, or a video card for
   local models. Without a model the system works as an ordinary planner for people.
 
 ## Quick start
 For the first run in a few minutes see [Quick start](man/quickstart.md)  
-[The distributions live here](https://github.com/mmf007/AI2P/releases)   
+[The distributions live here](https://github.com/mmf007/AI2P/releases) — take the package with `full` in its name  
 
 ## Documentation
 For the detailed documentation see [Documentation](index.md)

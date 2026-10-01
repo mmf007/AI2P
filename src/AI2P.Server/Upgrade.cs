@@ -258,6 +258,25 @@ public static class Upgrade
                         retired);
                 }
             }),
+
+        // T-347-S0: обход рынка 23.09.2026 добавил в AiModelService.RetiredSeedModels ещё две
+        // записи — Wan-2.2-T2V-A14B и Wan-2.2-I2V-A14B (после 2.2 вышли Wan 2.6, 2.7 и 3.0).
+        // Шаг 132 у работающих установок УЖЕ выполнен и второй раз не пойдёт, поэтому нужен
+        // свой номер: метод один и тот же, он идемпотентен и гасит только то, что ещё активно
+        new Step(143, "погасить записи справочника моделей, устаревшие к версии 1.143",
+            registry =>
+            {
+                var retired = 0;
+                foreach (var org in registry.Orgs.List(includeInactive: true))
+                {
+                    retired += registry.Context(org).Models.RetireOutdatedSeedModels();
+                }
+                if (retired > 0)
+                {
+                    Log.Information("AI2P: погашено устаревших записей справочника моделей: {Count}",
+                        retired);
+                }
+            }),
     ];
 
     /// <summary>

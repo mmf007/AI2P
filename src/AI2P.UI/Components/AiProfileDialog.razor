@@ -11,6 +11,16 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="3">
+            @* профайл записи ДИСТРИБУТИВА не реплицируется (T-261-S0), поэтому правка модели
+               в нём остаётся на этом сервере — жалоба T-374-S0 «сменили модель на дирижёре,
+               а на S1 не приходит». Сменить модель исполнителю на всех серверах — выбрать
+               другую запись справочника: model_id исполнителя реплицируется *@
+            @if (IsDistributionProfile(Path))
+            {
+                <MudAlert Severity="Severity.Warning" Dense="true" data-profile-local-only="1">
+                    @L["profile.localOnly"]
+                </MudAlert>
+            }
             <MudTextField @bind-Value="_provider" Label="@L["profile.provider"]" />
             @* подключение по CLI вместо API (todo29); у старых профайлов — api *@
             <MudSelect T="string" @bind-Value="_transport" Label="@L["profile.transport"]">
@@ -21,7 +31,12 @@
             {
                 <MudTextField @bind-Value="_cliCommand" Label="@L["profile.cliCommand"]" />
             }
-            <MudTextField @bind-Value="_model" Label="@L["profile.model"]" />
+            @* подсказка о допустимых формах значения у CLI (T-359-S0): «claude --model»
+               принимает и алиас последней версии, и полное имя, а команды «claude models»
+               у CLI нет — списка моделей в форме взять неоткуда *@
+            <MudTextField @bind-Value="_model" Label="@L["profile.model"]"
+                          HelperText="@(_transport == "cli" ? L["profile.model.cliHint"] : null)"
+                          HelperTextOnFocus="false" />
             <MudTextField @bind-Value="_baseUrl" Label="@L["profile.baseUrl"]" />
             <MudTextField @bind-Value="_secretRef" Label="@L["profile.secretRef"]" />
             <MudTextField @bind-Value="_launchCommand" Label="@L["profile.launchCommand"]" />
@@ -53,6 +68,15 @@
     private string _secretRef = "";
     private string _launchCommand = "";
     private string _paramsJson = "{}";
+
+    /// <summary>
+    /// Профайл записи справочника ДИСТРИБУТИВА: models/profile_&lt;фиксированный id&gt;.json.
+    /// То же правило, что FileManifest.IsDistributionFile (AI2P.Storage, UI на него не ссылается):
+    /// такой файл каждый сервер пишет себе сам, и репликация его не везёт.
+    /// </summary>
+    private static bool IsDistributionProfile(string path) =>
+        path.Replace('\\', '/').TrimStart('/')
+            .StartsWith("models/profile_6f1a45e0-0d31-4c65-9a01-", StringComparison.OrdinalIgnoreCase);
 
     private bool ParamsValid
     {

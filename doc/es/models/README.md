@@ -17,11 +17,13 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API del proveedor Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API de Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API del proveedor Anthropic
+* [Claude-Opus-5.5](Claude-Opus-5.5.md) — API del proveedor Anthropic
 * [Claude-Sonnet-5](Claude-Sonnet-5.md) — API de Anthropic
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md) — API de DeepSeek, compatible con OpenAI
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md) — API de DeepSeek, compatible con OpenAI
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md) — API de DeepSeek, compatible con OpenAI
 * [ElevenLabs-Music](ElevenLabs-Music.md) — texto → música y canciones, libres de derechos, habilidades `audio-song` 89, `audio-music` 89
+* [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — texto → música y canciones con derechos despejados, habilidades `audio-song` 92, `audio-music` 92
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — texto → voz, habilidades `audio-speech` 96
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, a través de una capa compatible con OpenAI (**desactivada el 11.09.2026**)
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, a través de una capa compatible con OpenAI (**desactivada el 11.09.2026**)
@@ -34,14 +36,18 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [GPT-5.6-Sol](GPT-5.6-Sol.md) — API de OpenAI, compatible con OpenAI
 * [GPT-5.6-Terra](GPT-5.6-Terra.md) — API de OpenAI, compatible con OpenAI
 * [GPT-6-Astra](GPT-6-Astra.md) — API de OpenAI, compatible con OpenAI
+* [GPT-6-Luna](GPT-6-Luna.md) — API de OpenAI, compatible con OpenAI
+* [GPT-6-Sol](GPT-6-Sol.md) — API de OpenAI, compatible con OpenAI
 * [GPT-Image-2](GPT-Image-2.md) — texto → imagen, cobro por tokens, habilidades `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [GPT-Image-2.5](GPT-Image-2.5.md) — texto → imagen, cobro por tokens, habilidades `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [Grok-4.6](Grok-4.6.md) — API de xAI, compatible con OpenAI
+* [Grok-4.7](Grok-4.7.md) — API de xAI, compatible con OpenAI
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, a través de la pasarela OpenRouter
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, compatible con OpenAI
 * [Kling-3.0](Kling-3.0.md) — imagen → vídeo con sonido, hasta 15 segundos, habilidades `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, a través de la pasarela OpenRouter
 * [Meshy-7](Meshy-7.md) — texto → modelo 3D listo para el juego, habilidades `3d-generate` 87
+* [Meshy-7.1](Meshy-7.1.md) — texto → modelo 3D listo para juego, habilidades `3d-generate` 89
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — texto → vídeo de hasta 15 segundos, habilidades `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, compatible con OpenAI
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Francia; compatible con OpenAI
@@ -51,9 +57,12 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — texto → imagen de hasta 4K, el mejor texto dentro del cuadro, habilidades `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, a través de la pasarela OpenRouter
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, compatible con OpenAI
+* [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, compatible con OpenAI
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — imagen → vídeo con sonido, habilidades `video-animate` 95
 * [Seedance-2.5](Seedance-2.5.md) — texto → vídeo de hasta 30 segundos con sonido, habilidades `video-generate` 97
+* [Seedream-5-Flash](Seedream-5-Flash.md) — texto → imagen, habilidades `image-generate` 92, `image-concept` 90, `image-photo` 90
 * [Tripo-H3.1](Tripo-H3.1.md) — imagen → modelo 3D con texturas PBR, habilidades `3d-image` 92
+* [Tripo-P2](Tripo-P2.md) — imagen → modelo 3D con texturas PBR en cuatro niveles, habilidades `3d-image` 94
 * [Veo-3.1](Veo-3.1.md) — texto → vídeo con sonido, 4–8 segundos, hasta 4K, habilidades `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — texto → vídeo de hasta 30 segundos con sonido, habilidades `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Rusia; compatible con OpenAI
@@ -64,10 +73,14 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
 * [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
 * [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
+* [Claude-Fable-5.1_cli](Claude-Fable-5.1_cli.md)
+* [Claude-Haiku-4.5_cli](Claude-Haiku-4.5_cli.md)
+* [Claude-Opus-5.5_cli](Claude-Opus-5.5_cli.md)
 
 **Locales (calcula su ordenador)**
 
 * [Muse-Glimmer-30B-Local](Muse-Glimmer-30B-Local.md) — textos y código, puntuaciones de habilidad 73–80
+* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — modelo ligero para el papel de apuntador: 3 GB de memoria de vídeo, puntuaciones 62-74
 * [Qwen3.6-27B-Local](Qwen3.6-27B-Local.md) — código y textos, puntuaciones de habilidad 75–82
 * [Qwen3.6-35B-A3B-Local](Qwen3.6-35B-A3B-Local.md) — código y textos, puntuaciones de habilidad 72–80
 * [Qwen3.8-27B-Local](Qwen3.8-27B-Local.md) — código y textos, puntuaciones de habilidad 80–87
@@ -97,8 +110,8 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [SDXL-1.0](SDXL-1.0.md) — texto → imagen, habilidades `image-generate` 70, `image-concept` 70, `image-photo` 68
 * [TRELLIS-2](TRELLIS-2.md) — imagen → modelo 3D CON COLOR, habilidad `3d-image` 85
 * [TripoSplat](TripoSplat.md) — imagen → SPLATS GAUSSIANOS, habilidad `3d-image` 80
-* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — imagen + texto → vídeo, habilidades `video-animate` 80, `video-generate` 74
-* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — texto → vídeo, habilidad `video-generate` 80
+* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — imagen + texto → vídeo, habilidades `video-animate` 80, `video-generate` 74 — **retirada el 23.09.2026** (tras la 2.2 salieron Wan 2.6, 2.7 y 3.0)
+* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — texto → vídeo, habilidad `video-generate` 80 — **retirada el 23.09.2026** (tras la 2.2 salieron Wan 2.6, 2.7 y 3.0)
 * [Z-Image-Turbo](Z-Image-Turbo.md) — texto → imagen, habilidades `image-generate` 85, `image-photo` 84, `image-concept` 82, `image-text` 78
 
 ## Tres formas de conexión
