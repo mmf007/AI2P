@@ -12,6 +12,7 @@
 * [Configuração](man/config.md)
 * [HTTPS](man/https.md)
 * [Executores](man/performers.md)
+* [Instalação do software de agentes CLI](man/cli_install.md)   
 * [Equipes](man/teams.md)
 * [Agenda](man/schedule.md)
 * [Vários servidores](man/servers.md)

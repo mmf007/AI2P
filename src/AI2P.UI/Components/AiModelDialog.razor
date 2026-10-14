@@ -22,9 +22,10 @@
             @if (Source is not null)
             {
                 <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                    <MudIcon Icon="@(_model.IsLocal ? Icons.Material.Filled.Computer : Icons.Material.Filled.Cloud)"
-                             Color="@(_model.IsLocal ? Color.Default : Color.Info)" Size="Size.Small" />
-                    <MudText Typo="Typo.body2">@(_model.IsLocal ? L["models.local"] : L["models.cloud"])</MudText>
+                    @* три вида размещения (T-431-S0): у CLI-агента — облако в мониторе *@
+                    <MudIcon Icon="@SettingsView.PlacementIcon(_model)"
+                             Color="@(_model.IsCli ? Color.Primary : _model.IsLocal ? Color.Default : Color.Info)" Size="Size.Small" />
+                    <MudText Typo="Typo.body2">@L[_model.IsCli ? "models.cli" : _model.IsLocal ? "models.local" : "models.cloud"]</MudText>
                     @if (State.IsCluster && _model.ServerCode.Length > 0)
                     {
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@_model.ServerCode</MudChip>
@@ -44,7 +45,7 @@
                 }
                 @* правка файлов и команды запуска конкретного компьютера — дело его
                    администратора (ТЗ гл. 6, гл. 12; этап 42) *@
-                @if (_model.IsLocal && !State.IsServerAdmin)
+                @if ((_model.IsLocal || _model.IsCli) && !State.IsServerAdmin)
                 {
                     <MudAlert Severity="Severity.Info" Dense="true">@L["models.server.adminHint"]</MudAlert>
                 }
@@ -238,6 +239,9 @@
                 Lora = Source.Lora,
                 RefImage = Source.RefImage,
                 RefAudio = Source.RefAudio,
+                // CLI-агент (T-431-S0): по команде CLI форма показывает третий вид размещения
+                CliCommand = Source.CliCommand,
+                CliLogin = Source.CliLogin,
             };
         }
         // пути по схеме из ТЗ п. 2.9 — чтобы редакторы работали и до первого сохранения

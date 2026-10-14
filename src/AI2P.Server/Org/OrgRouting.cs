@@ -22,6 +22,8 @@ public static class OrgRouting
     private static readonly HashSet<string> Shared = new(StringComparer.OrdinalIgnoreCase)
     {
         "api", "_blazor", "_framework", "_content", "login", "logout", "server-admin", "no-org",
+        // оповещение на телефон (T-422-S0): ответ на вопрос и календарная лента без входа
+        "notify",
     };
 
     /// <summary>ПОСЛЕДНЯЯ ОТКРЫТАЯ ОРГАНИЗАЦИЯ (T-237-S0) — имя cookie. Хранится в браузере,

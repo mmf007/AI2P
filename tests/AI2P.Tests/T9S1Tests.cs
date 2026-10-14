@@ -86,6 +86,7 @@ public sealed class T9S1Tests
             }
         }
 
-        Assert.Equal(7, places);
+        // восьмое место — меню «…» TaskActionsMenu.razor (T-448/T-455-S0)
+        Assert.Equal(8, places);
     }
 }

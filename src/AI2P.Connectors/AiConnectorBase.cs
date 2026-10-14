@@ -455,7 +455,7 @@ public abstract class AiConnectorBase : IAgentConnector
         // промпты (описания) подставляются из справочника действий по языку приложения (todo24);
         // правила безопасности проверяются ядром ДО выполнения действия (ТЗ гл. 12, todo25)
         var folderPath = ProjectFolder(project);
-        var security = new SecurityEvaluator(_security.EffectiveForTask(task), folderPath);
+        var security = new SecurityEvaluator(_security.EffectiveForTask(task), folderPath, task.ProjectId);
         var fileTools = folderPath is null
             ? null
             : new FileToolset(folderPath, project!.Id, _publicBaseUrl,

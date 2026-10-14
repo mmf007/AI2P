@@ -97,6 +97,10 @@ public sealed class AiModelService
     /// </remarks>
     private const int SeedFileVersion = 22;
 
+    /// <summary>Версия файла справочника пакетов models/packages.json (T-431-S0: пакеты
+    /// CLI-агентов). Своя, чтобы пополнение пакетов не переписывало профайлы моделей.</summary>
+    private const int PackagesSeedVersion = 23;
+
     /// <summary>
     /// Модели дистрибутива: фиксированные UUID — при распределённом вводе (дистрибутив +
     /// пользователи на разных узлах) записи дистрибутива на всех установках совпадают.
@@ -6422,8 +6426,505 @@ public sealed class AiModelService
               "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
             }
             """),
+        // ---------------------------------------------------------------------------------
+        // T-466-S0 (актуализация 13.10.2026): записи …110–…118. Идентификаторы, цены и
+        // модальности сверены запросом к каталогам OpenRouter и fal.ai (без ключа) и схемам
+        // очереди эндпойнтов fal.ai. Суфлёр не нужен ни одной: все записи облачные, а
+        // управляющий json суфлёра читает только ComfyUiConnector.
+        // ---------------------------------------------------------------------------------
+
+        // Claude-Sonnet-5.5 (каталог OpenRouter: anthropic/claude-sonnet-5.5, 28.09.2026), $2.0/$10.0 за миллион, контекст 1000000.
+        ("6f1a45e0-0d31-4c65-9a01-000000000110", "Claude-Sonnet-5.5",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "model": "claude-sonnet-5-5",
+              "baseUrl": "",
+              "secretRef": "anthropic.apiKey",
+              "params": { "maxTokens": 16000, "effort": "high", "fallbacks": ["claude-sonnet-5"] },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-sonnet-5-5",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 94 },
+                { "name": "code-review",         "score": 93 },
+                { "name": "code-debug",          "score": 92 },
+                { "name": "code-test",           "score": 91 },
+                { "name": "code-refactor",       "score": 93 },
+                { "name": "text-write",          "score": 91 },
+                { "name": "text-docs",           "score": 92 },
+                { "name": "text-edit",           "score": 90 },
+                { "name": "text-translate",      "score": 91 },
+                { "name": "text-summarize",      "score": 93 },
+                { "name": "analyze-requirements", "score": 92 },
+                { "name": "analyze-plan",        "score": 91 },
+                { "name": "analyze-data",        "score": 91 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 2.0, "out_per_1m": 10.0 }
+            }
+            """),
+
+        // Claude-Haiku-5.5 (каталог OpenRouter: anthropic/claude-haiku-5.5, 07.10.2026), $0.1/$0.5 за миллион, контекст 1000000.
+        ("6f1a45e0-0d31-4c65-9a01-000000000111", "Claude-Haiku-5.5",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "model": "claude-haiku-5-5",
+              "baseUrl": "",
+              "secretRef": "anthropic.apiKey",
+              "params": { "maxTokens": 16000, "fallbacks": ["claude-haiku-4-5"] },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-haiku-5-5",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 87 },
+                { "name": "code-review",         "score": 85 },
+                { "name": "code-debug",          "score": 85 },
+                { "name": "code-test",           "score": 84 },
+                { "name": "code-refactor",       "score": 85 },
+                { "name": "text-write",          "score": 87 },
+                { "name": "text-docs",           "score": 87 },
+                { "name": "text-edit",           "score": 87 },
+                { "name": "text-translate",      "score": 87 },
+                { "name": "text-summarize",      "score": 90 },
+                { "name": "analyze-requirements", "score": 85 },
+                { "name": "analyze-plan",        "score": 84 },
+                { "name": "analyze-data",        "score": 86 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 0.1, "out_per_1m": 0.5 }
+            }
+            """),
+
+        // GPT-6.1-Sol (каталог OpenRouter: openai/gpt-6.1-sol, 29.09.2026), $2.0/$10.0 за миллион, контекст 1050000.
+        ("6f1a45e0-0d31-4c65-9a01-000000000112", "GPT-6.1-Sol",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gpt-6.1-sol",
+              "baseUrl": "https://api.openai.com/v1",
+              "secretRef": "openai.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gpt-6.1-sol",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 96 },
+                { "name": "code-review",         "score": 95 },
+                { "name": "code-debug",          "score": 95 },
+                { "name": "code-test",           "score": 93 },
+                { "name": "code-refactor",       "score": 94 },
+                { "name": "text-write",          "score": 93 },
+                { "name": "text-docs",           "score": 92 },
+                { "name": "text-edit",           "score": 92 },
+                { "name": "text-translate",      "score": 91 },
+                { "name": "text-summarize",      "score": 94 },
+                { "name": "analyze-requirements", "score": 95 },
+                { "name": "analyze-plan",        "score": 94 },
+                { "name": "analyze-data",        "score": 93 }
+              ],
+              "limits":  { "context": 1050000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 2.0, "out_per_1m": 10.0 }
+            }
+            """),
+
+        // Mistral-Large-4 (каталог OpenRouter: mistralai/mistral-large-4-0, 06.10.2026), $0.68/$2.09 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000113", "Mistral-Large-4",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "mistral-large-4-0",
+              "baseUrl": "https://api.mistral.ai/v1",
+              "secretRef": "mistral.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "mistral-large-4-0",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 87 },
+                { "name": "code-review",         "score": 85 },
+                { "name": "code-debug",          "score": 84 },
+                { "name": "code-test",           "score": 83 },
+                { "name": "code-refactor",       "score": 85 },
+                { "name": "text-write",          "score": 87 },
+                { "name": "text-docs",           "score": 86 },
+                { "name": "text-edit",           "score": 85 },
+                { "name": "text-translate",      "score": 88 },
+                { "name": "text-summarize",      "score": 88 },
+                { "name": "analyze-requirements", "score": 85 },
+                { "name": "analyze-plan",        "score": 84 },
+                { "name": "analyze-data",        "score": 83 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 262144 },
+              "cost":    { "in_per_1m": 0.68, "out_per_1m": 2.09 }
+            }
+            """),
+
+        // Muse-Wonder (каталог OpenRouter: meta/muse-wonder, 12.10.2026), $4.0/$20.0 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000114", "Muse-Wonder",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "meta/muse-wonder",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "secretRef": "openrouter.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "meta/muse-wonder",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 94 },
+                { "name": "code-review",         "score": 93 },
+                { "name": "code-debug",          "score": 92 },
+                { "name": "code-test",           "score": 91 },
+                { "name": "code-refactor",       "score": 92 },
+                { "name": "text-write",          "score": 93 },
+                { "name": "text-docs",           "score": 92 },
+                { "name": "text-edit",           "score": 91 },
+                { "name": "text-translate",      "score": 91 },
+                { "name": "text-summarize",      "score": 94 },
+                { "name": "analyze-requirements", "score": 93 },
+                { "name": "analyze-plan",        "score": 93 },
+                { "name": "analyze-data",        "score": 93 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 4.0, "out_per_1m": 20.0 }
+            }
+            """),
+
+        // Nano-Banana-2.1 (каталог fal.ai: google/nano-banana-2.1, 06.10.2026), шлюз fal.ai.
+        ("6f1a45e0-0d31-4c65-9a01-000000000115", "Nano-Banana-2.1",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "google/nano-banana-2.1",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "num_images": 1,
+                "output_format": "png",
+                "resolution": "1K",
+                "aspect_ratio": "1:1",
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "google/nano-banana-2.1",
+              "inputs":  ["text/plain"],
+              "outputs": ["image/png"],
+              "skills":  [
+                { "name": "image-text",     "score": 97 },
+                { "name": "image-generate", "score": 96 },
+                { "name": "image-photo",    "score": 95 },
+                { "name": "image-concept",  "score": 92 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.0, "unit": "image" }
+            }
+            """),
+
+        // Kandinsky-6.0-Pro (каталог fal.ai: fal-ai/kandinsky6-pro/text-to-video, 05.10.2026), шлюз fal.ai.
+        ("6f1a45e0-0d31-4c65-9a01-000000000116", "Kandinsky-6.0-Pro",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "fal-ai/kandinsky6-pro/text-to-video",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 60
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "aspect_ratio": "16:9",
+                "generate_audio": true,
+                "num_inference_steps": 50,
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "fal-ai/kandinsky6-pro/text-to-video",
+              "inputs":  ["text/plain"],
+              "outputs": ["video/mp4"],
+              "skills":  [
+                { "name": "video-generate", "score": 90 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.27, "unit": "second" }
+            }
+            """),
+
+        // FLUX-3 (каталог fal.ai: blackforestlabs/flux-3/text-to-image, 01.10.2026), шлюз fal.ai.
+        ("6f1a45e0-0d31-4c65-9a01-000000000117", "FLUX-3",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "blackforestlabs/flux-3/text-to-image",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "output_format": "png",
+                "resolution": "1k",
+                "aspect_ratio": "1:1"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "blackforestlabs/flux-3/text-to-image",
+              "inputs":  ["text/plain"],
+              "outputs": ["image/png"],
+              "skills":  [
+                { "name": "image-generate", "score": 95 },
+                { "name": "image-photo",    "score": 95 },
+                { "name": "image-concept",  "score": 91 },
+                { "name": "image-text",     "score": 88 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.048, "unit": "image" }
+            }
+            """),
+
+        // Ideogram-4.5 (каталог fal.ai: ideogram/v4.5, 30.09.2026), шлюз fal.ai.
+        ("6f1a45e0-0d31-4c65-9a01-000000000118", "Ideogram-4.5",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "ideogram/v4.5",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 30
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "num_images": 1,
+                "quality": "medium",
+                "image_size": "square_hd",
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "ideogram/v4.5",
+              "inputs":  ["text/plain"],
+              "outputs": ["image/png"],
+              "skills":  [
+                { "name": "image-text",     "score": 96 },
+                { "name": "image-generate", "score": 92 },
+                { "name": "image-concept",  "score": 91 },
+                { "name": "image-photo",    "score": 87 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.06, "unit": "image" }
+            }
+            """),
         .. KandinskyLiteVariants(),
         .. AceStep15Variants(),
+        .. OtherCliVariants(),
+    ];
+
+    /// <summary>
+    /// CLI-АГЕНТЫ ДРУГИХ ВЕНДОРОВ (T-426-S0, сверка 06.10.2026 веб-поиском): у каждой
+    /// облачной модели справочника, у вендора которой есть свой терминальный агент, — запись
+    /// с transport "cli". Вендоры без своего CLI (DeepSeek, GLM, MiniMax, Muse, Inkling,
+    /// Nemotron, Ling, GigaChat, YandexGPT) записи не получили. Поле cliLogin — команда входа
+    /// в CLI на компьютере сервера (у Claude Code вход идёт формой AI2P, поля нет).
+    /// КОННЕКТОРА У НИХ ПОКА НЕТ: ConnectorRegistry исполняет по CLI только Claude Code, поэтому
+    /// записи сеются НЕАКТИВНЫМИ (<see cref="InactiveSeedModels"/>) — иначе исполнитель на них
+    /// выглядел бы рабочим и падал на первом же задании.
+    /// </summary>
+    private static IEnumerable<(string Id, string Name, string Profile, string Scope)> OtherCliVariants()
+    {
+        (string Id, string Name, string Provider, string Command, string Login, string Model,
+            int Score, long Context)[] list =
+        [
+            ("6f1a45e0-0d31-4c65-9a01-000000000104", "GPT-6-Sol_cli", "openai",
+                "codex", "codex login", "gpt-6-sol", 95, 400000),
+            ("6f1a45e0-0d31-4c65-9a01-000000000105", "Gemini-3.1-Pro_cli", "google",
+                "agy", "agy", "gemini-3.1-pro", 92, 1000000),
+            ("6f1a45e0-0d31-4c65-9a01-000000000106", "Qwen3.8-Max_cli", "alibaba",
+                "qwen", "qwen", "qwen3.8-max", 88, 262144),
+            ("6f1a45e0-0d31-4c65-9a01-000000000107", "Grok-4.7_cli", "xai",
+                "grok", "grok", "grok-4.7", 90, 256000),
+            ("6f1a45e0-0d31-4c65-9a01-000000000108", "Kimi-K3_cli", "moonshot",
+                "kimi", "kimi", "kimi-k3", 88, 262144),
+            ("6f1a45e0-0d31-4c65-9a01-000000000109", "Mistral-Large-3_cli", "mistral",
+                "vibe", "vibe", "mistral-large-3", 82, 256000),
+        ];
+        foreach (var m in list)
+        {
+            var profile = $$"""
+                {
+                  "_seed": 22,
+                  "provider": "{{m.Provider}}",
+                  "transport": "cli",
+                  "cliCommand": "{{m.Command}}",
+                  "cliLogin": "{{m.Login}}",
+                  "model": "{{m.Model}}",
+                  "baseUrl": "",
+                  "secretRef": "",
+                  "params": {},
+                  "lora": {
+                    "supported": false,
+                    "reason": "provider"
+                  },
+                  "refImage": {
+                    "kind": "none"
+                  }
+                }
+                """;
+            var s = m.Score;
+            var scope = $$"""
+                {
+                  "_seed": 22,
+                  "id": "{{m.Model}}",
+                  "inputs":  ["text/markdown", "text/plain", "text/source-code"],
+                  "outputs": ["text/markdown", "text/source-code"],
+                  "skills":  [
+                    { "name": "code-write",           "score": {{s}} },
+                    { "name": "code-review",          "score": {{s - 1}} },
+                    { "name": "code-debug",           "score": {{s - 1}} },
+                    { "name": "code-test",            "score": {{s - 3}} },
+                    { "name": "code-refactor",        "score": {{s - 2}} },
+                    { "name": "text-docs",            "score": {{s - 4}} },
+                    { "name": "analyze-requirements", "score": {{s - 3}} },
+                    { "name": "analyze-plan",         "score": {{s - 3}} }
+                  ],
+                  "limits":  { "context": {{m.Context}}, "max_output": 64000 },
+                  "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+                }
+                """;
+            yield return (m.Id, m.Name, profile, scope);
+        }
+    }
+
+    /// <summary>Записи дистрибутива, которые при первом посеве заводятся неактивными:
+    /// CLI-агенты, для которых ещё нет коннектора (T-426-S0).</summary>
+    public static readonly HashSet<string> InactiveSeedModels =
+    [
+        "6f1a45e0-0d31-4c65-9a01-000000000104", "6f1a45e0-0d31-4c65-9a01-000000000105",
+        "6f1a45e0-0d31-4c65-9a01-000000000106", "6f1a45e0-0d31-4c65-9a01-000000000107",
+        "6f1a45e0-0d31-4c65-9a01-000000000108", "6f1a45e0-0d31-4c65-9a01-000000000109",
     ];
 
     /// <summary>Записи справочника вариантов ACE-Step 1.5 XL (T-18-S0) — из общего шаблона.</summary>
@@ -7022,8 +7523,106 @@ public sealed class AiModelService
     /// </summary>
     private const string PackagesSeedJson = """
         {
-          "_seed": 22,
+          "_seed": 23,
           "packages": [
+            {
+              "id": "nodejs",
+              "name": "Node.js 24 LTS (для CLI-агентов)",
+              "dir": "nodejs",
+              "os": "windows",
+              "check": "node.exe",
+              "system": { "commands": ["node"], "versionArgs": "--version", "minVersion": "20.0" },
+              "hint": "Установите Node.js 20 или новее с nodejs.org (winget install OpenJS.NodeJS.LTS) — он будет найден в PATH; либо положите node-v24.21.0-win-x64.zip в каталог дистрибутивов.",
+              "files": [
+                { "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip", "unpack": "zip", "size": 37618919 }
+              ]
+            },
+            {
+              "id": "nodejs",
+              "name": "Node.js 24 LTS (для CLI-агентов)",
+              "dir": "nodejs",
+              "os": "linux",
+              "check": "bin/node",
+              "system": { "commands": ["node"], "versionArgs": "--version", "minVersion": "20.0" },
+              "hint": "Установите Node.js 20 или новее (sudo apt install nodejs npm, либо с nodejs.org) — он будет найден в PATH; либо положите node-v24.21.0-linux-x64.tar.gz в каталог дистрибутивов.",
+              "files": [
+                { "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz", "unpack": "tar.gz", "size": 58088022 }
+              ]
+            },
+            {
+              "id": "nodejs",
+              "name": "Node.js 24 LTS (для CLI-агентов)",
+              "dir": "nodejs",
+              "os": "macos",
+              "check": "bin/node",
+              "system": { "commands": ["node"], "versionArgs": "--version", "minVersion": "20.0" },
+              "hint": "Установите Node.js 20 или новее (brew install node, либо с nodejs.org) — он будет найден в PATH; либо положите node-v24.21.0-darwin-arm64.tar.gz в каталог дистрибутивов.",
+              "files": [
+                { "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz", "unpack": "tar.gz", "size": 52909993 }
+              ]
+            },
+            {
+              "id": "claude-code",
+              "name": "Claude Code CLI",
+              "dir": "cli/claude-code",
+              "cli": "claude",
+              "npm": "@anthropic-ai/claude-code",
+              "requires": ["nodejs"],
+              "system": { "commands": ["claude"], "versionArgs": "--version" },
+              "hint": "Установите вручную: npm install -g @anthropic-ai/claude-code (общая установка — в терминале администратора / через sudo)."
+            },
+            {
+              "id": "codex-cli",
+              "name": "OpenAI Codex CLI",
+              "dir": "cli/codex",
+              "cli": "codex",
+              "npm": "@openai/codex",
+              "requires": ["nodejs"],
+              "system": { "commands": ["codex"], "versionArgs": "--version" },
+              "hint": "Установите вручную: npm install -g @openai/codex (общая установка — в терминале администратора / через sudo)."
+            },
+            {
+              "id": "qwen-code",
+              "name": "Qwen Code CLI",
+              "dir": "cli/qwen-code",
+              "cli": "qwen",
+              "npm": "@qwen-code/qwen-code",
+              "requires": ["nodejs"],
+              "system": { "commands": ["qwen"], "versionArgs": "--version" },
+              "hint": "Установите вручную: npm install -g @qwen-code/qwen-code (общая установка — в терминале администратора / через sudo)."
+            },
+            {
+              "id": "antigravity-cli",
+              "name": "Google Antigravity CLI (agy)",
+              "dir": "cli/agy",
+              "cli": "agy",
+              "system": { "commands": ["agy"], "versionArgs": "--version" },
+              "hint": "Автоматической установки нет: поставьте Antigravity CLI по инструкции Google (antigravity.google), чтобы команда agy была в PATH, и нажмите «Обновить»."
+            },
+            {
+              "id": "grok-cli",
+              "name": "xAI Grok Build CLI",
+              "dir": "cli/grok",
+              "cli": "grok",
+              "system": { "commands": ["grok"], "versionArgs": "--version" },
+              "hint": "Автоматической установки нет: поставьте Grok Build CLI по инструкции xAI, чтобы команда grok была в PATH, и нажмите «Обновить»."
+            },
+            {
+              "id": "kimi-cli",
+              "name": "Kimi Code CLI",
+              "dir": "cli/kimi",
+              "cli": "kimi",
+              "system": { "commands": ["kimi"], "versionArgs": "--version" },
+              "hint": "Автоматической установки нет: поставьте Kimi CLI (uv tool install kimi-cli), чтобы команда kimi была в PATH, и нажмите «Обновить»."
+            },
+            {
+              "id": "mistral-vibe",
+              "name": "Mistral Vibe CLI",
+              "dir": "cli/vibe",
+              "cli": "vibe",
+              "system": { "commands": ["vibe"], "versionArgs": "--version" },
+              "hint": "Автоматической установки нет: поставьте Mistral Vibe (uv tool install mistral-vibe), чтобы команда vibe была в PATH, и нажмите «Обновить»."
+            },
             {
               "id": "comfyui",
               "name": "ComfyUI (portable)",
@@ -8060,6 +8659,39 @@ public sealed class AiModelService
         // модель-суфлёр (T-286-S0): нужна ли этой модели вторая, текстовая, которая готовит
         // управляющий json. Секции нет — суфлёр не нужен, и это обычный случай
         model.Prompter = PrompterSettings.Parse(profileJson);
+        // CLI-агент и его вход (T-426-S0): кнопка входа стоит в строке списка у каждой
+        // CLI-записи, потому что вход у разных CLI разный
+        (model.CliCommand, model.CliLogin) = CliOf(profileJson);
+        // ПО CLI-агента ставится на каждом сервере отдельно (T-431-S0): форма с кнопкой
+        // установки открывается везде, как у локальной модели; общая часть записи
+        // (название, активность) по-прежнему правится только её владельцем
+        if (model.IsCli)
+        {
+            model.CanConfigure = true;
+        }
+    }
+
+    /// <summary>Команда CLI и команда входа из профайла; не CLI или файл нечитаем — пусто.</summary>
+    private static (string Command, string Login) CliOf(string profileJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(profileJson.Length == 0 ? "{}" : profileJson);
+            var root = doc.RootElement;
+            string Str(string key) => root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
+                    ? v.GetString() ?? "" : "";
+            if (!Str("transport").Equals("cli", StringComparison.OrdinalIgnoreCase))
+            {
+                return ("", "");
+            }
+            var command = Str("cliCommand");
+            return (command.Length > 0 ? command : "claude", Str("cliLogin"));
+        }
+        catch (JsonException)
+        {
+            return ("", "");
+        }
     }
 
     /// <summary>
@@ -8631,7 +9263,7 @@ public sealed class AiModelService
                         VALUES (@id, @did, @name, @active, 0, @profile, @caps, @created, @updated)
                         """,
                         ("@id", model.Id), ("@did", model.DisplayId), ("@name", model.Name),
-                        ("@active", RetiredSeedModels.Contains(id) ? 0 : 1),
+                        ("@active", RetiredSeedModels.Contains(id) || InactiveSeedModels.Contains(id) ? 0 : 1),
                         ("@profile", model.ProfilePath), ("@caps", model.CapabilitiesPath),
                         ("@created", Sql.ToDb(now)), ("@updated", Sql.ToDb(now)));
                     tx.Commit();
@@ -8709,8 +9341,10 @@ public sealed class AiModelService
             // выкладки (наука T-270-S0), и по той же причине не реплицируется
             WriteSeedText(PrompterRulesPathOf(v.Id), AceStep15Rules(v));
         }
-        // справочник пакетов локальных моделей (ТЗ v1.42, todo36_5)
-        WriteSeedFile(PackagesPath, PackagesSeedJson);
+        // справочник пакетов локальных моделей (ТЗ v1.42, todo36_5); со своей версией
+        // (T-431-S0: пакеты CLI-агентов) — подъём общей SeedFileVersion переписал бы
+        // ещё и все профайлы дистрибутива
+        WriteSeedFile(PackagesPath, PackagesSeedJson, PackagesSeedVersion);
     }
 
     /// <summary>
@@ -8939,10 +9573,10 @@ public sealed class AiModelService
     /// Записать seed-файл дистрибутивной модели: отсутствует — создать; существует —
     /// перезаписать только если его "_seed" старше текущей версии дистрибутива.
     /// </summary>
-    private void WriteSeedFile(string relativePath, string seedJson)
+    private void WriteSeedFile(string relativePath, string seedJson, int version = SeedFileVersion)
     {
         var abs = _files.Abs(relativePath);
-        if (File.Exists(abs) && ReadSeedVersion(abs) >= SeedFileVersion)
+        if (File.Exists(abs) && ReadSeedVersion(abs) >= version)
         {
             return;
         }

@@ -891,13 +891,8 @@ else
                         <MudSelectItem T="string" Value="@("brief")">@L["models.view.brief"]</MudSelectItem>
                         <MudSelectItem T="string" Value="@("skills")">@L["models.view.skills"]</MudSelectItem>
                     </MudSelect>
-                    @* ВХОД В CLAUDE CLI (todo96): сеанс CLI протухает, и раньше войти заново
-                       можно было только в терминале компьютера сервера. Кнопка стоит рядом
-                       со справочником моделей — вход принадлежит транспорту "cli" профайла *@
-                    <MudTooltip Text="@L["claudeLogin.title"]">
-                        <MudIconButton Icon="@Icons.Material.Filled.Key" data-claude-login
-                                       OnClick="ClaudeLoginAsync" />
-                    </MudTooltip>
+                    @* ВХОД В CLI (todo96) с T-426-S0 — кнопкой в СТРОКЕ каждой CLI-записи
+                       (ModelActions): CLI бывают не только Claude, и вход у каждого свой *@
                     @* кнопки «добавить» справочников — иконки с подсказками (гл. 11, эргономика) *@
                     <MudTooltip Text="@L["models.add"]">
                         <MudIconButton Icon="@Icons.Material.Filled.Add"
@@ -1417,6 +1412,8 @@ else
              рядом, но сохраняются разными кнопками --- *@
         <MudTabPanel Text="@L["settings.tab.notifications"]">
             <div class="pa-4">
+                @* мои уведомления (T-422-S0): личное — первым, правила организации — ниже *@
+                <MyNotificationsPanel />
                 <NotificationsView />
                 <MudDivider Class="my-4" Style="max-width: 1100px;" />
                 <MudText Typo="Typo.h6" Class="mb-2" data-mail-title="1">@L["mail.title"]</MudText>
@@ -2433,13 +2430,29 @@ else
 
     // ячейки строки модели — общие у обоих представлений, чтобы они не разъезжались
 
+    @* три вида размещения (T-431-S0): локальная, облачная и CLI-агент — программа на этом
+       компьютере, которая сама ходит в облако вендора (иконка — облако внутри монитора) *@
     private RenderFragment PlacementCell(AiModel model) => __builder =>
     {
-        <MudTooltip Text="@(model.IsLocal ? L["models.local"] : L["models.cloud"])">
-            <MudIcon Icon="@(model.IsLocal ? Icons.Material.Filled.Computer : Icons.Material.Filled.Cloud)"
-                     Color="@(model.IsLocal ? Color.Default : Color.Info)" Size="Size.Small" />
+        <MudTooltip Text="@PlacementText(model)">
+            <span data-model-placement="@(model.IsCli ? "cli" : model.IsLocal ? "local" : "cloud")">
+                <MudIcon Icon="@PlacementIcon(model)"
+                         Color="@(model.IsCli ? Color.Primary : model.IsLocal ? Color.Default : Color.Info)" Size="Size.Small" />
+            </span>
         </MudTooltip>
     };
+
+    /// <summary>Иконка CLI-агента: облако внутри монитора (контур монитора и облако
+    /// Material, уменьшенное в экран).</summary>
+    public const string CliIcon =
+        "<path d=\"M20 3H4c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h3l-1 1v2h12v-2l-1-1h3c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 13H4V5h16v11z\"/>"
+        + "<path transform=\"translate(6 4.5) scale(.5)\" d=\"M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z\"/>";
+
+    public static string PlacementIcon(AiModel model) =>
+        model.IsCli ? CliIcon : model.IsLocal ? Icons.Material.Filled.Computer : Icons.Material.Filled.Cloud;
+
+    private string PlacementText(AiModel model) =>
+        L[model.IsCli ? "models.cli" : model.IsLocal ? "models.local" : "models.cloud"];
 
     private static RenderFragment ActiveCell(AiModel model) => __builder =>
     {
@@ -2518,6 +2531,12 @@ else
 
     private RenderFragment ModelActions(AiModel model) => __builder =>
     {
+        @* документ модели (T-426-S0) — прямо в строке: у записи, закрытой для правки,
+           форма не открывается, и прочитать документ иначе было негде *@
+        <MudTooltip Text="@L["models.doc"]">
+            <MudIconButton Icon="@Icons.Material.Filled.Info" Size="Size.Small" data-model-doc
+                           OnClick="@(() => ShowModelDocAsync(model))" />
+        </MudTooltip>
         @* у ЛОКАЛЬНОЙ модели форма открывается на ЛЮБОМ сервере (T-8-S1): пути, установка
            и активность у неё здесь свои, даже если саму запись завёл другой сервер *@
         <MudTooltip Text="@(model.CanConfigure ? L["common.edit"] : L["models.server.readOnly"])">
@@ -2525,6 +2544,18 @@ else
                            Disabled="@(!model.CanConfigure)"
                            OnClick="@(() => EditModelAsync(model))" />
         </MudTooltip>
+        @* вход в CLI (todo96, T-426-S0): у каждой CLI-записи свой — у Claude Code форма
+           входа AI2P, у остальных CLI подсказка с командой входа; стоит после карандаша
+           (T-430-S0) *@
+        @if (model.CliCommand.Length > 0)
+        {
+            <MudTooltip Text="@L["cliLogin.title"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Key" Size="Size.Small"
+                               data-claude-login="@(model.CliExecutable == "claude" ? "1" : null)"
+                               data-cli-login="@model.CliExecutable"
+                               OnClick="@(() => CliLoginAsync(model))" />
+            </MudTooltip>
+        }
         @* удалять можно только кастомные записи (ТЗ v1.43, todo36_6):
            удаляется запись справочника, скачанные файлы остаются. Чужую запись удаляет
            её сервер — здесь кнопки нет (T-8-S1: форма открывается везде, удаление — нет) *@
@@ -2838,10 +2869,37 @@ else
     /// ВХОД В CLAUDE CLI (todo96): состояние входа и сам вход — двумя шагами (ссылка → код).
     /// Форма ввода, поэтому щелчок мимо окна её не закрывает (<see cref="FormDialogs"/>).
     /// </summary>
-    private async Task ClaudeLoginAsync()
+    private async Task CliLoginAsync(AiModel model)
     {
-        var dialog = await Dialogs.ShowAsync<ClaudeLoginDialog>(L["claudeLogin.title"],
-            FormDialogs.Options(MaxWidth.Small));
+        if (model.CliExecutable == "claude")
+        {
+            var claude = await Dialogs.ShowAsync<ClaudeLoginDialog>(L["claudeLogin.title"],
+                FormDialogs.Options(MaxWidth.Small));
+            await claude.Result;
+            return;
+        }
+        // остальные CLI (T-426-S0): вход у каждого свой и идёт в терминале компьютера
+        // сервера — окно называет команду и ведёт к документу модели
+        var parameters = new DialogParameters<CliLoginDialog> { { d => d.Model, model } };
+        var dialog = await Dialogs.ShowAsync<CliLoginDialog>($"{L["cliLogin.title"]}: {model.Name}",
+            parameters, new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is { Canceled: false })
+        {
+            await ShowModelDocAsync(model);
+        }
+    }
+
+    /// <summary>Документ модели из строки списка (T-426-S0): открывается и у записи,
+    /// закрытой для правки.</summary>
+    private async Task ShowModelDocAsync(AiModel model)
+    {
+        var parameters = new DialogParameters<ModelDocDialog>
+        {
+            { d => d.ModelId, model.Id },
+            { d => d.Current, L.Lang },
+        };
+        var dialog = await Dialogs.ShowAsync<ModelDocDialog>($"{L["models.doc"]}: {model.Name}",
+            parameters, new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
         await dialog.Result;
     }
 

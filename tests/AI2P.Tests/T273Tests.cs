@@ -136,7 +136,8 @@ public sealed class T273Tests
         Assert.Contains("DocLinks.Mark", dialog, StringComparison.Ordinal);
         Assert.Contains("ai2p.initDocLinks", dialog, StringComparison.Ordinal);
         Assert.Contains("OnDocLinkAsync", dialog, StringComparison.Ordinal);
-        Assert.DoesNotContain("UiState", dialog, StringComparison.Ordinal);
+        // UiState окну нужен с T-207-S0 только ради кнопки «ссылка» (DocLink.ShowAsync строит
+        // адреса страницы); состояние ЗАКЛАДКИ документации (State.Doc*) оно не трогает
         Assert.DoesNotContain("State.Doc", dialog, StringComparison.Ordinal);
     }
 

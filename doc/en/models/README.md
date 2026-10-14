@@ -15,15 +15,18 @@ key, why a model may be inactive and how to create your own record.
 * [Claude-Fable-5](Claude-Fable-5.md) — the API of the provider Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — the API of the provider Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — the Anthropic API
+* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — Anthropic, a context of 1,000,000 tokens, $0.10 / $0.50 per 1M, skill scores 84-90
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — the API of the provider Anthropic
 * [Claude-Opus-5.5](Claude-Opus-5.5.md) — the API of the provider Anthropic
 * [Claude-Sonnet-5](Claude-Sonnet-5.md) — the Anthropic API
+* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — Anthropic, a context of 1,000,000 tokens, $2.00 / $10.00 per 1M, skill scores 90-94
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md) — the DeepSeek API, OpenAI-compatible
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md) — the DeepSeek API, OpenAI-compatible
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md) — the DeepSeek API, OpenAI-compatible
 * [ElevenLabs-Music](ElevenLabs-Music.md) — text into music and songs, rights-cleared, skills `audio-song` 89, `audio-music` 89
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — text into rights-cleared music and songs, skills `audio-song` 92, `audio-music` 92
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — text into speech, skills `audio-speech` 96
+* [FLUX-3](FLUX-3.md) — text into an image, skills `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, through an OpenAI-compatible layer (**switched off on 2026-09-11**)
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, through an OpenAI-compatible layer (**switched off on 2026-09-11**)
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, through an OpenAI-compatible layer
@@ -37,11 +40,14 @@ key, why a model may be inactive and how to create your own record.
 * [GPT-6-Astra](GPT-6-Astra.md) — the OpenAI API, OpenAI-compatible
 * [GPT-6-Luna](GPT-6-Luna.md) — the OpenAI API, OpenAI-compatible
 * [GPT-6-Sol](GPT-6-Sol.md) — the OpenAI API, OpenAI-compatible
+* [GPT-6.1-Sol](GPT-6.1-Sol.md) — OpenAI, a context of 1,050,000 tokens, $2.00 / $10.00 per 1M, skill scores 91-96
 * [GPT-Image-2](GPT-Image-2.md) — text into an image, billed by tokens, skills `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [GPT-Image-2.5](GPT-Image-2.5.md) — text into an image, billed by tokens, skills `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [Grok-4.6](Grok-4.6.md) — the xAI API, OpenAI-compatible
 * [Grok-4.7](Grok-4.7.md) — the xAI API, OpenAI-compatible
+* [Ideogram-4.5](Ideogram-4.5.md) — text into an image, the best in-frame typography of the reference after Nano Banana, skills `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, through the OpenRouter gateway
+* [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — text into a 5-second video with sound, skills `video-generate` 90
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-compatible
 * [Kling-3.0](Kling-3.0.md) — a picture into a video with sound, up to 15 seconds, skills `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, through the OpenRouter gateway
@@ -50,8 +56,11 @@ key, why a model may be inactive and how to create your own record.
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — text into a video up to 15 seconds, skills `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-compatible
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, France; OpenAI-compatible
+* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, a context of 1,048,576 tokens, $0.68 / $2.09 per 1M, skill scores 83-88
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, through the OpenRouter gateway
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, through the OpenRouter gateway
+* [Muse-Wonder](Muse-Wonder.md) — Meta, a context of 1,048,576 tokens, $4.00 / $20.00 per 1M, skill scores 91-94
+* [Nano-Banana-2.1](Nano-Banana-2.1.md) — text into an image up to 4K, strong in-frame text, skills `image-text` 97, `image-generate` 96, `image-photo` 95, `image-concept` 92
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — a picture plus an instruction into an edited picture, skills `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — text into an image up to 4K, the best text in the frame, skills `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, through the OpenRouter gateway

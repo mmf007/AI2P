@@ -16,6 +16,10 @@ public sealed class ChatService
     private readonly Database _db;
     private readonly EventStore _events;
 
+    /// <summary>Агент задал вопрос (T-422-S0): зовётся после записи вопроса, только у
+    /// локальной записи — по нему уходит уведомление «вопрос агента».</summary>
+    public event Action<ChatMessage>? QuestionAsked;
+
     public ChatService(Database db, EventStore events)
     {
         _db = db;
@@ -54,7 +58,7 @@ public sealed class ChatService
     public ChatMessage AddQuestion(string taskId, string fromExecutorId, string jobId,
         string text, IReadOnlyCollection<string> options, string? toExecutorId = null)
     {
-        return Insert(new ChatMessage
+        var question = Insert(new ChatMessage
         {
             TaskId = taskId,
             FromExecutorId = fromExecutorId,
@@ -64,6 +68,16 @@ public sealed class ChatService
             OptionsJson = JsonSerializer.Serialize(options),
             JobId = jobId,
         }, EventTypes.ChatQuestion);
+        try
+        {
+            QuestionAsked?.Invoke(question);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // подписчик (уведомления) не должен ломать запись вопроса
+            _ = ex;
+        }
+        return question;
     }
 
     /// <summary>

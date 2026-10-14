@@ -1,0 +1,28 @@
+@inject I18nService L
+
+@* ВХОД В CLI ДРУГИХ ВЕНДОРОВ (T-426-S0). У Claude Code вход идёт формой AI2P
+   (ClaudeLoginDialog), а у Codex, Antigravity, Qwen Code, Grok Build, Kimi Code и Mistral Vibe
+   он свой у каждого и выполняется в терминале компьютера сервера. Окно называет команду
+   входа из профайла (cliLogin) и ведёт к документу модели, где вход расписан по шагам. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 380px; max-width: 560px;">
+            <MudText Typo="Typo.body2">@L["cliLogin.hint"]</MudText>
+            <MudText Typo="Typo.body2" data-cli-login-command>
+                @L["cliLogin.command"]: <code>@(Model.CliLogin.Length > 0 ? Model.CliLogin : Model.CliExecutable)</code>
+            </MudText>
+            <MudAlert Severity="Severity.Warning" Dense="true">@L["cliLogin.noConnector"]</MudAlert>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.close"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(true)))">@L["models.doc"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public AiModel Model { get; set; } = new();
+}

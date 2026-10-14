@@ -15,15 +15,18 @@
 * [Claude-Fable-5](Claude-Fable-5.md) — API провайдера Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API провайдера Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API Anthropic
+* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — Anthropic, контекст 1 000 000 токенов, 0,10 $ / 0,50 $ за 1 млн, оценки навыков 84–90
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API провайдера Anthropic
 * [Claude-Opus-5.5](Claude-Opus-5.5.md) — API провайдера Anthropic
 * [Claude-Sonnet-5](Claude-Sonnet-5.md) — API Anthropic
+* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — Anthropic, контекст 1 000 000 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 90–94
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md) — API DeepSeek, OpenAI-совместимый
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md) — API DeepSeek, OpenAI-совместимый
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md) — API DeepSeek, OpenAI-совместимый
 * [ElevenLabs-Music](ElevenLabs-Music.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 89, `audio-music` 89
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 92, `audio-music` 92
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — текст → речь, навыки `audio-speech` 96
+* [FLUX-3](FLUX-3.md) — текст → изображение, навыки `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, через OpenAI-совместимый слой (**погашена 11.09.2026**)
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, через OpenAI-совместимый слой (**погашена 11.09.2026**)
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, через OpenAI-совместимый слой
@@ -37,11 +40,14 @@
 * [GPT-6-Astra](GPT-6-Astra.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Luna](GPT-6-Luna.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Sol](GPT-6-Sol.md) — API OpenAI, OpenAI-совместимый
+* [GPT-6.1-Sol](GPT-6.1-Sol.md) — OpenAI, контекст 1 050 000 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 91–96
 * [GPT-Image-2](GPT-Image-2.md) — текст → изображение, счёт по токенам, навыки `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [GPT-Image-2.5](GPT-Image-2.5.md) — текст → изображение, счёт по токенам, навыки `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [Grok-4.6](Grok-4.6.md) — API xAI, OpenAI-совместимый
 * [Grok-4.7](Grok-4.7.md) — API xAI, OpenAI-совместимый
+* [Ideogram-4.5](Ideogram-4.5.md) — текст → изображение, лучший в справочнике набор текста в кадре после Nano Banana, навыки `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, через шлюз OpenRouter
+* [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — текст → видео 5 секунд со звуком, навыки `video-generate` 90
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-совместимый
 * [Kling-3.0](Kling-3.0.md) — картинка → видео со звуком, до 15 секунд, навыки `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, через шлюз OpenRouter
@@ -50,8 +56,11 @@
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — текст → видео до 15 секунд, навыки `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-совместимый
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Франция; OpenAI-совместимый
+* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, контекст 1 048 576 токенов, 0,68 $ / 2,09 $ за 1 млн, оценки навыков 83–88
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, через шлюз OpenRouter
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, через шлюз OpenRouter
+* [Muse-Wonder](Muse-Wonder.md) — Meta, контекст 1 048 576 токенов, 4,00 $ / 20,00 $ за 1 млн, оценки навыков 91–94
+* [Nano-Banana-2.1](Nano-Banana-2.1.md) — текст → изображение до 4K, сильный текст в кадре, навыки `image-text` 97, `image-generate` 96, `image-photo` 95, `image-concept` 92
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — картинка и указание → изменённая картинка, навыки `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — текст → изображение до 4K, лучший текст в кадре, навыки `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, через шлюз OpenRouter

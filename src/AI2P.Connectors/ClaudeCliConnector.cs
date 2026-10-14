@@ -197,6 +197,24 @@ public sealed class ClaudeCliConnector : AiConnectorBase
     /// AI2P_EXPERIENCE и AI2P_TEMPLATE (T-144), правила безопасности — текстом (todo29).</summary>
     protected override string RequestSystemPrompt(AgentToolset tools)
     {
+        // КЛИЕНТ ai2p ВЫДАН — МАРКЕРОВ ДЕЙСТВИЙ НЕТ (T-423-S0): путь к действию AI2P один,
+        // команда, а её отказ — окончательный. Маркерами остаются только паузы задания:
+        // вопрос человеку и письмо соседу с ожиданием ответа
+        var client = CliClientNote(tools);
+        if (client.Length > 0)
+        {
+            return
+                Loc.In(tools.Language, "prompt.cli.3") +
+                QuestionMarker + Loc.In(tools.Language, "prompt.cli.4") +
+                (tools.HasFileTools
+                    ? Loc.In(tools.Language, "prompt.cli.5") + FileLinkNote(tools.Files!, tools.Language)
+                    : Loc.In(tools.Language, "prompt.cli.6"))
+                + BackgroundNote(tools.Tasks.CanCreate, tools.CallTimeout, tools.Language)
+                + tools.TalkNote(TaskChatMarker)
+                + client
+                + Loc.In(tools.Language, "prompt.cli.49")
+                + tools.SecurityNote;
+        }
         var splitNote = tools.CliSplitNote(SubtaskMarker);
         return
             Loc.In(tools.Language, "prompt.cli.3") +
@@ -240,8 +258,16 @@ public sealed class ClaudeCliConnector : AiConnectorBase
         {
             return "";
         }
+        // как писать команду, чтобы её пропустил слой разрешений самого Claude Code (T-458-S0):
+        // на Windows — одной простой командой из PowerShell либо путём прямыми слэшами в Git
+        // Bash; отказ этого слоя — не правило AI2P, и команду надо переписать, а не сдаваться
         return Loc.In(tools.Language, "prompt.cli.40", AgentCli.CommandLine(wrapper),
-            AgentCli.UrlVar, AgentCli.TokenVar);
+                   AgentCli.UrlVar, AgentCli.TokenVar)
+               + (OperatingSystem.IsWindows()
+                   ? Loc.In(tools.Language, "prompt.cli.51", AgentCli.CommandLine(wrapper),
+                       AgentCli.BashCommandLine(wrapper))
+                   : "")
+               + Loc.In(tools.Language, "prompt.cli.52");
     }
 
     /// <summary>
@@ -360,13 +386,20 @@ public sealed class ClaudeCliConnector : AiConnectorBase
         if (cliEnv is not null && AgentCli.WrapperPath() is { } cliWrapper)
         {
             args.Append(" --allowedTools");
-            foreach (var pattern in AgentCli.AllowedToolPatterns(cliWrapper))
+            foreach (var pattern in AgentCli.AllowedToolPatternsAllShells(cliWrapper))
             {
                 // КАВЫЧКИ ВНУТРИ ЗНАЧЕНИЯ ЭКРАНИРУЮТСЯ (поймано живой проверкой). Один из
                 // шаблонов сам содержит кавычки — так агент напишет путь с пробелом, — и
                 // без экранирования аргумент «"Bash("C:\путь":*)"» разбирается как
                 // «Bash(C:\путь:*)»: второй шаблон молча превращался в копию первого
                 args.Append(" \"").Append(pattern.Replace("\"", "\\\"")).Append('"');
+            }
+            // и в файл настроек агента в папке проекта (T-423-S0): клиент доступен агенту
+            // всегда, а что ему можно, решают правила AI2P внутри клиента
+            if (CliAgentSettings.Ensure(fileName, tools.Files?.RootDir, cliWrapper, tools.AllowedDirs)
+                is { } settingsError)
+            {
+                tools.Tasks.CallLog.Add("cli settings: " + settingsError);
             }
         }
         var baseArguments = args.ToString().Trim();
@@ -423,6 +456,8 @@ public sealed class ClaudeCliConnector : AiConnectorBase
         // состояния, перезапуски): они применяются на КАЖДОМ витке, а текст витка следующим
         // ходом заменяется целиком — поэтому сводки копятся отдельно и печатаются в финале
         var applied = new List<string>();
+        // клиент ai2p выдан заданию — действия только командой, маркеры действий закрыты (T-423-S0)
+        var clientOnly = CliClientNote(tools).Length > 0;
 
         // МАРКЕРЫ ДЕЙСТВИЙ — НА КАЖДОМ ВИТКЕ, А НЕ ТОЛЬКО В ИТОГОВОМ ОТВЕТЕ (T-96-S0).
         // До этой правки они разбирались один раз, после выхода из цикла, из ПОСЛЕДНЕГО
@@ -458,7 +493,12 @@ public sealed class ClaudeCliConnector : AiConnectorBase
             text = await OneKindAsync(StopHierarchyMarker, "остановки иерархии", Loc.In(lang, "prompt.cli.47"),
                 _ => "stop_hierarchy", text);
             var subtasks = ParseSubtaskMarkers(text, out var withoutSubtasks);
-            if (subtasks.Count > 0)
+            if (subtasks.Count > 0 && clientOnly)
+            {
+                applied.Add(Loc.In(lang, "prompt.cli.50", SubtaskMarker.TrimEnd(':'), subtasks.Count));
+                text = withoutSubtasks;
+            }
+            else if (subtasks.Count > 0)
             {
                 Logger.Information("Claude CLI: маркеров подзадач в ответе {Count}", subtasks.Count);
                 applied.Add(await CreateSubtasksAsync(subtasks, tools, ct));
@@ -473,6 +513,13 @@ public sealed class ClaudeCliConnector : AiConnectorBase
                 if (found.Count == 0)
                 {
                     return source;
+                }
+                // МАРКЕРЫ ДЕЙСТВИЙ ЗАКРЫТЫ, когда у задания есть клиент ai2p (T-423-S0): путь
+                // к действию один — команда, и отказ клиента обходить нечем
+                if (clientOnly)
+                {
+                    applied.Add(Loc.In(lang, "prompt.cli.50", marker.TrimEnd(':'), found.Count));
+                    return without;
                 }
                 Logger.Information("Claude CLI: маркеров {What} в ответе {Count}", what, found.Count);
                 applied.Add(await ApplyMarkersAsync(found, tools, title, pick, ct));

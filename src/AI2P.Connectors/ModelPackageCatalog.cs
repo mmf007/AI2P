@@ -12,8 +12,18 @@ public sealed class ModelPackageCatalog
 {
     public List<ModelPackage> Packages { get; } = [];
 
+    /// <summary>Пакет по коду. Под одним кодом бывает несколько записей для разных ОС
+    /// (nodejs, T-431-S0) — берётся запись своей системы, иначе первая.</summary>
     public ModelPackage? Find(string id) =>
-        Packages.FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase));
+        Packages.Where(p => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(p => p.MatchesOs())
+            .FirstOrDefault();
+
+    /// <summary>Пакет программы CLI-агента по имени её команды (claude, codex …, T-431-S0).</summary>
+    public ModelPackage? FindCli(string executable) =>
+        executable.Length == 0
+            ? null
+            : Packages.FirstOrDefault(p => string.Equals(p.Cli, executable, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Разобрать справочник пакетов; повреждённый файл — пустой справочник.</summary>
     public static ModelPackageCatalog Parse(string json)
@@ -41,7 +51,17 @@ public sealed class ModelPackageCatalog
                     Os = Str(item, "os"),
                     Check = Str(item, "check"),
                     Hint = Str(item, "hint"),
+                    Cli = Str(item, "cli"),
+                    Npm = Str(item, "npm"),
                 };
+                if (item.TryGetProperty("requires", out var requires) && requires.ValueKind == JsonValueKind.Array)
+                {
+                    package.Requires = requires.EnumerateArray()
+                        .Where(e => e.ValueKind == JsonValueKind.String)
+                        .Select(e => e.GetString()!.Trim())
+                        .Where(s => s.Length > 0)
+                        .ToList();
+                }
                 if (package.Id.Length == 0 || package.Dir.Length == 0)
                 {
                     continue;
@@ -138,6 +158,22 @@ public sealed class ModelPackage
     public PackageSetup? Setup { get; set; }
 
     public List<PackageFile> Files { get; set; } = [];
+
+    /// <summary>
+    /// Команда CLI-агента, которую даёт пакет (claude, codex, qwen …, T-431-S0): по ней
+    /// запись справочника с transport "cli" находит, какое ПО ей ставить.
+    /// </summary>
+    public string Cli { get; set; } = "";
+
+    /// <summary>
+    /// Имя пакета npm (T-431-S0): программа ставится не распаковкой дистрибутива, а
+    /// командой npm install — для пользователя в каталог пакета (--prefix) либо общей
+    /// установкой (-g). Пусто — пакет ставится обычным путём либо только ищется в системе.
+    /// </summary>
+    public string Npm { get; set; } = "";
+
+    /// <summary>Коды пакетов, которые нужно поставить раньше этого (nodejs для npm).</summary>
+    public List<string> Requires { get; set; } = [];
 
     /// <summary>Пакет предназначен для текущей ОС.</summary>
     public bool MatchesOs() => Os.Length == 0

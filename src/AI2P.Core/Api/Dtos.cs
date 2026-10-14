@@ -2383,6 +2383,12 @@ public sealed class ModelInstallStatusDto
     /// <summary>Текст ошибки последней загрузки; пусто — ошибок нет.</summary>
     public string Error { get; set; } = "";
     public List<ModelInstallFileDto> Files { get; set; } = [];
+    /// <summary>Устанавливается ПО CLI-агента (T-431-S0): Node.js и сама программа CLI,
+    /// файлов весов нет. Окно установки показывает выбор «для пользователя / общая».</summary>
+    public bool Cli { get; set; }
+    /// <summary>AI2P запущена с правами администратора (root): общая установка CLI
+    /// пройдёт сама; иначе её может понадобиться сделать человеку (T-431-S0).</summary>
+    public bool Elevated { get; set; }
 }
 
 /// <summary>
@@ -3739,4 +3745,29 @@ public sealed class PluginPathDto
     /// <summary>Имя записи софта (<c>PluginSoftware.Id</c>), к которой относится путь;
     /// пусто — главная программа плагина (T-146-S0).</summary>
     public string Soft { get; set; } = "";
+}
+
+/// <summary>«Мои уведомления» (T-422-S0): личные настройки и всё, что нужно форме.</summary>
+public sealed class MyNotificationsDto
+{
+    public AI2P.Core.NotificationPrefs Prefs { get; set; } = new();
+    /// <summary>Адрес личной календарной ленты; пусто — лента не заведена.</summary>
+    public string IcalUrl { get; set; } = "";
+    /// <summary>Открытый ключ VAPID этого сервера — для подписки браузера.</summary>
+    public string PushPublicKey { get; set; } = "";
+    /// <summary>Сколько браузеров человека подписано на этом сервере.</summary>
+    public int PushDevices { get; set; }
+    /// <summary>Почта сервера настроена: без неё канал «почта» молчит.</summary>
+    public bool MailReady { get; set; }
+    /// <summary>Почтовый адрес для оповещения человека.</summary>
+    public string Address { get; set; } = "";
+}
+
+/// <summary>Подписка браузера на Web Push (T-422-S0) — то, что отдаёт pushManager.subscribe.</summary>
+public sealed class PushSubscribeDto
+{
+    public string Endpoint { get; set; } = "";
+    public string P256dh { get; set; } = "";
+    public string Auth { get; set; } = "";
+    public string UserAgent { get; set; } = "";
 }

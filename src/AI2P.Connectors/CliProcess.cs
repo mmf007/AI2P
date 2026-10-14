@@ -20,6 +20,30 @@ public static class CliProcess
     public static Process Start(string fileName, string arguments, string workDir, bool redirectStdin,
         IReadOnlyDictionary<string, string>? env = null)
     {
+        // ПО CLI, поставленное AI2P для пользователя (T-431-S0): каталоги в PATH процесса
+        // и полный путь программы — сам по себе каталог пакетов в PATH не попадает
+        var extra = ExtraDirs();
+        if (extra.Count > 0)
+        {
+            var merged = new Dictionary<string, string>(env ?? new Dictionary<string, string>());
+            var basePath = merged.TryGetValue("PATH", out var p) ? p : Environment.GetEnvironmentVariable("PATH") ?? "";
+            merged["PATH"] = string.Join(Path.PathSeparator, extra) + Path.PathSeparator + basePath;
+            env = merged;
+            if (Resolve(fileName, extra) is { } full)
+            {
+                var ext = Path.GetExtension(full);
+                if (OperatingSystem.IsWindows() && (ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+                                                    || ext.Equals(".bat", StringComparison.OrdinalIgnoreCase)))
+                {
+                    arguments = $"/c \"\"{full}\" {arguments}\"";
+                    fileName = "cmd.exe";
+                }
+                else
+                {
+                    fileName = full;
+                }
+            }
+        }
         var psi = BuildStartInfo(fileName, arguments, workDir, redirectStdin, env);
         try
         {
@@ -72,6 +96,38 @@ public static class CliProcess
         {
             // процесс уже завершился — убивать нечего
         }
+    }
+
+    /// <summary>
+    /// Каталоги ПО CLI, поставленного AI2P (T-431-S0): свой Node.js и программы CLI в
+    /// каталоге пакетов. Задаёт установщик моделей; null — ничего не добавляется.
+    /// </summary>
+    public static Func<List<string>>? ExtraPath { get; set; }
+
+    private static List<string> ExtraDirs()
+    {
+        try
+        {
+            return ExtraPath?.Invoke().Where(Directory.Exists).ToList() ?? [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                       or InvalidOperationException or System.Text.Json.JsonException)
+        {
+            return [];   // каталог пакетов не читается — запускаем как раньше, по PATH
+        }
+    }
+
+    /// <summary>Полный путь команды без каталога в дополнительных каталогах; null — не там.</summary>
+    private static string? Resolve(string fileName, List<string> dirs)
+    {
+        if (fileName.Length == 0 || fileName.IndexOfAny(['/', '\\']) >= 0)
+        {
+            return null;
+        }
+        string[] names = OperatingSystem.IsWindows() && !Path.HasExtension(fileName)
+            ? [fileName + ".exe", fileName + ".cmd", fileName + ".bat"]
+            : [fileName];
+        return dirs.SelectMany(d => names.Select(n => Path.Combine(d, n))).FirstOrDefault(File.Exists);
     }
 
     private static ProcessStartInfo BuildStartInfo(string fileName, string arguments, string workDir,

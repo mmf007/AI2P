@@ -12,6 +12,7 @@
 * [配置](man/config.md)   
 * [HTTPS](man/https.md)   
 * [执行者](man/performers.md)    
+* [安装 CLI 代理软件](man/cli_install.md)   
 * [团队](man/teams.md) 
 * [计划](man/schedule.md) 
 * [多台服务器](man/servers.md)      

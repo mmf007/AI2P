@@ -189,6 +189,31 @@ public sealed class T34S0Tests : IDisposable
     }
 
     [Fact]
+    public void The_Launch_Permission_Covers_Git_Bash_And_PowerShell_Forms()
+    {
+        // T-458-S0: Git Bash съедает обратные слэши без кавычек — агент пишет путь прямыми
+        // слэшами или в POSIX-виде, и прежние шаблоны этих форм не покрывали
+        var bash = AgentCli.AllowedToolPatterns(@"C:\ai\AI2P\ai2p.cmd");
+        Assert.Contains(@"Bash(C:\ai\AI2P\ai2p.cmd:*)", bash);
+        Assert.Contains("Bash(C:/ai/AI2P/ai2p.cmd:*)", bash);
+        Assert.Contains("Bash(\"C:/ai/AI2P/ai2p.cmd\":*)", bash);
+        Assert.Contains("Bash(/c/ai/AI2P/ai2p.cmd:*)", bash);
+        Assert.Contains("Bash(\"/c/ai/AI2P/ai2p.cmd\":*)", bash);
+        Assert.Equal(bash.Count, bash.Distinct().Count());
+
+        var ps = AgentCli.PowerShellPatterns(@"C:\ai\AI2P\ai2p.cmd");
+        Assert.Contains(@"PowerShell(C:\ai\AI2P\ai2p.cmd:*)", ps);
+        Assert.Contains("PowerShell(& \"C:\\ai\\AI2P\\ai2p.cmd\":*)", ps);
+        Assert.Contains(@"PowerShell(& C:\ai\AI2P\ai2p.cmd:*)", ps);
+        Assert.Contains("PowerShell(C:/ai/AI2P/ai2p.cmd:*)", ps);
+        // POSIX-вид PowerShell не понимает
+        Assert.DoesNotContain(ps, p => p.Contains("/c/"));
+        Assert.All(ps, p => Assert.StartsWith("PowerShell(", p));
+
+        Assert.Equal("C:/ai/AI2P/ai2p.cmd", AgentCli.BashCommandLine(@"C:\ai\AI2P\ai2p.cmd"));
+    }
+
+    [Fact]
     public void The_Wrapper_Lives_Next_To_The_Program()
     {
         // обёртка кладётся и в выходной каталог сборки, и в выкладку (csproj), иначе

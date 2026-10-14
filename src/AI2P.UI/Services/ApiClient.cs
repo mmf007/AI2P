@@ -926,6 +926,30 @@ public sealed class ApiClient
     public Task<NotificationTransportDto> GetNotificationTransportAsync() =>
         Get<NotificationTransportDto>("api/notifications/transport");
 
+    // --- мои уведомления (T-422-S0) ---
+
+    public Task<MyNotificationsDto> GetMyNotificationsAsync() =>
+        Get<MyNotificationsDto>("api/notify/me");
+
+    public Task<MyNotificationsDto> SaveMyNotificationsAsync(NotificationPrefs prefs) =>
+        Put<MyNotificationsDto>("api/notify/me", prefs);
+
+    /// <summary>Новый секрет календарной ленты; off — выключить ленту.</summary>
+    public Task<MyNotificationsDto> ResetMyIcalAsync(bool off) =>
+        Post<MyNotificationsDto>($"api/notify/me/ical?off={(off ? "true" : "false")}", new { });
+
+    public Task<MyNotificationsDto> SubscribePushAsync(PushSubscribeDto dto) =>
+        Post<MyNotificationsDto>("api/notify/me/push", dto);
+
+    public async Task<MyNotificationsDto> ForgetPushDevicesAsync()
+    {
+        await Send(HttpMethod.Delete, "api/notify/me/push");
+        return await GetMyNotificationsAsync();
+    }
+
+    public Task<MyNotificationsDto> TestPushAsync() =>
+        Post<MyNotificationsDto>("api/notify/me/push/test", new { });
+
     /// <summary>Пробное письмо; пустой адрес — на свой собственный.</summary>
     public Task<NotificationTestResultDto> SendNotificationTestAsync(string address) =>
         Post<NotificationTestResultDto>("api/notifications/test",

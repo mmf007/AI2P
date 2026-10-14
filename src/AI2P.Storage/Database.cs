@@ -585,7 +585,16 @@ public sealed class Database
         // Без неё завершение задания суфлёра выглядело бы как завершение самой задачи —
         // результат ушёл бы на проверку человеку, а генерация не запустилась бы никогда
         EnsureColumn(conn, "jobs", "role", "TEXT NOT NULL DEFAULT ''");
-        Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '48')");
+        // v48 → v49 (T-422-S0): ОПОВЕЩЕНИЕ НА ТЕЛЕФОН. Таблицы notification_prefs (личные
+        // настройки уведомлений человека, реплицируются) и push_subscriptions (подписки
+        // браузеров на Web Push, НЕ реплицируются — подписка привязана к ключу VAPID того
+        // сервера, где её сделали) создаёт сама схема (CREATE IF NOT EXISTS). Новых колонок
+        // нет, существующих строк правка не касается. Новые коды событий (question,
+        // job_assigned) и видов (mail_event, webpush) живут в прежних колонках: сервер
+        // прежней версии отбирает правила по ТОЧНОМУ коду события, поэтому незнакомое
+        // событие он просто не срабатывает (никакой else-ветки «сделать наоборот»), а
+        // незнакомый вид шлёт обычным письмом (NotificationChannels.TransportOf)
+        Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '49')");
     }
 
     /// <summary>
@@ -1577,6 +1586,35 @@ public sealed class Database
           mark    TEXT NOT NULL DEFAULT '',
           sent_at TEXT NOT NULL,
           PRIMARY KEY (rule_id, task_id)
+        );
+
+        -- ЛИЧНЫЕ НАСТРОЙКИ УВЕДОМЛЕНИЙ (T-422-S0): что человек получает сам, без правил
+        -- организации. Реплицируются: письмо шлёт владелец задачи, и ему нужны настройки
+        -- адресата. Строки нет — умолчания (NotificationPrefs): только «мои вопросы и задания»
+        CREATE TABLE IF NOT EXISTS notification_prefs (
+          executor_id TEXT PRIMARY KEY,
+          inbox       INTEGER NOT NULL DEFAULT 1,     -- мои вопросы и задания — сразу
+          due         INTEGER NOT NULL DEFAULT 0,     -- мои сроки — в календарь
+          due_lead    INTEGER NOT NULL DEFAULT 60,    -- за сколько минут до срока
+          review      INTEGER NOT NULL DEFAULT 0,     -- проверка — мне как ответственному
+          channel     TEXT NOT NULL DEFAULT 'both',   -- NotificationPrefChannels
+          quiet_from  TEXT NOT NULL DEFAULT '',       -- тихие часы «ЧЧ:мм», время сервера
+          quiet_to    TEXT NOT NULL DEFAULT '',
+          ical_token  TEXT NOT NULL DEFAULT '',       -- секрет личной календарной ленты
+          ical_todo   INTEGER NOT NULL DEFAULT 0,     -- класть в ленту и VTODO
+          updated_at  TEXT NOT NULL
+        );
+
+        -- ПОДПИСКИ БРАУЗЕРОВ НА WEB PUSH (T-422-S0). НЕ реплицируются (нет в ChangeLog.OrgTables):
+        -- подписка сделана под ключ VAPID ЭТОГО сервера, и слать в неё может только он
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id          TEXT PRIMARY KEY,
+          executor_id TEXT NOT NULL,
+          endpoint    TEXT NOT NULL UNIQUE,
+          p256dh      TEXT NOT NULL,
+          auth        TEXT NOT NULL,
+          user_agent  TEXT NOT NULL DEFAULT '',
+          created_at  TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS import_sources (    -- справочник импортов (ТЗ v1.28, todo30)

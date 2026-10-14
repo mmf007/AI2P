@@ -198,6 +198,10 @@ public sealed class T299S0Tests : IDisposable
         Assert.Contains(body.DisplayId, run.Started);
         Assert.Equal(TaskStatuses.Pending, Status(loop));
 
+        // тело сдаётся ОТВЕТОМ на задание человека, а не одной сменой статуса: тело пойдёт
+        // на второй круг, и висящее задание первого круга не дало бы его запустить
+        // («по задаче уже есть активное задание», T-468-S0)
+        _f.Orchestrator.AnswerJob(_f.Jobs.WaitingByTask(body.Id)!.Id, "сделано", null);
         _f.Tasks.ChangeStatus(body.Id, TaskStatuses.Done, null);
         await _f.Orchestrator.ProcessHierarchyAsync(root.Id, null);
         Assert.Equal(TaskStatuses.InProgress, Status(loop)); // анализатор после потомков

@@ -145,6 +145,12 @@ public sealed class LocalModelProcessService
             }
             var process = Process.Start(psi)
                 ?? throw new InvalidOperationException(Loc.T("msg.localModelProcess.1", fileName));
+            // T-453-S0: процесс сервера живёт не дольше нас. StopAll зовётся только при штатной
+            // остановке, а после аварии, снятия процесса или обновления ComfyUI оставался жить
+            // с трубой вывода без читателя — и каждое следующее задание падало на первой же
+            // записи в вывод «[Errno 22] Invalid argument», а новый экземпляр AI2P принимал его
+            // за внешний сервер и не перезапускал
+            KillOnExitJob.Assign(process);
             var entry = new Entry
             {
                 Process = process,

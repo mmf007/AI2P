@@ -254,6 +254,9 @@ public sealed class T13S1Tests
             // поддержан, — поэтому у неё обучение объявлено «external», и здесь ей не место.
             // Её саму проверяет T19S0Tests
             .Where(m => !m.Name.Contains("Image", StringComparison.Ordinal))
+            // ТОЛЬКО ЛОКАЛЬНЫЕ (провайдер comfyui): облачная Kandinsky-6.0-Pro через шлюз
+            // fal.ai (T-466-S0) своего адаптера не принимает
+            .Where(m => m.IsLocal)
             .ToList();
         // две записи T-258 (текст → ролик и картинка → ролик) плюс пять вариантов линейки
         // Video Lite, заведённых T-15-S0 (10-секундные, no-CFG и distil16)
@@ -289,7 +292,8 @@ public sealed class T13S1Tests
         var local = f.Models.ListWithSkills()
             .Where(m => m.Name.EndsWith("-Local", StringComparison.Ordinal))
             .ToList();
-        Assert.Equal(4, local.Count);
+        // четыре записи T-13-S1 плюс Qwen3.5-4B-Local (…103)
+        Assert.Equal(5, local.Count);
         foreach (var model in local)
         {
             Assert.True(model.Lora.Supported, model.Name);

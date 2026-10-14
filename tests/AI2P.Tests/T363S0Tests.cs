@@ -111,15 +111,24 @@ public sealed class T363S0Tests : IDisposable
             Assert.Equal(single.BlockerIds, item.BlockerIds);
         }
 
-        // 2. время: весь список против одного лишь поштучного чтения связей
-        var listMs = Millis(3, () => _f.Tasks.List(projectId));
-        var oneByOneMs = Millis(3, () => ReadLinksOneByOne(ids));
-        _out.WriteLine($"список {tasks.Count} задач: {listMs:F0} мс; "
-                       + $"одни только связи поштучно: {oneByOneMs:F0} мс");
-        // список ЦЕЛИКОМ (строки, счётчик вопросов, связи, сервер-владелец) обязан обходиться
-        // дешевле, чем одни лишь связи прежним способом: иначе правка не состоялась
-        Assert.True(listMs < oneByOneMs,
-            $"список {listMs:F0} мс против поштучного чтения связей {oneByOneMs:F0} мс");
+        // 2. ОБРАЩЕНИЯ к базе, а не миллисекунды (T-468-S0): под нагрузкой полного прогона
+        // сравнение времени краснело и после «лучшего из пяти» (566 мс против 499 мс), хотя
+        // в одиночку было зелёным. Счёт команд от нагрузки не зависит вовсе
+        var before = Sql.CommandCount;
+        _f.Tasks.List(projectId);
+        var listCommands = Sql.CommandCount - before;
+        before = Sql.CommandCount;
+        ReadLinksOneByOne(ids);
+        var oneByOneCommands = Sql.CommandCount - before;
+        var listMs = Millis(1, () => _f.Tasks.List(projectId));
+        _out.WriteLine($"список {tasks.Count} задач: {listCommands} команд, {listMs:F0} мс; "
+                       + $"одни только связи поштучно: {oneByOneCommands} команд");
+        Assert.Equal(6 * tasks.Count, oneByOneCommands); // прежний способ: шесть на задачу
+        // список ЦЕЛИКОМ (строки, счётчик вопросов, связи, сервер-владелец) читает связи
+        // пачками по таблице: число команд не растёт с числом задач. Запас взят с избытком —
+        // поштучное чтение хотя бы одной связи дало бы не меньше 500 команд
+        Assert.True(listCommands < tasks.Count / 5,
+            $"список {tasks.Count} задач потратил {listCommands} команд — связи читаются по задаче");
     }
 
     /// <summary>

@@ -22,7 +22,17 @@ public static class NotificationEvents
     /// а не сменой статуса, — поэтому только у него есть защита от повторной отправки.</summary>
     public const string Due = "due";
 
-    public static readonly string[] All = [Status, Review, Due];
+    /// <summary>Агент задал вопрос в чате задачи (T-422-S0) — письмо АДРЕСАТУ вопроса
+    /// (человеку, которому он адресован, иначе ответственному задачи) со ссылками быстрого
+    /// ответа. Статус задачи вопрос не меняет, поэтому событие ловится не сменой статуса,
+    /// а появлением вопроса.</summary>
+    public const string Question = "question";
+
+    /// <summary>Задание выдано человеку (T-422-S0) — письмо ИСПОЛНИТЕЛЮ-человеку: задание
+    /// перешло в «ждёт человека».</summary>
+    public const string JobAssigned = "job_assigned";
+
+    public static readonly string[] All = [Status, Review, Due, Question, JobAssigned];
 
     public static bool IsKnown(string? code) =>
         code is { Length: > 0 } && Array.IndexOf(All, code) >= 0;
@@ -48,10 +58,22 @@ public static class NotificationChannels
     /// из которого почтовый клиент делает у себя задачу со сроком.</summary>
     public const string MailTask = "mail_task";
 
-    /// <summary>Транспорт «электронная почта» — общий у обоих сегодняшних видов.</summary>
+    /// <summary>Почта, СОБЫТИЕ КАЛЕНДАРЯ (T-422-S0): письмо с вложением iCalendar VEVENT
+    /// (время = срок задачи, напоминание VALARM). В отличие от VTODO событие ставят в календарь
+    /// в одно касание и почта iOS, и Gmail, и Outlook на телефоне.</summary>
+    public const string MailEvent = "mail_event";
+
+    /// <summary>Web Push в браузер телефона или компьютера (T-422-S0): сервер открыт в браузере,
+    /// подписка делается кнопкой в «Мои уведомления». Отдельного приложения не нужно.</summary>
+    public const string WebPush = "webpush";
+
+    /// <summary>Транспорт «электронная почта» — общий у почтовых видов.</summary>
     public const string EmailTransport = "email";
 
-    public static readonly string[] All = [Mail, MailTask];
+    /// <summary>Транспорт Web Push (VAPID, RFC 8030/8291/8292).</summary>
+    public const string WebPushTransport = "webpush";
+
+    public static readonly string[] All = [Mail, MailTask, MailEvent, WebPush];
 
     /// <summary>Вид → транспорт. Новый мессенджер добавляется строкой сюда (и своей
     /// реализацией транспорта) — трогать отправку уведомлений при этом не нужно.</summary>
@@ -59,6 +81,8 @@ public static class NotificationChannels
     {
         [Mail] = EmailTransport,
         [MailTask] = EmailTransport,
+        [MailEvent] = EmailTransport,
+        [WebPush] = WebPushTransport,
     };
 
     public static bool IsKnown(string? code) =>
@@ -99,6 +123,12 @@ public sealed class NotificationContext
     public string CompanyId { get; set; } = "";
     public string ProjectName { get; set; } = "";
     public string ProjectId { get; set; } = "";
+    /// <summary>Текст вопроса агента (событие «вопрос», T-422-S0).</summary>
+    public string QuestionText { get; set; } = "";
+    /// <summary>Ссылка быстрого ответа на вопрос — страница без входа (T-422-S0).</summary>
+    public string ReplyLink { get; set; } = "";
+    /// <summary>Варианты ответа по строке: «вариант: ссылка» (T-422-S0).</summary>
+    public string ReplyOptions { get; set; } = "";
 }
 
 /// <summary>
@@ -134,6 +164,9 @@ public static class NotificationMacros
         new("company.id", "notify.macro.company.id"),
         new("project.name", "notify.macro.project.name"),
         new("project.id", "notify.macro.project.id"),
+        new("question.text", "notify.macro.question.text"),
+        new("reply.link", "notify.macro.reply.link"),
+        new("reply.options", "notify.macro.reply.options"),
     ];
 
     /// <summary>Синонимы: слева написание из задания, справа канонический код.</summary>
@@ -162,6 +195,9 @@ public static class NotificationMacros
             ["company.id"] = context.CompanyId,
             ["project.name"] = context.ProjectName,
             ["project.id"] = context.ProjectId,
+            ["question.text"] = context.QuestionText,
+            ["reply.link"] = context.ReplyLink,
+            ["reply.options"] = context.ReplyOptions,
         };
 
     /// <summary>Раскрыть макросы в тексте. Неизвестный код остаётся в тексте как есть.</summary>
@@ -182,4 +218,66 @@ public static class NotificationMacros
             return values.TryGetValue(code, out var value) ? value : match.Value;
         });
     }
+}
+
+/// <summary>
+/// ЛИЧНЫЕ НАСТРОЙКИ УВЕДОМЛЕНИЙ человека (T-422-S0, п. В1 плана T-412-S0). Правила
+/// организации (<c>notification_rules</c>) — инструмент администратора; эта запись решает,
+/// что человек получает САМ, без правил: готовые наборы, канал и тихие часы. Строки нет —
+/// действуют умолчания: включён только набор «мои вопросы и задания», канал «оба».
+/// </summary>
+public sealed class NotificationPrefs
+{
+    public string ExecutorId { get; set; } = "";
+    /// <summary>«Мои вопросы и задания — сразу»: вопрос агента мне и задание мне.</summary>
+    public bool Inbox { get; set; } = true;
+    /// <summary>«Мои сроки — в календарь»: событие календаря по сроку моей задачи.</summary>
+    public bool Due { get; set; }
+    /// <summary>За сколько минут до срока напоминать (набор «сроки»).</summary>
+    public int DueLeadMinutes { get; set; } = 60;
+    /// <summary>«Проверка — мне как ответственному».</summary>
+    public bool Review { get; set; }
+    /// <summary>Канал: <see cref="NotificationPrefChannels"/>.</summary>
+    public string Channel { get; set; } = NotificationPrefChannels.Both;
+    /// <summary>Тихие часы «ЧЧ:мм» по времени сервера; пусто — без тихих часов. В тихие
+    /// часы push не шлётся (письмо уходит: оно не будит).</summary>
+    public string QuietFrom { get; set; } = "";
+    public string QuietTo { get; set; } = "";
+    /// <summary>Секрет личной календарной ленты (<c>/notify/ical/&lt;токен&gt;.ics</c>);
+    /// пусто — лента не заведена.</summary>
+    public string IcalToken { get; set; } = "";
+    /// <summary>Класть в ленту задачи (VTODO) рядом с событиями.</summary>
+    public bool IcalTodo { get; set; }
+
+    public bool WantsMail => Channel is NotificationPrefChannels.Mail or NotificationPrefChannels.Both;
+    public bool WantsPush => Channel is NotificationPrefChannels.Push or NotificationPrefChannels.Both;
+
+    /// <summary>Момент <paramref name="localTime"/> попадает в тихие часы. Интервал может
+    /// переходить через полночь (22:00–07:00).</summary>
+    public bool IsQuiet(TimeOnly localTime)
+    {
+        if (!TimeOnly.TryParse(QuietFrom, System.Globalization.CultureInfo.InvariantCulture, out var from)
+            || !TimeOnly.TryParse(QuietTo, System.Globalization.CultureInfo.InvariantCulture, out var to)
+            || from == to)
+        {
+            return false;
+        }
+        return from < to
+            ? localTime >= from && localTime < to
+            : localTime >= from || localTime < to;
+    }
+}
+
+/// <summary>Канал личных уведомлений (T-422-S0).</summary>
+public static class NotificationPrefChannels
+{
+    public const string Mail = "mail";
+    public const string Push = "push";
+    public const string Both = "both";
+    public const string None = "none";
+
+    public static readonly string[] All = [Both, Push, Mail, None];
+
+    public static bool IsKnown(string? code) =>
+        code is { Length: > 0 } && Array.IndexOf(All, code) >= 0;
 }

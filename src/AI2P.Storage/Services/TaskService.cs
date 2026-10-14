@@ -366,8 +366,11 @@ public sealed class TaskService
     /// когда дерево заводится ЦЕЛИКОМ и по частям оно недостроено: копия шаблона создаёт
     /// узлы сверху вниз, а блокирующие связи проставляет вообще после всех, — очередь
     /// иерархии, узнав о голове раньше её потомков, запустила бы голову первой.</param>
+    /// <param name="checkExecutorServer">Проверять ли, что исполнители привязаны к серверу
+    /// задачи (T-446-S0). false — у копии шаблона: исполнитель переехал из узла, и сменить
+    /// его человек может только ПОСЛЕ создания; запуск всё равно проверит сервер сам.</param>
     public TaskItem Create(TaskItem task, string descriptionMd, string acceptanceMd, string? actorId,
-        bool notify = true)
+        bool notify = true, bool checkExecutorServer = true)
     {
         if (task.Title.Trim().Length == 0)
         {
@@ -389,7 +392,8 @@ public sealed class TaskService
         using var conn = _db.Open();
         using var tx = conn.BeginTransaction();
 
-        Validate(conn, tx, task, isNew: true);
+        Validate(conn, tx, task, isNew: true,
+            serverCheckSkip: checkExecutorServer ? null : task.ExecutorIds.Concat(task.AltExecutorIds).ToHashSet());
         // тип задачи (T-298-S0): у новой задачи прямых потомков ещё нет — ссылки на ветви
         // условия заводятся правкой; лимит цикла берётся из настроек проекта
         ApplyFlowDefaults(conn, tx, task);
@@ -493,7 +497,10 @@ public sealed class TaskService
         // сервера S0 — передайте задачу туда», хотя задача уже здесь
         task.DisplayId = old.DisplayId;
         task.ServerId = old.ServerId;
-        Validate(conn, tx, task);
+        // уже стоявшие исполнители на сервер не проверяются (T-446-S0): копия шаблона могла
+        // унаследовать исполнителя чужого сервера, и задачу надо дать править, чтобы его сменить
+        Validate(conn, tx, task,
+            serverCheckSkip: old.ExecutorIds.Concat(old.AltExecutorIds).ToHashSet());
         ApplyFlowDefaults(conn, tx, task);
         ValidateFlow(conn, tx, task);
         var slug = ProjectSlug(conn, task.ProjectId, tx);
@@ -1104,7 +1111,10 @@ public sealed class TaskService
             // о копии шаблона очередь иерархии узнаёт ОДИН раз и в самом конце (T-16-S0):
             // узлы заводятся сверху вниз, блокирующие связи ставятся после всех, и проход
             // по недостроенному дереву запустил бы голову раньше её подзадач
-            copy = Create(copy, ReadDescription(node), ReadAcceptance(node), actorId, notify: false);
+            // сервер исполнителя здесь НЕ проверяется (T-446-S0): сразу после создания человек
+            // должен иметь возможность сменить исполнителя, а не получить отказ; проверит запуск
+            copy = Create(copy, ReadDescription(node), ReadAcceptance(node), actorId, notify: false,
+                checkExecutorServer: false);
             idMap[node.Id] = copy.Id;
             newHead ??= copy;
         }
@@ -2710,9 +2720,9 @@ public sealed class TaskService
 
     /// <summary>Проверки ядра (ТЗ пп. 2.1, 6.4.2); у шаблонов поля могут быть пустыми (п. 2.3).</summary>
     private void Validate(SqliteConnection conn, SqliteTransaction tx, TaskItem task,
-        bool isNew = false)
+        bool isNew = false, ISet<string>? serverCheckSkip = null)
     {
-        EnsureExecutorsOnSameServer(conn, tx, task);
+        EnsureExecutorsOnSameServer(conn, tx, task, serverCheckSkip);
         if (task.Kind == TaskKind.Task && task.ExecutorIds.Count > 1)
         {
             throw new ArgumentException(Loc.T("msg.task.21"));
@@ -2799,7 +2809,10 @@ public sealed class TaskService
     /// исполнителя задаче ДРУГОГО сервера бессмысленно — задача назначилась бы и не
     /// запустилась. Отвечаем понятной ошибкой вместо тихого сбоя при запуске.
     /// </summary>
-    private void EnsureExecutorsOnSameServer(SqliteConnection conn, SqliteTransaction? tx, TaskItem task)
+    /// <param name="skip">Исполнители, которых не проверять (T-446-S0): переехавшие из узла
+    /// шаблона и уже стоявшие у задачи до правки — их сервер проверит запуск.</param>
+    private void EnsureExecutorsOnSameServer(SqliteConnection conn, SqliteTransaction? tx, TaskItem task,
+        ISet<string>? skip = null)
     {
         // запасные (T-221) проверяются наравне с основным: заменить занятого исполнителя
         // сможет только тот, кто физически способен взять работу на этом сервере
@@ -2815,6 +2828,10 @@ public sealed class TaskService
             : _scope.IsConductor ? _scope.ServerId : null;
         foreach (var executorId in task.ExecutorIds.Concat(task.AltExecutorIds))
         {
+            if (skip?.Contains(executorId) == true)
+            {
+                continue;
+            }
             var executorServer = Sql.Scalar<string>(conn, tx,
                 "SELECT server_id FROM executors WHERE id=@id", ("@id", executorId));
             if (executorServer is not { Length: > 0 } || executorServer == owner)

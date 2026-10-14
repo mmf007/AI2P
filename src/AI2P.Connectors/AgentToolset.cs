@@ -163,6 +163,16 @@ public sealed class AgentToolset
         _resolve = resolveSpec ?? (spec => spec);
         _security = security;
         _actionCodeByTool = actionCodeByTool ?? (_ => null);
+        // ЗАДАЧИ ДРУГИХ ПРОЕКТОВ (T-423-S0): по умолчанию закрыты, открывает их правило
+        // действия со списком проектов. Без оценщика правил чужие проекты закрыты, как раньше;
+        // у инструмента без записи справочника правило завести не на что — тоже закрыто
+        // (набор задач бывает не выдан вовсе — оценщик правил без него, Todo26Tests)
+        if (security is not null && tasks is not null)
+        {
+            tasks.OtherProjectAccess = (tool, projectId) =>
+                _actionCodeByTool(tool) is { } code
+                && security.ForAction(code, projectId).Decision == SecurityDecision.Allow;
+        }
     }
 
     /// <summary>

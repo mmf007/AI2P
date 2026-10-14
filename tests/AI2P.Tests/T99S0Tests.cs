@@ -172,7 +172,10 @@ public sealed class T99S0Tests : IDisposable
 
         Assert.Contains("data-object-link-marker", dialog);
         Assert.Contains("data-object-link-url", dialog);
-        Assert.Contains("link.external", dialog);
+        // названия ссылок с T-207-S0 общие с окном задачи — LinkRows.Build
+        Assert.Contains("LinkRows.Build", dialog);
+        var rows = File.ReadAllText(Path.Combine(RepoRoot(), "src", "AI2P.UI", "Services", "LinkRows.cs"));
+        Assert.Contains("link.external", rows);
         Assert.Contains("/object/{objectId}", state);
         Assert.Contains("public string ObjectLocalUrl", state);
     }

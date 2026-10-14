@@ -71,6 +71,19 @@ public sealed class TaskToolset
     /// <see cref="AgentToolset.Language"/>.</summary>
     public string? Language { get; set; }
 
+    /// <summary>
+    /// ДОСТУП К ЗАДАЧАМ ДРУГИХ ПРОЕКТОВ (T-423-S0): (инструмент, id проекта) → разрешено ли
+    /// читать задачу чужого проекта. Решают правила безопасности со списком проектов
+    /// (<see cref="SecurityEvaluator.ForAction(string,string?)"/>), ставит
+    /// <see cref="AgentToolset"/>. null — чужие проекты закрыты (как до T-423-S0).
+    /// </summary>
+    public Func<string, string, bool>? OtherProjectAccess { get; set; }
+
+    /// <summary>Задачу можно отдать агенту: своя или чужого проекта, открытого правилом.</summary>
+    private bool Reachable(TaskItem task, string tool) =>
+        task.ProjectId == _current.ProjectId
+        || (task.ProjectId is { } other && OtherProjectAccess?.Invoke(tool, other) == true);
+
     /// <param name="refData">Справочник skills — для create_task (ТЗ v1.26); null — create_task недоступен.</param>
     /// <param name="picker">Автоподбор исполнителя подзадачи «сначала ИИ, потом человек» (ТЗ v1.26).</param>
     /// <param name="actorExecutorId">Исполнитель-агент — актор создаваемых подзадач и записей опыта.</param>
@@ -515,7 +528,7 @@ public sealed class TaskToolset
         // получал бы отказ вместо задания. Поиск не смотрит ни на протокол, ни на корень сайта
         if (LocalTaskOf(url) is { } own)
         {
-            return own.ProjectId == _current.ProjectId
+            return Reachable(own, "import_task_from_url")
                 ? Render(own)
                 : Loc.In(Language, "prompt.tasks.33");
         }
@@ -1393,11 +1406,36 @@ public sealed class TaskToolset
     private string GetTaskByCode(string code)
     {
         code = code.Trim();
+        // вместо кода дали ссылку «…/task/<guid>» или сам идентификатор (T-458-S0): агент
+        // берёт их из задания как есть, а ответ «не найдена» ничего ему не подсказывал
+        if (TaskIdInUrl(code).Length > 0)
+        {
+            return GetTaskByUrl(code);
+        }
+        if (Guid.TryParse(code, out _))
+        {
+            return GetTaskByUrl("/task/" + code);
+        }
         // узлы шаблонов читаются наравне с задачами (T-144): чтобы поправить шаблон,
         // агент должен сперва увидеть его формулировку, а списком list_templates даются
         // только коды и заголовки
         var task = ProjectTasks(includeTemplates: true)
             .FirstOrDefault(t => t.DisplayId.Equals(code, StringComparison.OrdinalIgnoreCase));
+        // не нашлась в своём проекте — ищется по всей организации (T-423-S0) и отдаётся,
+        // только если её проект открыт правилом; иначе ответ прежний — «не найдена»
+        if (task is null && _current.ProjectId is not null && OtherProjectAccess is not null)
+        {
+            var other = _tasks.List(projectId: null, includeTemplates: true)
+                .FirstOrDefault(t => t.DisplayId.Equals(code, StringComparison.OrdinalIgnoreCase));
+            if (other is not null && Reachable(other, "get_task_by_code"))
+            {
+                task = other;
+            }
+            else if (other is not null)
+            {
+                return Loc.In(Language, "prompt.tasks.33");
+            }
+        }
         return task is null
             ? Loc.In(Language, "prompt.tasks.30", code)
             : Render(task);
@@ -1441,7 +1479,7 @@ public sealed class TaskToolset
         {
             return Loc.In(Language, "prompt.tasks.32", url);
         }
-        if (task.ProjectId != _current.ProjectId)
+        if (!Reachable(task, "get_task_by_url"))
         {
             return Loc.In(Language, "prompt.tasks.33");
         }

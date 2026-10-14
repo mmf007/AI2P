@@ -185,7 +185,9 @@ public sealed class SecurityRuleService
     /// <summary>Идентичность правила для перекрытия уровней: target + pattern + ops.</summary>
     private static string IdentityOf(SecurityRule rule) =>
         $"{rule.Target}|{rule.Pattern.Trim()}|{(rule.OpRead ? "r" : "")}{(rule.OpWrite ? "w" : "")}"
-        + $"{(rule.OpDelete ? "d" : "")}{(rule.OpUse ? "u" : "")}{(rule.OpRun ? "x" : "")}";
+        + $"{(rule.OpDelete ? "d" : "")}{(rule.OpUse ? "u" : "")}{(rule.OpRun ? "x" : "")}"
+        // правила одного действия для разных проектов друг друга не перекрывают (T-423-S0)
+        + "|" + string.Join(",", rule.Projects.Order(StringComparer.OrdinalIgnoreCase));
 
     private static void Validate(SecurityRule rule)
     {
@@ -253,6 +255,23 @@ public sealed class SecurityRuleService
         {
             rule.OpUse = rule.OpRun = false;
         }
+        // СПИСОК ПРОЕКТОВ (T-423-S0) — только у правил действий AI2P: каталоги, команды ОС
+        // и плагины к задачам чужих проектов не обращаются. «*» поглощает остальные
+        if (rule.Target == SecurityTarget.Action)
+        {
+            var projects = (rule.Projects ?? [])
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            rule.Projects = projects.Contains(SecurityRule.AllProjects)
+                ? [SecurityRule.AllProjects]
+                : projects;
+        }
+        else
+        {
+            rule.Projects = [];
+        }
     }
 
     private static string RuleJson(SecurityRule rule)
@@ -263,7 +282,11 @@ public sealed class SecurityRuleService
         if (rule.OpDelete) { ops.Add("delete"); }
         if (rule.OpUse) { ops.Add("use"); }
         if (rule.OpRun) { ops.Add("run"); }
-        return JsonSerializer.Serialize(new { target = rule.Target, pattern = rule.Pattern, ops });
+        // список проектов (T-423-S0) пишется, только когда он есть: у прежних правил rule_json
+        // не меняется, и сервер старой версии читает новое правило как правило текущего проекта
+        return rule.Projects.Count > 0
+            ? JsonSerializer.Serialize(new { target = rule.Target, pattern = rule.Pattern, ops, projects = rule.Projects })
+            : JsonSerializer.Serialize(new { target = rule.Target, pattern = rule.Pattern, ops });
     }
 
     /// <summary>Срабатывания и правки правил — события журнала (ТЗ п. 12.3).</summary>
@@ -327,6 +350,13 @@ public sealed class SecurityRuleService
                         case "run": rule.OpRun = true; break;
                     }
                 }
+            }
+            if (root.TryGetProperty("projects", out var projects) && projects.ValueKind == JsonValueKind.Array)
+            {
+                rule.Projects = projects.EnumerateArray()
+                    .Select(p => p.GetString() ?? "")
+                    .Where(p => p.Length > 0)
+                    .ToList();
             }
         }
         catch (JsonException)

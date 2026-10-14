@@ -59,6 +59,17 @@
                         <MudSelectItem T="string" Value="@actionCode">@actionCode</MudSelectItem>
                     }
                 </MudSelect>
+                @* ДЛЯ КАКИХ ПРОЕКТОВ (T-423-S0): пусто — текущий проект задачи; в чужих
+                   проектах действие без разрешающего правила запрещено *@
+                <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_projects"
+                           Label="@L["security.projects"]" HelperText="@L["security.projects.hint"]"
+                           Clearable="true" data-security-projects="1">
+                    <MudSelectItem T="string" Value="@(SecurityRule.AllProjects)">@L["security.projects.all"]</MudSelectItem>
+                    @foreach (var project in _allProjects)
+                    {
+                        <MudSelectItem T="string" Value="@project.Id">@project.Name</MudSelectItem>
+                    }
+                </MudSelect>
             }
             else if (_target == SecurityTarget.Plugin)
             {
@@ -112,6 +123,10 @@
     private bool _opUse = true;
     private bool _opRun = true;
     private List<string> _actionCodes = [];
+
+    /// <summary>Проекты правила действия (T-423-S0); пусто — текущий проект задачи.</summary>
+    private IReadOnlyCollection<string> _projects = [];
+    private List<Project> _allProjects = [];
 
     /// <summary>Образцы для правила плагина (T-165-S0): код плагина и «код:операция».
     /// Список ЭТОГО сервера — плагины ставятся на конкретный компьютер.</summary>
@@ -171,6 +186,7 @@
             _opDelete = Source.OpDelete;
             _opUse = Source.OpUse;
             _opRun = Source.OpRun;
+            _projects = Source.Projects.ToList();
         }
         try
         {
@@ -179,6 +195,14 @@
         catch (ApiException)
         {
             _actionCodes = [];
+        }
+        try
+        {
+            _allProjects = (await Api.GetProjectsAsync()).OrderBy(p => p.Name).ToList();
+        }
+        catch (ApiException)
+        {
+            _allProjects = [];
         }
         if (_target == SecurityTarget.Plugin)
         {
@@ -253,5 +277,6 @@
         OpDelete = _target == SecurityTarget.Directory && _opDelete,
         OpUse = _target == SecurityTarget.Plugin && _opUse,
         OpRun = _target == SecurityTarget.Plugin && _opRun,
+        Projects = _target == SecurityTarget.Action ? _projects.ToList() : [],
     }));
 }

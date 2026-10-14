@@ -12,6 +12,7 @@
 * [Настройка](man/config.md)   
 * [HTTPS](man/https.md)   
 * [Исполнители](man/performers.md)    
+* [Установка ПО CLI-агентов](man/cli_install.md)   
 * [Команды](man/teams.md) 
 * [Расписание](man/schedule.md) 
 * [Несколько серверов](man/servers.md)      

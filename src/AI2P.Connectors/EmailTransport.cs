@@ -125,6 +125,19 @@ public sealed class EmailTransport : INotificationTransport
             };
             mail.Attachments.Add(attachment);
         }
+        else if (message.Channel == NotificationChannels.MailEvent && message.Due is not null)
+        {
+            // вид «почта событие» (T-422-S0): VEVENT с напоминанием — его ставят в календарь
+            // в одно касание и почта телефона, и Gmail, и Outlook
+            var method = message.Cancelled ? "CANCEL" : "PUBLISH";
+            var ics = Encoding.UTF8.GetBytes(IcsCalendar.BuildEvent(message));
+            var attachment = new Attachment(new MemoryStream(ics),
+                new ContentType($"text/calendar; method={method}; charset=utf-8"))
+            {
+                Name = "event.ics",
+            };
+            mail.Attachments.Add(attachment);
+        }
         await client.SendMailAsync(mail, ct);
     }
 

@@ -83,6 +83,14 @@
                         <MudSelectItem T="string" Value="@model.Id">@model.Name</MudSelectItem>
                     }
                 </MudSelect>
+                @* агент по подписке CLI привязан к серверу, как локальный (T-327): ПО и вход —
+                   на каждом компьютере свои; новую запись привязывают к этому серверу *@
+                @if (SelectedModel is { IsCli: true })
+                {
+                    <MudText Typo="Typo.body2" data-executor-server="1">
+                        @L["servers.one"]: @(ServerText.Length > 0 ? ServerText : L["executors.server.here"])
+                    </MudText>
+                }
                 @* СУФЛЁР (T-286-S0; с T-292-S0 это ИСПОЛНИТЕЛЬ, а не модель). Поле
                    спрашивается не у всех: только у МЕДИЙНОЙ модели, которая сама сказала,
                    что ей нужен управляющий json (prompter.required в профайле). В суфлёры
@@ -253,7 +261,7 @@
     /// </summary>
     private IEnumerable<AiModel> ModelChoices =>
         State.Models.Where(m => (m.IsActive || m.Id == _executor.ModelId)
-                                && (State.IsConductor || m.IsLocal || EditsAi));
+                                && (State.IsConductor || m.IsLocal || m.IsCli || EditsAi));
 
     /// <summary>
     /// Правится УЖЕ ЗАВЕДЁННЫЙ ИИ-исполнитель (T-377-S0). С T-374-S0 модель такому исполнителю
@@ -422,12 +430,13 @@
         _executor.Kind == ExecutorKind.Ai && string.IsNullOrEmpty(_executor.ModelId);
 
     /// <summary>Такого исполнителя здесь не завести (T-177-S0): не на дирижёре местным
-    /// считается «авто ПО» и ИИ с ЛОКАЛЬНОЙ моделью, остальное — записи всей организации.</summary>
+    /// считается «авто ПО» и ИИ с ЛОКАЛЬНОЙ моделью или по подписке CLI (T-327), остальное —
+    /// записи всей организации.</summary>
     private bool KindNotAllowedHere =>
         !State.IsConductor
         && (_executor.Kind == ExecutorKind.Human
             || (_executor.Kind == ExecutorKind.Ai && !EditsAi
-                && State.Models.FirstOrDefault(m => m.Id == _executor.ModelId) is not { IsLocal: true }));
+                && State.Models.FirstOrDefault(m => m.Id == _executor.ModelId) is not ({ IsLocal: true } or { IsCli: true })));
 
     private bool SaveDisabled =>
         _executor.Nick.Trim().Length == 0 || NickTaken || InternalNameTaken ||

@@ -415,8 +415,14 @@ public sealed class AiModelAndExecutorTests : IDisposable
         // + 1 запись Opus 5.5 по CLI (T-370-S0, живой запуск 24.09.2026 на Claude Code
         //   2.1.281: Claude-Opus-5.5_cli — в 1.144 её не было, прежний CLI 2.1.278 модель
         //   не знал)
+        // + 6 записей CLI других вендоров (T-426-S0, сверка 06.10.2026: Codex CLI,
+        //   Antigravity CLI, Qwen Code, Grok Build, Kimi Code, Mistral Vibe)
+        // + 9 записей актуализации справочника по рынку (T-466-S0, сверка 13.10.2026:
+        //   Claude-Sonnet-5.5, Claude-Haiku-5.5, GPT-6.1-Sol, Mistral-Large-4, Muse-Wonder —
+        //   текст; Nano-Banana-2.1, Kandinsky-6.0-Pro, FLUX-3, Ideogram-4.5 — медиа через
+        //   шлюз fal.ai)
         // — точный состав проверяет T214Tests
-        Assert.Equal(92, models.Count);
+        Assert.Equal(107, models.Count);
         Assert.All(models, m => Assert.False(m.IsCustom));           // из дистрибутива
         var claude = models.Single(m => m.Name == "Claude-Fable-5");
         Assert.Equal($"models/profile_{claude.Id}.json", claude.ProfilePath);

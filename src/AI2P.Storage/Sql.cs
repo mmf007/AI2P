@@ -5,9 +5,15 @@ namespace AI2P.Storage;
 /// <summary>Короткие помощники для SQL без ORM (Microsoft.Data.Sqlite, ТЗ п. 6.1).</summary>
 public static class Sql
 {
+    /// <summary>Число команд, созданных ЭТИМ потоком (T-468-S0). Им проверки считают обращения
+    /// к базе («список читает связи пачками, а не по задаче»), а не миллисекунды, которые под
+    /// нагрузкой полного прогона врут. На поток — чтобы соседние тесты не мешали счёту.</summary>
+    [ThreadStatic] public static long CommandCount;
+
     public static SqliteCommand Cmd(SqliteConnection conn, SqliteTransaction? tx, string sql,
         params (string Name, object? Value)[] args)
     {
+        CommandCount++;
         var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = sql;

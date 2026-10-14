@@ -57,8 +57,9 @@ public sealed class ExecutorService
         executor.Kind != ExecutorKind.Human && executor.ServerId is { Length: > 0 };
 
     /// <summary>
-    /// ОБЩИЙ ИИ-исполнитель (T-374-S0): агент с облачной моделью или по подписке CLI —
-    /// сервера-владельца у него нет, запись одна на всю организацию. Смена модели такому
+    /// ОБЩИЙ ИИ-исполнитель (T-374-S0): агент с облачной моделью (с T-327 агент по подписке
+    /// CLI сюда не относится — он привязан к серверу, как локальный; общим остаётся только
+    /// CLI-исполнитель прежних версий до первой правки) — сервера-владельца у него нет, запись одна на всю организацию. Смена модели такому
     /// исполнителю (выбор другой записи справочника) нужна на каждом сервере, а не только
     /// на дирижёре: правка едет журналом изменений в обе стороны, как у местных исполнителей.
     /// Заводить новых общих исполнителей по-прежнему может только дирижёр.
@@ -686,6 +687,20 @@ public sealed class ExecutorService
             executor.InternalName = model.Name;
             executor.ProfilePath = model.Profile;
             executor.CapabilitiesPath = model.Caps;
+            if (!model.Local && IsCliProfile(model.Profile))
+            {
+                // АГЕНТ ПО ПОДПИСКЕ CLI привязан к серверу, как локальный агент (T-327): ПО
+                // CLI ставится и входит в подписку на каждом компьютере отдельно (T-431-S0),
+                // поэтому исполнитель работает там, где его завели. Прежний сервер сохраняется,
+                // без него — этот; общая запись прежних версий привязывается при первой правке
+                if (isNew && !model.Active)
+                {
+                    throw new ArgumentException(Loc.T("msg.executor.8"));
+                }
+                executor.ServerId = executor.ServerId is { Length: > 0 } current ? current
+                    : _scope.ServerId is { Length: > 0 } own ? own : null;
+                return;
+            }
             if (!model.Local)
             {
                 // облачная модель доступна отовсюду: одна на всю организацию
@@ -719,6 +734,44 @@ public sealed class ExecutorService
         else
         {
             executor.ServerId = null;
+        }
+    }
+
+    /// <summary>
+    /// Исполнитель привязан к ДРУГОМУ серверу и отсюда не запускается (T-153-S0, T-327):
+    /// «авто ПО» — всегда по своему серверу, агент по подписке CLI — если сервер у него есть
+    /// (общая CLI-запись прежних версий работает где угодно, как раньше).
+    /// </summary>
+    public bool BoundElsewhere(Executor executor)
+    {
+        if (executor.Kind == ExecutorKind.Software)
+        {
+            return !_scope.IsMine(executor.ServerId);
+        }
+        return executor.Kind == ExecutorKind.Ai && executor.ServerId is { Length: > 0 }
+            && !_scope.IsMine(executor.ServerId) && IsCliProfile(executor.ProfilePath);
+    }
+
+    /// <summary>Профайл модели описывает агента CLI (transport "cli"); файла нет или он
+    /// нечитаем — не CLI.</summary>
+    private bool IsCliProfile(string profilePath)
+    {
+        var abs = profilePath.Length > 0 ? _files.Abs(profilePath) : "";
+        if (abs.Length == 0 || !File.Exists(abs))
+        {
+            return false;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(abs));
+            return doc.RootElement.ValueKind == JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("transport", out var t)
+                && t.ValueKind == JsonValueKind.String
+                && string.Equals(t.GetString(), "cli", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is JsonException or IOException)
+        {
+            return false;
         }
     }
 

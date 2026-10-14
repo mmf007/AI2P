@@ -169,7 +169,11 @@ public sealed class T18S1Tests
                 }
                 checkedLinks++;
                 var full = Path.GetFullPath(Path.Combine(dir, clean));
-                Assert.True(full.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase),
+                // ЕДИНСТВЕННОЕ исключение — файл лицензии в корне репозитория: на него ссылается
+                // лендинг doc/<язык>/README.md (T-207-S0); всё прочее за пределы doc/ не уводит
+                var license = string.Equals(full, Path.GetFullPath(Path.Combine(root, "..", "LICENSE")),
+                    StringComparison.OrdinalIgnoreCase);
+                Assert.True(license || full.StartsWith(Path.GetFullPath(root), StringComparison.OrdinalIgnoreCase),
                     $"ссылка уводит за пределы doc/: {rel} -> {target}");
                 Assert.True(File.Exists(full), $"ссылка в никуда: {rel} -> {target}");
             }

@@ -145,8 +145,10 @@ public sealed class T216S0Tests : IDisposable
             Assert.NotNull(model);                       // запись НЕ удалена
             Assert.False(model!.IsActive, $"{name} должна быть погашена");
         }
-        // всё остальное гасить не собирались
-        Assert.All(models.Where(m => !Retired.Contains(m.Name) && !m.IsLocal),
+        // всё остальное гасить не собирались; записи, которые сеются неактивными
+        // намеренно (CLI других вендоров без коннектора, T-426-S0), — не в счёт
+        Assert.All(models.Where(m => !Retired.Contains(m.Name) && !m.IsLocal
+                                     && !AiModelService.InactiveSeedModels.Contains(m.Id)),
             m => Assert.True(m.IsActive, $"{m.Name} погашена по ошибке"));
     }
 

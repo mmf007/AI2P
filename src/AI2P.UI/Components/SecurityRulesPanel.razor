@@ -112,7 +112,21 @@ else
         {
             Snackbar.Add(ex.Message, Severity.Error);
         }
+        if (_projectNames.Count == 0 && _rules.Any(r => r.Projects.Count > 0))
+        {
+            try
+            {
+                _projectNames = (await Api.GetProjectsAsync()).ToDictionary(p => p.Id, p => p.Name);
+            }
+            catch (ApiException)
+            {
+                // имён нет — в таблице останутся id проектов
+            }
+        }
     }
+
+    /// <summary>Имена проектов для столбца правил действий (T-423-S0).</summary>
+    private Dictionary<string, string> _projectNames = new();
 
     private string OpsText(SecurityRule rule)
     {
@@ -123,6 +137,13 @@ else
             if (rule.OpUse) { pluginOps.Add(L["security.op.use"]); }
             if (rule.OpRun) { pluginOps.Add(L["security.op.run"]); }
             return string.Join(" + ", pluginOps);
+        }
+        // действие AI2P (T-423-S0): для каких проектов выдано; пусто — текущий проект
+        if (rule.Target == SecurityTarget.Action)
+        {
+            return rule.Projects.Count == 0 ? ""
+                : rule.Projects.Contains(SecurityRule.AllProjects) ? L["security.projects.all"]
+                : string.Join(", ", rule.Projects.Select(id => _projectNames.GetValueOrDefault(id, id)));
         }
         if (rule.Target != SecurityTarget.Directory)
         {

@@ -1,0 +1,213 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject IJSRuntime Js
+
+@* МОИ УВЕДОМЛЕНИЯ (T-422-S0, п. В1 плана T-412-S0) — личные настройки человека поверх
+   правил организации: какие готовые наборы включены, канал (push / письмо / оба), тихие
+   часы, личная календарная лента для телефона и подписка этого браузера на Web Push.
+   Строки настроек нет — действуют умолчания: включено только «мои вопросы и задания». *@
+<MudPaper Outlined="true" Class="pa-4 mb-4" Style="max-width: 1100px;" data-mynotify="1">
+    <MudText Typo="Typo.h6" Class="mb-1">@L["mynotify.title"]</MudText>
+    <MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75;">@L["mynotify.hint"]</MudText>
+
+    @if (_me is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else
+    {
+        <MudStack Spacing="1">
+            <MudCheckBox T="bool" @bind-Value="_me.Prefs.Inbox" Label="@L["mynotify.inbox"]" Dense="true"
+                         data-mynotify-inbox="1" />
+            <MudStack Row="true" AlignItems="AlignItems.Center">
+                <MudCheckBox T="bool" @bind-Value="_me.Prefs.Due" Label="@L["mynotify.due"]" Dense="true"
+                             data-mynotify-due="1" />
+                <MudNumericField T="int" @bind-Value="_me.Prefs.DueLeadMinutes" Min="0" Step="15"
+                                 Label="@L["mynotify.due.lead"]" Margin="Margin.Dense"
+                                 Style="max-width: 160px;" Disabled="@(!_me.Prefs.Due)" />
+            </MudStack>
+            <MudCheckBox T="bool" @bind-Value="_me.Prefs.Review" Label="@L["mynotify.review"]" Dense="true"
+                         data-mynotify-review="1" />
+        </MudStack>
+
+        <MudStack Row="true" Class="mt-3" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudSelect T="string" @bind-Value="_me.Prefs.Channel" Label="@L["mynotify.channel"]"
+                       Dense="true" Margin="Margin.Dense" Style="max-width: 220px;" data-mynotify-channel="1">
+                @foreach (var channel in NotificationPrefChannels.All)
+                {
+                    <MudSelectItem T="string" Value="@channel">@L["mynotify.channel." + channel]</MudSelectItem>
+                }
+            </MudSelect>
+            <MudTextField T="string" @bind-Value="_me.Prefs.QuietFrom" Label="@L["mynotify.quiet.from"]"
+                          Placeholder="22:00" Margin="Margin.Dense" Style="max-width: 140px;" />
+            <MudTextField T="string" @bind-Value="_me.Prefs.QuietTo" Label="@L["mynotify.quiet.to"]"
+                          Placeholder="07:00" Margin="Margin.Dense" Style="max-width: 140px;" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync"
+                       data-mynotify-save="1">@L["common.save"]</MudButton>
+        </MudStack>
+        <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity: .75;">@L["mynotify.quiet.hint"]</MudText>
+        @if (_me.Prefs.WantsMail && (!_me.MailReady || _me.Address.Length == 0))
+        {
+            <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                @(_me.MailReady ? L["mynotify.mail.noaddress"] : L["mynotify.mail.notready"])
+            </MudAlert>
+        }
+
+        <MudDivider Class="my-3" />
+        <MudText Typo="Typo.subtitle2">@L["mynotify.push.title"]</MudText>
+        <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity: .75;">@L["mynotify.push.hint"]</MudText>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.body2" data-mynotify-push-state="@_pushState">
+                @L["mynotify.push.state." + _pushState] · @L["mynotify.push.devices", _me.PushDevices]
+            </MudText>
+            <MudButton Variant="Variant.Outlined" Disabled="@(_pushState is "unsupported" or "denied")"
+                       OnClick="EnablePushAsync" data-mynotify-push-on="1">@L["mynotify.push.enable"]</MudButton>
+            <MudButton Variant="Variant.Outlined" Disabled="@(_me.PushDevices == 0)"
+                       OnClick="TestPushAsync">@L["mynotify.push.test"]</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="@(_me.PushDevices == 0)"
+                       OnClick="ForgetPushAsync" data-mynotify-push-forget="1">@L["mynotify.push.forget"]</MudButton>
+        </MudStack>
+
+        <MudDivider Class="my-3" />
+        <MudText Typo="Typo.subtitle2">@L["mynotify.ical.title"]</MudText>
+        <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity: .75;">@L["mynotify.ical.hint"]</MudText>
+        @if (_me.IcalUrl.Length > 0)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                <MudTextField T="string" Value="@_me.IcalUrl" ReadOnly="true" Margin="Margin.Dense"
+                              Style="min-width: 420px;" data-mynotify-ical="1" />
+                <MudButton Variant="Variant.Outlined" OnClick="CopyIcalAsync">@L["mynotify.ical.copy"]</MudButton>
+                <MudButton Variant="Variant.Text" OnClick="@(() => IcalAsync(false))">@L["mynotify.ical.reset"]</MudButton>
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="@(() => IcalAsync(true))">@L["mynotify.ical.off"]</MudButton>
+            </MudStack>
+            <MudCheckBox T="bool" @bind-Value="_me.Prefs.IcalTodo" Label="@L["mynotify.ical.todo"]" Dense="true" />
+        }
+        else
+        {
+            <MudButton Variant="Variant.Outlined" OnClick="@(() => IcalAsync(false))"
+                       data-mynotify-ical-on="1">@L["mynotify.ical.enable"]</MudButton>
+        }
+    }
+</MudPaper>
+
+@code {
+    private MyNotificationsDto? _me;
+    private string _pushState = "none";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _me = await Api.GetMyNotificationsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _pushState = await Js.InvokeAsync<string>("ai2pPush.state");
+                StateHasChanged();
+            }
+            catch (JSException)
+            {
+                _pushState = "unsupported";
+            }
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_me is null)
+        {
+            return;
+        }
+        await Run(() => Api.SaveMyNotificationsAsync(_me.Prefs), L["mynotify.saved"]);
+    }
+
+    private async Task IcalAsync(bool off)
+    {
+        await Run(() => Api.ResetMyIcalAsync(off), null);
+    }
+
+    private async Task CopyIcalAsync()
+    {
+        if (_me is { IcalUrl.Length: > 0 } && await Js.InvokeAsync<bool>("ai2pPush.copy", _me.IcalUrl))
+        {
+            Snackbar.Add(L["mynotify.ical.copied"], Severity.Success);
+        }
+    }
+
+    private async Task EnablePushAsync()
+    {
+        if (_me is null)
+        {
+            return;
+        }
+        try
+        {
+            var sub = await Js.InvokeAsync<System.Text.Json.JsonElement>("ai2pPush.subscribe", _me.PushPublicKey);
+            if (sub.TryGetProperty("error", out var error))
+            {
+                _pushState = error.GetString() == "denied" ? "denied" : _pushState;
+                Snackbar.Add(L["mynotify.push.refused", error.GetString() ?? ""], Severity.Warning);
+                return;
+            }
+            var dto = new PushSubscribeDto
+            {
+                Endpoint = sub.GetProperty("endpoint").GetString() ?? "",
+                P256dh = sub.GetProperty("p256dh").GetString() ?? "",
+                Auth = sub.GetProperty("auth").GetString() ?? "",
+                UserAgent = sub.GetProperty("userAgent").GetString() ?? "",
+            };
+            await Run(() => Api.SubscribePushAsync(dto), L["mynotify.push.done"]);
+            _pushState = "subscribed";
+        }
+        catch (JSException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private async Task TestPushAsync()
+    {
+        await Run(Api.TestPushAsync, L["mynotify.push.tested"]);
+    }
+
+    private async Task ForgetPushAsync()
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("ai2pPush.unsubscribe");
+        }
+        catch (JSException)
+        {
+            // браузер без push: на сервере подписки всё равно снимаются
+        }
+        await Run(Api.ForgetPushDevicesAsync, null);
+        _pushState = "none";
+    }
+
+    private async Task Run(Func<Task<MyNotificationsDto>> call, string? done)
+    {
+        try
+        {
+            _me = await call();
+            if (done is not null)
+            {
+                Snackbar.Add(done, Severity.Success);
+            }
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

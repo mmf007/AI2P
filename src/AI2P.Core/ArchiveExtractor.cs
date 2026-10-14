@@ -164,6 +164,7 @@ public static class ArchiveExtractor
     {
         var root = Path.GetFullPath(targetDir);
         using var reader = new TarReader(stream);
+        var links = new List<(TarEntryType Type, string Full, string Target)>();
         while (reader.GetNextEntry() is { } entry)
         {
             var name = CleanName(entry.Name);
@@ -182,13 +183,56 @@ public static class ArchiveExtractor
                 Directory.CreateDirectory(full);
                 continue;
             }
+            if (entry.EntryType is TarEntryType.SymbolicLink or TarEntryType.HardLink)
+            {
+                links.Add((entry.EntryType, full, CleanName(entry.LinkName)));
+                continue;
+            }
             if (entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile
                 or TarEntryType.ContiguousFile))
             {
-                continue;   // ссылки, устройства и служебные записи нам не нужны
+                continue;   // устройства и служебные записи нам не нужны
             }
             Directory.CreateDirectory(Path.GetDirectoryName(full)!);
             entry.ExtractToFile(full, overwrite: true);
+        }
+        // ССЫЛКИ — после файлов (T-325): в архиве Node.js для Linux и macOS bin/npm и bin/npx —
+        // символьные ссылки на lib/node_modules/npm/bin/*.js; без них «свой» Node.js есть,
+        // а npm у него нет, и установка CLI-агента отвечает «нужен Node.js (npm)».
+        foreach (var (type, full, target) in links)
+        {
+            try
+            {
+                var resolved = Path.GetFullPath(type == TarEntryType.HardLink
+                    ? Path.Combine(root, target.Replace('/', Path.DirectorySeparatorChar))
+                    : Path.Combine(Path.GetDirectoryName(full)!, target.Replace('/', Path.DirectorySeparatorChar)));
+                if (target.Length == 0
+                    || !resolved.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                {
+                    continue;   // ссылка метит за каталог назначения
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                if (File.Exists(full) || Directory.Exists(full))
+                {
+                    File.Delete(full);
+                }
+                if (type == TarEntryType.HardLink || OperatingSystem.IsWindows())
+                {
+                    // жёсткая ссылка — копия; на Windows символьная ссылка требует прав, копируем
+                    if (File.Exists(resolved))
+                    {
+                        File.Copy(resolved, full, overwrite: true);
+                    }
+                }
+                else
+                {
+                    File.CreateSymbolicLink(full, target);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // одна несозданная ссылка не повод бросать распаковку целиком
+            }
         }
     }
 

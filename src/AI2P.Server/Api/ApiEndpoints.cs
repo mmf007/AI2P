@@ -1582,15 +1582,32 @@ public static class ApiEndpoints
         api.MapGet("/models/installs", () => ModelInstalls().StatusAll());
         api.MapGet("/models/{id}/install", (string id) =>
             Handle(() => Results.Ok(ModelInstalls().Status(id))));
+        // ПО CLI-агента ставится в систему компьютера (T-431-S0) — это дело администратора
+        // ЭТОГО сервера, как и вся настройка локальной модели
+        void EnsureCliInstallAllowed(string id)
+        {
+            if (!current.IsServerAdmin && ModelInstalls().Status(id).Cli)
+            {
+                throw new ArgumentException(Loc.T("msg.apiEndpoints.13"));
+            }
+        }
         api.MapPost("/models/{id}/install/start", (string id) =>
-            Handle(() => Results.Ok(ModelInstalls().Start(id))));
+            Handle(() =>
+            {
+                EnsureCliInstallAllowed(id);
+                return Results.Ok(ModelInstalls().Start(id));
+            }));
         api.MapPost("/models/{id}/install/cancel", (string id) =>
             Handle(() => Results.Ok(ModelInstalls().Cancel(id))));
         // ДОПОЛНИТЕЛЬНЫЕ ОПЦИИ УСТАНОВКИ (T-190-S0): флажок «Обучение LoRA» в окне установки.
         // Выбор пер-серверный (в кластере адаптеры обучают на одной машине) и лежит в
         // config.json этого компьютера, поэтому и правится он здесь, а не в базе организации
         api.MapPost("/models/{id}/install/option", (string id, string code, bool on) =>
-            Handle(() => Results.Ok(ModelInstalls().SetOption(id, code, on))));
+            Handle(() =>
+            {
+                EnsureCliInstallAllowed(id);
+                return Results.Ok(ModelInstalls().SetOption(id, code, on));
+            }));
         // размеры дистрибутивов пакетов (ТЗ v1.43, todo36_6): запрос к серверам раздачи,
         // результат кэшируется — окно установки показывает размер пакета и ход загрузки
         api.MapPost("/models/{id}/install/resolve", async (string id) =>
@@ -2186,6 +2203,77 @@ public static class ApiEndpoints
                 Runner().DismissOverdue(id);
                 return Results.NoContent();
             }));
+
+        // --- МОИ УВЕДОМЛЕНИЯ (T-422-S0): личные настройки, календарная лента, Web Push ---
+        MyNotificationsDto MyNotifications()
+        {
+            var me = current.Executor ?? throw new InvalidOperationException(Loc.T("msg.apiEndpoints.1"));
+            var prefs = Ctx().NotificationPrefs.Get(me.Id);
+            return new MyNotificationsDto
+            {
+                Prefs = prefs,
+                IcalUrl = prefs.IcalToken.Length > 0
+                    ? $"{Ctx().PublicBaseUrl}/notify/ical/{prefs.IcalToken}.ics"
+                    : "",
+                PushPublicKey = Ctx().WebPush.PublicKey,
+                PushDevices = Ctx().NotificationPrefs.Subscriptions(me.Id).Count,
+                MailReady = Ctx().Notifications.TransportFor(NotificationChannels.Mail)?.Ready ?? false,
+                Address = Executors().NotifyAddressOf(me),
+            };
+        }
+        api.MapGet("/notify/me", () => Handle(() => Results.Ok(MyNotifications())));
+        api.MapPut("/notify/me", (NotificationPrefs dto) => Handle(() =>
+        {
+            dto.ExecutorId = Actor();
+            Ctx().NotificationPrefs.Save(dto);
+            return Results.Ok(MyNotifications());
+        }));
+        // новый секрет ленты (прежняя ссылка перестаёт работать); off=true — ленту выключить
+        api.MapPost("/notify/me/ical", (bool? off) => Handle(() =>
+        {
+            Ctx().NotificationPrefs.ResetIcalToken(Actor(), off == true);
+            return Results.Ok(MyNotifications());
+        }));
+        api.MapPost("/notify/me/push", (PushSubscribeDto dto) => Handle(() =>
+        {
+            Ctx().NotificationPrefs.Subscribe(new PushSubscription
+            {
+                ExecutorId = Actor(),
+                Endpoint = dto.Endpoint,
+                P256dh = dto.P256dh,
+                Auth = dto.Auth,
+                UserAgent = dto.UserAgent.Length > 200 ? dto.UserAgent[..200] : dto.UserAgent,
+            });
+            return Results.Ok(MyNotifications());
+        }));
+        // «забыть мои устройства»: у служебного состояния должна быть кнопка, которая его убирает
+        api.MapDelete("/notify/me/push", () => Handle(() =>
+        {
+            Ctx().NotificationPrefs.UnsubscribeAll(Actor());
+            return Results.Ok(MyNotifications());
+        }));
+        api.MapPost("/notify/me/push/test", async () =>
+        {
+            try
+            {
+                var me = current.Executor
+                         ?? throw new InvalidOperationException(Loc.T("msg.apiEndpoints.1"));
+                await Ctx().WebPush.SendAsync(new AI2P.Connectors.NotificationMessage
+                {
+                    Channel = NotificationChannels.WebPush,
+                    ExecutorId = me.Id,
+                    ExecutorNick = me.Nick,
+                    Subject = Loc.T("msg.notify.13"),
+                    Body = Loc.T("msg.notify.20", Ctx().Org.Name),
+                    TaskLink = Ctx().PublicBaseUrl + "/",
+                });
+                return Results.Ok(MyNotifications());
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: StatusCodes.Status400BadRequest);
+            }
+        });
 
         // --- УВЕДОМЛЕНИЯ ПОЛЬЗОВАТЕЛЯ (T-272) ---
         // Список свой у каждой организации; правило правится на своём сервере (ТЗ гл. 6),

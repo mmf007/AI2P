@@ -1583,3 +1583,83 @@ window.ai2p = (function () {
         loraFitImage: loraFitImage,
     };
 })();
+
+// WEB PUSH (T-422-S0): подписка этого браузера на уведомления AI2P. Service worker лежит
+// рядом (ai2p-sw.js) и нужен только для показа уведомления и перехода по касанию.
+// На iOS push работает лишь у сайта, добавленного «На экран Домой» (iOS 16.4+).
+window.ai2pPush = (function () {
+    function swUrl() { return '_content/AI2P.UI/ai2p-sw.js'; }
+
+    function supported() {
+        return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+    }
+
+    function keyBytes(base64url) {
+        const pad = '='.repeat((4 - base64url.length % 4) % 4);
+        const raw = atob((base64url + pad).replace(/-/g, '+').replace(/_/g, '/'));
+        const out = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) { out[i] = raw.charCodeAt(i); }
+        return out;
+    }
+
+    function b64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let s = '';
+        for (let i = 0; i < bytes.length; i++) { s += String.fromCharCode(bytes[i]); }
+        return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    async function registration() {
+        return await navigator.serviceWorker.register(swUrl());
+    }
+
+    // состояние: unsupported | denied | subscribed | none
+    async function state() {
+        if (!supported()) { return 'unsupported'; }
+        if (Notification.permission === 'denied') { return 'denied'; }
+        const reg = await navigator.serviceWorker.getRegistration(swUrl());
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        return sub ? 'subscribed' : 'none';
+    }
+
+    // подписка под ключ VAPID сервера; ответ — то, что надо отдать серверу, либо { error }
+    async function subscribe(publicKey) {
+        if (!supported()) { return { error: 'unsupported' }; }
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') { return { error: permission }; }
+        const reg = await registration();
+        await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (sub) {
+            // подписка под ДРУГОЙ ключ (сервер сменил ключ VAPID) не годится — переподписаться
+            const current = sub.options && sub.options.applicationServerKey
+                ? b64(sub.options.applicationServerKey) : publicKey;
+            if (current !== publicKey) { await sub.unsubscribe(); sub = null; }
+        }
+        if (!sub) {
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: keyBytes(publicKey)
+            });
+        }
+        return {
+            endpoint: sub.endpoint,
+            p256dh: b64(sub.getKey('p256dh')),
+            auth: b64(sub.getKey('auth')),
+            userAgent: navigator.userAgent || ''
+        };
+    }
+
+    async function unsubscribe() {
+        if (!supported()) { return; }
+        const reg = await navigator.serviceWorker.getRegistration(swUrl());
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        if (sub) { await sub.unsubscribe(); }
+    }
+
+    async function copy(text) {
+        try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; }
+    }
+
+    return { supported: supported, state: state, subscribe: subscribe, unsubscribe: unsubscribe, copy: copy };
+})();

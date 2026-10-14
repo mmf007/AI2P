@@ -32,9 +32,22 @@
                         <MudCheckBox T="bool" Value="@option.Enabled" Dense="true"
                                      Disabled="@(_status.Running || _busy)"
                                      ValueChanged="@(on => ToggleOptionAsync(option.Id, on))"
-                                     Label="@($"{L["install.option." + option.Id]} ({L["install.option.packages"]}: {option.Packages})")" />
+                                     Label="@(option.Packages > 0 ? $"{L["install.option." + option.Id]} ({L["install.option.packages"]}: {option.Packages})" : L["install.option." + option.Id])" />
                     }
-                    <MudText Typo="Typo.caption">@L["install.options.hint"]</MudText>
+                    @if (!_status.Cli)
+                    {
+                        <MudText Typo="Typo.caption">@L["install.options.hint"]</MudText>
+                    }
+                }
+                @* ПО CLI-агента (T-431-S0): для пользователя или общая установка; общей нужны
+                   права администратора — человек должен знать это ДО нажатия кнопки *@
+                @if (_status.Cli)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" data-install-cli>
+                        @L["install.cli.hint"]
+                        <br />
+                        <b>@L[_status.Elevated ? "install.cli.elevated" : "install.cli.notElevated"]</b>
+                    </MudAlert>
                 }
 
                 <MudProgressLinear Color="@(_status.Installed ? Color.Success : Color.Primary)"

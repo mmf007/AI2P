@@ -30,18 +30,55 @@ public sealed class SecurityEvaluator
 
     /// <param name="rules">Эффективный набор (SecurityRuleService.EffectiveForTask).</param>
     /// <param name="projectRoot">Абсолютный путь папки проекта; null — папка не задана.</param>
-    public SecurityEvaluator(IReadOnlyList<SecurityRule> rules, string? projectRoot)
+    /// <param name="currentProjectId">Проект задачи (T-423-S0): действия над задачами других
+    /// проектов по умолчанию запрещены; null — задача вне проекта, «свой» — только null.</param>
+    public SecurityEvaluator(IReadOnlyList<SecurityRule> rules, string? projectRoot,
+        string? currentProjectId = null)
     {
         _rules = rules;
+        _currentProjectId = currentProjectId;
         // «~» в пути раскрывается везде, где путь приходит от человека (T-135)
         _projectRoot = projectRoot is null ? null : Path.GetFullPath(AI2P.Core.PathHome.Expand(projectRoot));
     }
 
-    /// <summary>Решение для действия AI2P по его коду (AI2P.Files.Write, …).</summary>
+    /// <summary>Решение для действия AI2P по его коду (AI2P.Files.Write, …) в ТЕКУЩЕМ
+    /// проекте задачи: правило без списка проектов, со «всеми проектами» либо с текущим
+    /// проектом в списке (T-423-S0).</summary>
     public (SecurityDecision Decision, SecurityRule? Rule) ForAction(string actionCode) =>
         Strictest(_rules.Where(r =>
-                r.Target == SecurityTarget.Action && PatternMatches(r.Pattern, actionCode)),
+                r.Target == SecurityTarget.Action
+                && (r.Projects.Count == 0 || CoversProject(r, _currentProjectId))
+                && PatternMatches(r.Pattern, actionCode)),
             SecurityDecision.Allow);
+
+    private static bool CoversProject(SecurityRule rule, string? projectId) =>
+        rule.Projects.Any(p => p == SecurityRule.AllProjects
+                               || (projectId is not null
+                                   && string.Equals(p, projectId, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// РЕШЕНИЕ ДЛЯ ДЕЙСТВИЯ НАД ЗАДАЧЕЙ ДРУГОГО ПРОЕКТА (T-423-S0). Умолчания разные: в своём
+    /// проекте без правил разрешено (<see cref="ForAction"/>), в чужом — ЗАПРЕЩЕНО, и открыть
+    /// его может только правило, в списке проектов которого этот проект либо «все проекты».
+    /// Правила без списка (про текущий проект) здесь не участвуют: запрет действия в своём
+    /// проекте не должен молча открывать или закрывать чужие.
+    /// </summary>
+    /// <param name="projectId">Проект задачи, к которой обращаются; null или текущий —
+    /// решение как у <see cref="ForAction"/>.</param>
+    public (SecurityDecision Decision, SecurityRule? Rule) ForAction(string actionCode, string? projectId)
+    {
+        if (projectId is null || string.Equals(projectId, _currentProjectId, StringComparison.OrdinalIgnoreCase))
+        {
+            return ForAction(actionCode);
+        }
+        return Strictest(_rules.Where(r =>
+                r.Target == SecurityTarget.Action
+                && CoversProject(r, projectId)
+                && PatternMatches(r.Pattern, actionCode)),
+            SecurityDecision.Deny);
+    }
+
+    private readonly string? _currentProjectId;
 
     /// <summary>Решение для доступа к пути (op: read / write / delete).
     /// По умолчанию: внутри папки проекта — разрешено, вне — запрещено (todo25).</summary>

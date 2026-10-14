@@ -947,6 +947,7 @@ public sealed class ServerService
             PayloadJson = JsonSerializer.Serialize(new { orgId, serverId, link.Code }),
         });
         tx.Commit();
+        DropCache(); // ответ IsLocalConductor живёт секунду — смена здесь обязана его сбросить
     }
 
     /// <summary>

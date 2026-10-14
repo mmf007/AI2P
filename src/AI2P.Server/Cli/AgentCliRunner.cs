@@ -109,6 +109,17 @@ public static class AgentCliRunner
         var rest = args.ToList();
         var asJson = Take(rest, "--json");
         var readStdin = Take(rest, "--stdin");
+        // вывод в файл ключом, а не перенаправлением оболочки (T-458-S0): «> файл» и
+        // «| Out-File» слой разрешений Claude Code отправляет на подтверждение
+        string? outFile;
+        try
+        {
+            outFile = TakeValue(rest, "--out");
+        }
+        catch (ArgumentException ex)
+        {
+            return Fail(ex.Message);
+        }
         var command = rest.Count > 0 ? rest[0] : "help";
         if (rest.Count > 0)
         {
@@ -191,7 +202,30 @@ public static class AgentCliRunner
             using var content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json");
             using var response = await http.PostAsync(url + "/api/agent/call", content);
             var body = await response.Content.ReadAsStringAsync();
-            return Print(body, response.IsSuccessStatusCode, (int)response.StatusCode, asJson);
+            if (outFile is null)
+            {
+                return Print(body, response.IsSuccessStatusCode, (int)response.StatusCode, asJson);
+            }
+            var output = new StringWriter();
+            var saved = Console.Out;
+            Console.SetOut(output);
+            int code;
+            try
+            {
+                code = Print(body, response.IsSuccessStatusCode, (int)response.StatusCode, asJson);
+            }
+            finally
+            {
+                Console.SetOut(saved);
+            }
+            var dir = Path.GetDirectoryName(Path.GetFullPath(outFile));
+            if (dir is { Length: > 0 })
+            {
+                Directory.CreateDirectory(dir);
+            }
+            File.WriteAllText(outFile, output.ToString(), new UTF8Encoding(false));
+            Console.WriteLine(Loc.T("msg.agentCli.54", outFile));
+            return code;
         }
         catch (Exception ex)
         {
@@ -288,6 +322,23 @@ public static class AgentCliRunner
         }
         args.RemoveAt(index);
         return true;
+    }
+
+    /// <summary>Ключ со значением («--out файл»): значение забирается из списка вместе с ключом.</summary>
+    private static string? TakeValue(List<string> args, string flag)
+    {
+        var index = args.FindIndex(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return null;
+        }
+        if (index + 1 >= args.Count || args[index + 1].StartsWith("--", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(Loc.T("msg.agentCli.13", flag[2..]));
+        }
+        var value = args[index + 1];
+        args.RemoveRange(index, 2);
+        return value;
     }
 
     /// <summary>

@@ -90,9 +90,12 @@ public sealed class T4S0Tests : IDisposable
 
         // объявлены они в настройке LoRA — там всё про адаптеры (T-13-S1)…
         Assert.Equal(["comfyui"], manifest.Packages);
-        Assert.Equal(["musubi-tuner", "python"], manifest.TrainPackages);
+        // исходные кодировщики тренера с T-185-S0 тоже пакеты (Qwen2.5-VL-7B и CLIP ViT-L/14)
+        Assert.Equal(["musubi-tuner", "python", "qwen2.5-vl-7b", "clip-vit-large-patch14"],
+            manifest.TrainPackages);
         // …а ставятся установкой модели, одним списком и без повторов
-        Assert.Equal(["comfyui", "musubi-tuner", "python"], manifest.AllPackages);
+        Assert.Equal(["comfyui", "musubi-tuner", "python", "qwen2.5-vl-7b", "clip-vit-large-patch14"],
+            manifest.AllPackages);
     }
 
     [Fact]

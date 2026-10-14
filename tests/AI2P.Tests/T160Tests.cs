@@ -252,15 +252,19 @@ public sealed class T160Tests : IDisposable
         var result = ChangeLog.Apply(_b, batch);
 
         Assert.Equal(2, Count(_b, "tasks"));
-        Assert.Equal(2, result.Applied);
-        Assert.Single(result.Failed);
+        // реплика сообщения чата без своей задачи с T-169-S0 не теряется, а принимается
+        // вторым проходом с висячей ссылкой (ChangeLog.ApplyDangling) — три строки из трёх
+        Assert.Equal(3, result.Applied);
+        Assert.Empty(result.Failed);
+        Assert.Equal("chat_messages", Assert.Single(result.Adopted).Change.Table);
     }
 
     /// <summary>
     /// РОДИТЕЛЬ ПРИЕХАЛ СЛЕДУЮЩЕЙ ПАЧКОЙ. Именно этот случай и останавливал репликацию
     /// намертво: ребёнок в одной пачке, родитель в другой — сеанс падал, курсор стоял,
-    /// и всё, что шло после (чат, задания, файлы), не приезжало никогда. Теперь строка
-    /// ждёт в очереди повтора и применяется, как только приедет родитель.
+    /// и всё, что шло после (чат, задания, файлы), не приезжало никогда. С T-169-S0
+    /// ребёнок принимается сразу с висячей ссылкой (ChangeLog.ApplyDangling), очередь
+    /// повтора ему не нужна, а связь восстанавливается сама, когда приедет родитель.
     /// </summary>
     [Fact]
     public void Child_In_An_Earlier_Batch_Waits_For_Its_Parent_And_Applies()
@@ -270,9 +274,10 @@ public sealed class T160Tests : IDisposable
         var first = ChangeLog.Apply(_b, [Row(1, "tasks", "child", TaskJson("child", "Подзадача", "parent"))]);
         queue.Save("org", NodeA, ReplScopes.Org, first.Failed);
 
-        Assert.Equal(0, Count(_b, "tasks"));
-        Assert.Equal(1, queue.Count("org", NodeA));
-        Assert.Contains("FOREIGN KEY", queue.Last("org", NodeA), StringComparison.Ordinal);
+        Assert.Equal(1, Count(_b, "tasks"));
+        Assert.Empty(first.Failed);
+        Assert.Contains("FOREIGN KEY", Assert.Single(first.Adopted).Reason, StringComparison.Ordinal);
+        Assert.Equal(0, queue.Count("org", NodeA));
 
         // следующая пачка привозит родителя — и очередь разбирается
         ChangeLog.Apply(_b, [Row(2, "tasks", "parent", TaskJson("parent", "Родитель"))]);
@@ -280,7 +285,7 @@ public sealed class T160Tests : IDisposable
         var retry = ChangeLog.Apply(_b, pending);
         queue.Remove("org", NodeA, ReplScopes.Org, pending.Where(p => retry.Failed.All(f => f.Change.Pk != p.Pk)));
 
-        Assert.Equal(1, retry.Applied);
+        Assert.Equal(0, retry.Applied);
         Assert.Equal(2, Count(_b, "tasks"));
         Assert.Equal(0, queue.Count("org", NodeA));
         Assert.Equal("", queue.Last("org", NodeA));

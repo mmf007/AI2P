@@ -70,17 +70,87 @@ public static class AgentCli
     /// </summary>
     public static IReadOnlyList<string> AllowedToolPatterns(string wrapperPath)
     {
-        var names = new List<string>
+        // Bash на Windows — это Git Bash (T-458-S0): обратные слэши без кавычек он съедает,
+        // поэтому агент пишет путь прямыми слэшами (C:/ai/…) или в POSIX-виде (/c/ai/…),
+        // и ни одна из этих форм прежними шаблонами не покрывалась — вызов уходил
+        // на «нужно подтверждение», а подтвердить в задании некому
+        var names = new List<string>();
+        foreach (var path in BashPaths(wrapperPath))
         {
-            wrapperPath,
-            $"\"{wrapperPath}\"",
-            Path.GetFileNameWithoutExtension(wrapperPath),
-            Path.GetFileName(wrapperPath),
-        };
-        return names
+            names.Add(path);
+            names.Add($"\"{path}\"");
+            if (path.Contains('/'))
+            {
+                names.Add($"'{path}'");
+            }
+        }
+        names.Add(Path.GetFileNameWithoutExtension(wrapperPath));
+        names.Add(Path.GetFileName(wrapperPath));
+        return Patterns("Bash", names);
+    }
+
+    /// <summary>
+    /// То же для ВСЕХ оболочек агента (T-423-S0): на Windows у Claude Code два инструмента
+    /// команд — Bash и PowerShell, и разрешение одного на другой не действует. Агент, позвавший
+    /// клиент из PowerShell, упирался в отказ при открытом Bash. На прочих системах — только Bash.
+    /// </summary>
+    public static IReadOnlyList<string> AllowedToolPatternsAllShells(string wrapperPath)
+    {
+        var bash = AllowedToolPatterns(wrapperPath);
+        if (!OperatingSystem.IsWindows())
+        {
+            return bash;
+        }
+        return bash.Concat(PowerShellPatterns(wrapperPath)).ToList();
+    }
+
+    /// <summary>
+    /// Шаблоны PowerShell (T-458-S0): путь как есть и прямыми слэшами, в кавычках и без,
+    /// плюс вызов оператором «&amp;» — путь в кавычках PowerShell без него не запускает.
+    /// POSIX-вида «/c/…» здесь нет: PowerShell его не понимает.
+    /// </summary>
+    public static IReadOnlyList<string> PowerShellPatterns(string wrapperPath)
+    {
+        var names = new List<string>();
+        foreach (var path in new[] { wrapperPath, wrapperPath.Replace('\\', '/') })
+        {
+            foreach (var form in new[] { path, $"\"{path}\"", $"'{path}'" })
+            {
+                names.Add(form);
+                names.Add("& " + form);
+            }
+        }
+        names.Add(Path.GetFileNameWithoutExtension(wrapperPath));
+        names.Add(Path.GetFileName(wrapperPath));
+        return Patterns("PowerShell", names);
+    }
+
+    /// <summary>
+    /// Путь клиента прямыми слэшами — так его надо писать в Git Bash на Windows (T-458-S0).
+    /// </summary>
+    public static string BashCommandLine(string wrapperPath)
+    {
+        var path = wrapperPath.Replace('\\', '/');
+        return path.Contains(' ') ? $"\"{path}\"" : path;
+    }
+
+    /// <summary>Пути клиента во всех видах, которые понимает Bash: как есть, прямыми
+    /// слэшами и (для пути с буквой диска) POSIX-вид Git Bash «/c/…».</summary>
+    private static IEnumerable<string> BashPaths(string wrapperPath)
+    {
+        yield return wrapperPath;
+        var slashes = wrapperPath.Replace('\\', '/');
+        yield return slashes;
+        if (slashes.Length > 2 && char.IsLetter(slashes[0]) && slashes[1] == ':')
+        {
+            yield return "/" + char.ToLowerInvariant(slashes[0]) + slashes[2..];
+        }
+    }
+
+    private static IReadOnlyList<string> Patterns(string tool, IEnumerable<string> names) =>
+        names
             .Where(n => n.Trim().Length > 0)
             .Distinct(StringComparer.Ordinal)
-            .Select(n => $"Bash({n}:*)")
+            .Select(n => $"{tool}({n}:*)")
             .ToList();
-    }
 }

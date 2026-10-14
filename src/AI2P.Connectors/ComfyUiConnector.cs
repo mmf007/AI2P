@@ -1061,7 +1061,13 @@ public sealed class ComfyUiConnector : IAgentConnector
                 }
                 if (texts.Count > 0)
                 {
-                    return string.Join("; ", texts.Where(t => t.Length > 0));
+                    var joined = string.Join("; ", texts.Where(t => t.Length > 0));
+                    // T-453-S0: Python на Windows отвечает «[Errno 22] Invalid argument» на запись
+                    // в трубу, у которой не осталось читателя, — так падает ComfyUI, переживший
+                    // запустивший его экземпляр AI2P (любой print/tqdm прогресса срывает узел)
+                    return joined.Contains("[Errno 22]", StringComparison.Ordinal)
+                        ? joined + Loc.T("msg.comfyUiConnector.51")
+                        : joined;
                 }
             }
         }

@@ -108,7 +108,7 @@ public sealed class T20S1Tests : IDisposable
     // ---------- 2. вот как выглядит жалоба заказчика ----------
 
     [Fact]
-    public void A_Link_Without_Its_Server_Row_Is_Refused_With_Foreign_Key()
+    public void A_Link_Without_Its_Server_Row_Is_Adopted_Despite_Foreign_Key()
     {
         using var registry = Registry();
         var (org, linkId) = Cluster(registry);
@@ -117,10 +117,14 @@ public sealed class T20S1Tests : IDisposable
         using var partnerRegistry = Partner(org);
         var result = ChangeLog.Apply(partnerRegistry.ServerDb, [Row(registry, "org_servers", linkId)]);
 
-        var failure = Assert.Single(result.Failed);
-        Assert.Equal("org_servers", failure.Change.Table);
-        Assert.Contains("FOREIGN KEY", failure.Reason, StringComparison.Ordinal);
-        Assert.Equal(0, result.Applied);
+        // база по-прежнему отвечает отказом по ссылке, но с T-169-S0 строка не уходит в
+        // вечную очередь повтора (те самые 1597 попыток), а принимается вторым проходом
+        // с висячей ссылкой — ChangeLog.ApplyDangling
+        Assert.Empty(result.Failed);
+        var adopted = Assert.Single(result.Adopted);
+        Assert.Equal("org_servers", adopted.Change.Table);
+        Assert.Contains("FOREIGN KEY", adopted.Reason, StringComparison.Ordinal);
+        Assert.Equal(1, result.Applied);
     }
 
     [Fact]

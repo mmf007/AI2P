@@ -37,6 +37,15 @@ public sealed class NotificationMessage
 
     /// <summary>Срок задачи (UTC) — уходит во вложение-задачу; null — срок не задан.</summary>
     public DateTime? Due { get; set; }
+
+    /// <summary>За сколько минут до срока напоминать — VALARM вложения-события (T-422-S0).</summary>
+    public int LeadMinutes { get; set; }
+
+    /// <summary>Задача отменена — вложение-событие уходит с METHOD:CANCEL (T-422-S0).</summary>
+    public bool Cancelled { get; set; }
+
+    /// <summary>Вопрос агента, о котором уведомление (T-422-S0); пусто — не вопрос.</summary>
+    public string QuestionId { get; set; } = "";
 }
 
 /// <summary>

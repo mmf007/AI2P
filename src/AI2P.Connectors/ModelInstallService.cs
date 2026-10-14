@@ -106,6 +106,17 @@ public sealed class ModelInstallManifest
 
     public List<ManifestFile> Files { get; set; } = [];
 
+    /// <summary>
+    /// Манифест CLI-АГЕНТА (T-431-S0): не из секции install профайла, а собран по команде
+    /// CLI — Node.js и пакет программы из справочника пакетов. Весов нет, команды запуска
+    /// нет, ставится ПО этого компьютера.
+    /// </summary>
+    public bool Cli { get; set; }
+
+    /// <summary>Ставить ПО CLI ОБЩЕЙ установкой (для всех пользователей компьютера):
+    /// снят флажок «только для текущего пользователя» (T-431-S0).</summary>
+    public bool Global => Cli && !OptionOn(ModelInstallOption.UserScope);
+
     public long TotalSize => Files.Sum(f => f.Size);
 
     public sealed class ManifestFile
@@ -199,6 +210,11 @@ public sealed class ModelInstallOption
     /// плагина-тренера в «Плагинах и MCP» (T-156-S0).</summary>
     public const string Lora = "lora";
 
+    /// <summary>ПО CLI-агента ставится ТОЛЬКО ДЛЯ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ — в каталог пакетов
+    /// AI2P (T-431-S0). Снятый флажок — общая установка (npm -g), ей обычно нужны права
+    /// администратора. Пакетов опция не добавляет: она меняет СПОСОБ установки.</summary>
+    public const string UserScope = "user";
+
     public string Id { get; set; } = "";
 
     /// <summary>Коды пакетов справочника, которые добавляет включённая опция.</summary>
@@ -255,6 +271,8 @@ public sealed class ModelInstallService
         public volatile string CurrentPackage = "";
         public volatile string Error = "";
         public volatile bool Finished;
+        /// <summary>Программу CLI ставить общей установкой (T-431-S0).</summary>
+        public volatile bool Global;
     }
 
     /// <param name="repoDir">Репозиторий моделей (config.storage.modelsRepo).</param>
@@ -271,6 +289,10 @@ public sealed class ModelInstallService
         _repoDir = repoDir;
         _distDir = distDir ?? (() => "");
         _packagesDir = packagesDir ?? (() => "");
+        // CLI, поставленный для пользователя, и свой Node.js (T-431-S0) лежат в каталоге
+        // пакетов, а не в PATH — запуск CLI-агента берёт эти каталоги отсюда. Каталог
+        // пакетов один на компьютер, поэтому последний заведённый установщик и отвечает
+        CliProcess.ExtraPath = CliPathDirs;
     }
 
     /// <summary>
@@ -335,7 +357,8 @@ public sealed class ModelInstallService
         }
         try
         {
-            var manifest = ModelInstallManifest.Parse(_files.ReadText(model.ProfilePath));
+            var profileJson = _files.ReadText(model.ProfilePath);
+            var manifest = ModelInstallManifest.Parse(profileJson) ?? CliManifest(profileJson);
             // выбор человека по дополнительным опциям (T-190-S0) лежит не в профайле, а
             // в config.json этого компьютера — накладываем его на разобранный манифест
             foreach (var option in OptionsOff?.Invoke(modelId) ?? [])
@@ -348,6 +371,45 @@ public sealed class ModelInstallService
         {
             return null; // повреждённый профайл — модель считается не устанавливаемой
         }
+    }
+
+    /// <summary>
+    /// МАНИФЕСТ CLI-АГЕНТА (T-431-S0): у записи с transport "cli" секции install нет, а ставить
+    /// есть что — программу CLI и то, на чём она работает (Node.js). Пакет программы ищется
+    /// в справочнике пакетов по имени команды (поле cli), за ним идут его requires.
+    /// null — профайл не CLI либо для этой команды в справочнике пакета нет.
+    /// </summary>
+    private ModelInstallManifest? CliManifest(string profileJson)
+    {
+        string command;
+        using (var doc = JsonDocument.Parse(profileJson.Trim().Length == 0 ? "{}" : profileJson))
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("transport", out var t) || t.ValueKind != JsonValueKind.String
+                || !string.Equals(t.GetString()?.Trim(), "cli", StringComparison.OrdinalIgnoreCase)
+                || !root.TryGetProperty("cliCommand", out var c) || c.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+            command = c.GetString() ?? "";
+        }
+        var executable = new AI2P.Core.Entities.AiModel { CliCommand = command }.CliExecutable;
+        var catalog = Packages();
+        if (catalog.FindCli(executable) is not { } package)
+        {
+            return null;
+        }
+        var manifest = new ModelInstallManifest { Cli = true };
+        manifest.Packages.AddRange(package.Requires);
+        manifest.Packages.Add(package.Id);
+        // выбор «для пользователя / общая» есть только там, где ставит npm: программу,
+        // которую человек ставит сам, мы только ищем
+        if (package.Npm.Length > 0)
+        {
+            manifest.Options.Add(new ModelInstallOption { Id = ModelInstallOption.UserScope });
+        }
+        return manifest;
     }
 
     /// <summary>
@@ -453,6 +515,21 @@ public sealed class ModelInstallService
         // «установлена» = все файлы весов на месте и все нужные пакеты стоят
         status.Installed = status.Files.All(f => f.State == "done")
                            && status.Packages.All(p => p.Installed);
+        if (manifest.Cli)
+        {
+            // CLI-агент (T-431-S0): ставится ПО, а не веса — каталог показывается пакетный,
+            // команды запуска нет, а окну нужно знать, хватит ли прав на общую установку
+            status.Cli = true;
+            status.Elevated = Environment.IsPrivilegedProcess;
+            status.TargetDir = PackagesRoot();
+            if (run is not null)
+            {
+                status.Running = !run.Finished;
+                status.CurrentFile = run.CurrentFile;
+                status.Error = run.Error;
+            }
+            return status;
+        }
         // команда запуска могла не сформироваться: файлы и пакеты появились не через
         // наш установщик (скачаны руками, поставлены раньше) — тогда DownloadAllAsync
         // не отрабатывал и профайл остался без launchCommand (todo37_3). Проверяем это
@@ -480,8 +557,12 @@ public sealed class ModelInstallService
         // пакет мог уже стоять на этом компьютере (Python, Blender): тогда каталог пакета
         // пуст, а показать надо то, чем мы будем пользоваться, — найденную программу
         var system = SystemFile(package);
-        var installed = (system is not null || FindInPackage(package, package.Check) is not null)
-                        && SetupDone(package);
+        var installed = IsPackageInstalled(package);
+        // программа CLI, поставленная для пользователя (T-431-S0), — её и показываем
+        if (package.Npm.Length > 0 && File.Exists(UserCliBin(package)))
+        {
+            system = null;
+        }
         // размер дистрибутивов и скачанное (ТЗ v1.43): размер известен после запроса
         // к серверу раздачи (ResolveSizesAsync), скачанное — по файлам в каталоге дистрибутивов
         var (size, downloaded) = DistProgress(package);
@@ -528,9 +609,15 @@ public sealed class ModelInstallService
                 : file.Url.Length > 0
                     ? Path.GetFileName(new Uri(file.Url).LocalPath)
                     : file.AssetPattern.Replace("{flavor}", flavor);
+            // маска ассета (llama-*-bin-…) показывается именем найденного на диске файла (T-417-S0)
+            if (FindLocalDist(distDir, name) is { } local)
+            {
+                name = local.Name;
+            }
             // у ассета релиза точной ссылки до разбора нет — источник его страница релизов
+            // (не releases/latest: у llama.cpp «последний» релиз сборок не содержит, T-417-S0)
             var url = file.Url.Length > 0 ? file.Url
-                : file.GitHubRepo.Length > 0 ? $"https://github.com/{file.GitHubRepo}/releases/latest"
+                : file.GitHubRepo.Length > 0 ? $"https://github.com/{file.GitHubRepo}/releases"
                 : "";
             list.Add(DistDto(name, url, file.Size, distDir));
         }
@@ -539,17 +626,102 @@ public sealed class ModelInstallService
 
     private static ModelPackageDistDto DistDto(string name, string url, long size, string distDir)
     {
-        var onDisk = name.Length > 0 && !name.Contains('*')
-            ? LengthOf(Path.Combine(distDir, name))
-            : 0;
+        var local = FindLocalDist(distDir, name);
+        var onDisk = local is { IsDir: false } ? local.Value.Size : 0;
         return new ModelPackageDistDto
         {
-            Name = name,
+            Name = local?.Name ?? name,
             Url = url,
             Size = size,
-            Downloaded = size > 0 ? Math.Clamp(onDisk, 0, size) : onDisk,
-            Present = onDisk > 0,
+            Downloaded = local is { IsDir: true } && size > 0 ? size
+                : size > 0 ? Math.Clamp(onDisk, 0, size) : onDisk,
+            Present = local is not null,
         };
+    }
+
+    /// <summary>
+    /// ДИСТРИБУТИВ НА ДИСКЕ (T-417-S0): файл с этим именем либо — если в имени маска ассета
+    /// релиза вида «llama-*-bin-win-cuda-12.4-x64.zip» — самый свежий подходящий под неё файл,
+    /// а если архива нет — РАСПАКОВАННЫЙ архив: непустой каталог с именем архива без
+    /// расширения (человек распаковал архив прямо в каталоге дистрибутивов). null — нет ничего.
+    /// </summary>
+    private static (string Name, long Size, bool IsDir)? FindLocalDist(string distDir, string name)
+    {
+        if (name.Length == 0 || !Directory.Exists(distDir))
+        {
+            return null;
+        }
+        try
+        {
+            var root = new DirectoryInfo(distDir);
+            if (!name.Contains('*'))
+            {
+                var file = new FileInfo(Path.Combine(distDir, name));
+                if (file.Exists && file.Length > 0)
+                {
+                    return (name, file.Length, false);
+                }
+                // каталог с самим именем (так его называет кэш после разбора) или с именем без расширения
+                foreach (var dirName in new[] { name, ArchiveStem(name) }.Distinct())
+                {
+                    var dir = new DirectoryInfo(Path.Combine(distDir, dirName));
+                    if (dir.Exists && dir.EnumerateFileSystemInfos().Any())
+                    {
+                        return (dirName, 0, true);
+                    }
+                }
+                return null;
+            }
+            var hit = root.EnumerateFiles()
+                .Where(f => f.Length > 0 && MatchesMask(f.Name, name))
+                .OrderByDescending(f => f.LastWriteTimeUtc)
+                .FirstOrDefault();
+            if (hit is not null)
+            {
+                return (hit.Name, hit.Length, false);
+            }
+            var stem = ArchiveStem(name);
+            var unpacked = stem == name ? null : root.EnumerateDirectories()
+                .Where(d => MatchesMask(d.Name, stem) && d.EnumerateFileSystemInfos().Any())
+                .OrderByDescending(d => d.LastWriteTimeUtc)
+                .FirstOrDefault();
+            if (unpacked is null)
+            {
+                return null;
+            }
+            return (unpacked.Name, 0L, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Имя архива без расширения: «a.zip» → «a», «a.tar.gz» → «a»; не архив — как есть.</summary>
+    private static string ArchiveStem(string name)
+    {
+        foreach (var ext in new[] { ".tar.gz", ".tar.xz", ".tar.bz2", ".tar.zst", ".tgz", ".zip", ".7z", ".tar" })
+        {
+            if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) && name.Length > ext.Length)
+            {
+                return name[..^ext.Length];
+            }
+        }
+        return name;
+    }
+
+    /// <summary>Скопировать распакованный дистрибутив в каталог пакета (T-417-S0).</summary>
+    private static void CopyDirectory(string source, string target)
+    {
+        Directory.CreateDirectory(target);
+        foreach (var dir in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+        {
+            Directory.CreateDirectory(Path.Combine(target, Path.GetRelativePath(source, dir)));
+        }
+        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        {
+            File.Copy(file, Path.Combine(target, Path.GetRelativePath(source, file)), overwrite: true);
+        }
     }
 
     /// <summary>
@@ -665,6 +837,20 @@ public sealed class ModelInstallService
             // сначала пакеты, необходимые для запуска (ТЗ v1.42): без них модель не работает,
             // а качать 20 ГБ весов, чтобы потом упереться в отсутствующий ComfyUI, бессмысленно
             await InstallPackagesAsync(manifest, run);
+            if (manifest.Cli)
+            {
+                // CLI-агент (T-431-S0): весов, путей ComfyUI и команды запуска нет, а
+                // активность записи общая на организацию — её установка ПО не трогает
+                _events.Append(new EventRecord
+                {
+                    EventType = EventTypes.ModelInstallFinished,
+                    EntityType = "ai_model",
+                    EntityId = modelId,
+                    PayloadJson = JsonSerializer.Serialize(new { cli = true, global = manifest.Global }),
+                });
+                Logger.Information("ПО CLI-агента модели {ModelId} установлено", modelId);
+                return;
+            }
             Directory.CreateDirectory(dir);
             foreach (var file in manifest.Files)
             {
@@ -779,7 +965,28 @@ public sealed class ModelInstallService
     /// к версии. Пакет без признака считается установленным по наличию каталога.
     /// </summary>
     public bool IsPackageInstalled(ModelPackage package) =>
-        FindInPackage(package, package.Check) is not null && SetupDone(package);
+        package.Npm.Length > 0 || package.Files.Count == 0 && package.Cli.Length > 0
+            ? File.Exists(UserCliBin(package)) || SystemFile(package) is not null
+            : FindInPackage(package, package.Check) is not null && SetupDone(package);
+
+    /// <summary>
+    /// Команда CLI, поставленная ДЛЯ ПОЛЬЗОВАТЕЛЯ (npm install --prefix, T-431-S0). Установка
+    /// БЕЗ -g кладёт ссылку в &lt;каталог пакета&gt;/node_modules/.bin (T-326: прежде искали
+    /// там, куда кладёт только -g, — &lt;каталог&gt;\&lt;команда&gt;.cmd и &lt;каталог&gt;/bin, — и
+    /// поставленная программа считалась «установленной не полностью»); прежние места
+    /// проверяются следом. Ничего нет — отдаётся путь node_modules/.bin.
+    /// </summary>
+    public string UserCliBin(ModelPackage package)
+    {
+        var dir = PackageDir(package);
+        var name = OperatingSystem.IsWindows() ? package.Cli + ".cmd" : package.Cli;
+        var paths = new[]
+        {
+            Path.Combine(dir, "node_modules", ".bin", name),
+            OperatingSystem.IsWindows() ? Path.Combine(dir, name) : Path.Combine(dir, "bin", name),
+        };
+        return paths.FirstOrDefault(File.Exists) ?? paths[0];
+    }
 
     /// <summary>
     /// НАСТРОЙКА ПАКЕТА СДЕЛАНА (T-185-S0): у пакета либо нет блока setup, либо на месте его
@@ -855,8 +1062,23 @@ public sealed class ModelInstallService
             }
             if (file.Contains('/') || file.Contains('\\'))
             {
-                var direct = Path.Combine(dir, file.Replace('/', Path.DirectorySeparatorChar));
-                return File.Exists(direct) || Directory.Exists(direct) ? direct : null;
+                var rel = file.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
+                var direct = Path.Combine(dir, rel);
+                if (File.Exists(direct) || Directory.Exists(direct))
+                {
+                    return direct;
+                }
+                // Архив со своей верхней папкой (node-v24.21.0-linux-x64/bin/node, T-321):
+                // признак ищется и на уровень глубже.
+                foreach (var sub in Directory.EnumerateDirectories(dir).OrderBy(d => d, StringComparer.Ordinal))
+                {
+                    var nested = Path.Combine(sub, rel);
+                    if (File.Exists(nested) || Directory.Exists(nested))
+                    {
+                        return nested;
+                    }
+                }
+                return null;
             }
             return ShallowestFile(dir, file);
         }
@@ -972,8 +1194,11 @@ public sealed class ModelInstallService
     /// качаются в каталог дистрибутивов (готовый файл не перекачивается) и распаковываются
     /// в каталог пакета. Один и тот же пакет двух моделей ставится один раз (замок по коду).
     /// </summary>
-    private Task InstallPackagesAsync(ModelInstallManifest manifest, InstallRun run) =>
-        InstallPackagesAsync(manifest.AllPackages, run);
+    private Task InstallPackagesAsync(ModelInstallManifest manifest, InstallRun run)
+    {
+        run.Global = manifest.Global;
+        return InstallPackagesAsync(manifest.AllPackages, run);
+    }
 
     /// <summary>
     /// ЧЕГО НЕ ХВАТАЕТ ДЛЯ ОБУЧЕНИЯ (T-4-S0): названия пакетов из списка, которые на этом
@@ -1140,6 +1365,28 @@ public sealed class ModelInstallService
             await gate.WaitAsync(run.Cts.Token);
             try
             {
+                // ПРОГРАММА CLI ИЗ npm (T-431-S0) ставится и ОБНОВЛЯЕТСЯ: кнопка «Обновить»
+                // у установленной записи должна принести свежую версию, а npm install
+                // поверх стоящей это и делает. Найденную в системе чужую установку при
+                // установке «для пользователя» не трогаем — она уже работает
+                if (package.Npm.Length > 0)
+                {
+                    if (run.Global || File.Exists(UserCliBin(package)) || SystemFile(package) is null)
+                    {
+                        await InstallNpmAsync(package, run);
+                    }
+                    continue;
+                }
+                // программу, которую ставит сам человек (agy, grok, kimi, vibe), мы только ищем
+                if (package.Files.Count == 0 && package.Cli.Length > 0)
+                {
+                    if (!IsPackageInstalled(package))
+                    {
+                        throw new InvalidOperationException(
+                            Loc.T("msg.modelInstall.21", package.Name, package.Cli, package.Hint));
+                    }
+                    continue;
+                }
                 if (IsPackageInstalled(package))
                 {
                     Logger.Information("Пакет {Package} уже установлен — пропуск", package.Id);
@@ -1188,6 +1435,15 @@ public sealed class ModelInstallService
             if (file.Unpack.Length == 0 && dist.Size > 0
                 && LengthOf(Path.Combine(targetDir, Path.GetFileName(dist.Name))) == dist.Size)
             {
+                continue;
+            }
+            // РАСПАКОВАННЫЙ АРХИВ в каталоге дистрибутивов (T-417-S0) — копируется как есть,
+            // качать и распаковывать нечего; свой каталог человека не удаляем
+            if (file.Unpack.Length > 0 && FindLocalDist(distDir, dist.Name) is { IsDir: true } unpacked)
+            {
+                CopyDirectory(Path.Combine(distDir, unpacked.Name), targetDir);
+                Logger.Information("Пакет {Package}: взят распакованный дистрибутив {Dir}",
+                    package.Id, unpacked.Name);
                 continue;
             }
             await DownloadDistAsync(distPath, dist.Url, dist.Size, run.Cts.Token);
@@ -1307,6 +1563,164 @@ public sealed class ModelInstallService
         Logger.Information("Пакет {Package}: окружение готово ({Dir})", package.Id, workDir);
     }
 
+    /// <summary>
+    /// Каталог, где лежит node (и рядом npm) — своего пакета nodejs либо системного;
+    /// пусто — Node.js на этом компьютере нет (T-431-S0).
+    /// </summary>
+    public string NodeDir()
+    {
+        var node = Packages().Find("nodejs") is { } package
+            ? FindInPackage(package, package.Check)
+            : null;
+        return node is not null && File.Exists(node) ? Path.GetDirectoryName(node) ?? "" : "";
+    }
+
+    /// <summary>
+    /// Точка входа npm внутри дистрибутива Node.js (T-325): на Windows рядом с node.exe
+    /// (node_modules/npm), на Linux и macOS — ../lib/node_modules/npm от каталога bin.
+    /// </summary>
+    private static string? NpmCli(string nodeDir)
+    {
+        foreach (var path in new[]
+        {
+            Path.Combine(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
+            Path.Combine(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
+        })
+        {
+            if (File.Exists(path))
+            {
+                return Path.GetFullPath(path);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Каталоги, которые CLI-агенту нужны в PATH (T-431-S0): свой Node.js и программы CLI,
+    /// поставленные для пользователя в каталог пакетов. Системную установку PATH и так знает.
+    /// </summary>
+    public List<string> CliPathDirs()
+    {
+        var dirs = new List<string>();
+        var catalog = Packages();
+        if (catalog.Find("nodejs") is { } node && FindInPackage(node, node.Check) is { } nodeExe
+            && nodeExe.StartsWith(PackagesRoot(), StringComparison.OrdinalIgnoreCase))
+        {
+            dirs.Add(Path.GetDirectoryName(nodeExe) ?? "");
+        }
+        foreach (var package in catalog.Packages.Where(p => p.Npm.Length > 0))
+        {
+            var bin = UserCliBin(package);
+            if (File.Exists(bin))
+            {
+                dirs.Add(Path.GetDirectoryName(bin) ?? "");
+            }
+        }
+        return dirs.Where(d => d.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// ПОСТАВИТЬ ИЛИ ОБНОВИТЬ ПРОГРАММУ CLI ЧЕРЕЗ npm (T-431-S0). Для пользователя —
+    /// npm install --prefix &lt;каталог пакета&gt; (прав администратора не нужно, программа
+    /// видна только AI2P: каталог добавляется в PATH процесса CLI). Общая — npm install -g
+    /// (на Windows с --prefix каталога системного Node.js, он в общем PATH): почти всегда
+    /// нужны права администратора, и отказ по правам переводится в понятное сообщение
+    /// с командой, которую человек выполнит сам.
+    /// </summary>
+    private async Task InstallNpmAsync(ModelPackage package, InstallRun run)
+    {
+        var nodeDir = NodeDir();
+        var npm = nodeDir.Length > 0
+            ? Path.Combine(nodeDir, OperatingSystem.IsWindows() ? "npm.cmd" : "npm")
+            : "";
+        var npmPrefix = "";
+        if (nodeDir.Length > 0 && !File.Exists(npm) && NpmCli(nodeDir) is { } npmCli)
+        {
+            // T-325: свой Node.js, распакованный до 1.156, остался без ссылки bin/npm (tar-ссылки
+            // распаковка пропускала) — npm запускается самим node по его npm-cli.js
+            npm = Path.Combine(nodeDir, OperatingSystem.IsWindows() ? "node.exe" : "node");
+            npmPrefix = $"\"{npmCli}\" ";
+        }
+        if (npm.Length == 0 || !File.Exists(npm))
+        {
+            throw new InvalidOperationException(Loc.T("msg.modelInstall.22", package.Name));
+        }
+        if (run.Global && nodeDir.StartsWith(PackagesRoot(), StringComparison.OrdinalIgnoreCase))
+        {
+            // свой Node.js лежит в каталоге пакетов AI2P — «общей» установка в него не станет
+            throw new InvalidOperationException(Loc.T("msg.modelInstall.24", package.Name));
+        }
+        var target = PackageDir(package);
+        Directory.CreateDirectory(target);
+        var spec = package.Npm + "@latest";
+        var args = run.Global
+            ? OperatingSystem.IsWindows()
+                ? $"install -g {spec} --prefix \"{nodeDir}\""
+                : $"install -g {spec}"
+            : $"install --prefix \"{target}\" {spec}";
+        run.CurrentFile = "npm " + args;
+        Logger.Information("Пакет {Package}: {Npm} {Args}", package.Id, npm, args);
+        using var log = new ProcessOutputLog(Path.Combine(target, "ai2p-setup.log"));
+        log.Line($"[AI2P] {npm} {args}");
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = npm,
+            Arguments = npmPrefix + args,
+            WorkingDirectory = target,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        // npm запускает node по имени — свой Node.js обязан быть в PATH первым
+        process.StartInfo.Environment["PATH"] = nodeDir + Path.PathSeparator
+            + (Environment.GetEnvironmentVariable("PATH") ?? "");
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(run.Cts.Token);
+        limit.CancelAfter(TimeSpan.FromMinutes(30));
+        process.Start();
+        log.Attach(process);
+        var finished = await log.WaitForExitAsync(process, TimeSpan.FromMinutes(10), limit.Token);
+        if (!finished)
+        {
+            TryKill(process);
+            throw new InvalidOperationException(Loc.T("msg.modelInstall.18",
+                package.Name, "npm install", 10, log.FilePath));
+        }
+        run.CurrentFile = "";
+        var tail = log.Tail();
+        if (process.ExitCode != 0)
+        {
+            if (run.Global && LooksLikeNoRights(tail))
+            {
+                // прав не хватило — пишем, что сделать человеку: та же команда от имени
+                // администратора, либо AI2P запустить с правами администратора, либо
+                // поставить для пользователя (doc/<язык>/AI2P_CLI_install.md)
+                throw new InvalidOperationException(Loc.T("msg.modelInstall.23",
+                    package.Name, $"\"{npm}\" {npmPrefix}{args}"));
+            }
+            throw new InvalidOperationException(Loc.T("msg.modelInstall.17",
+                package.Name, "npm install", process.ExitCode, tail));
+        }
+        // ответ «стоит ли в системе» кэшируется на минуту — после установки он устарел
+        foreach (var key in _systemCache.Keys.Where(k => k.StartsWith(package.Id + "|", StringComparison.Ordinal)))
+        {
+            _systemCache.TryRemove(key, out _);
+        }
+        if (!IsPackageInstalled(package))
+        {
+            throw new InvalidOperationException(Loc.T("msg.modelInstall.6",
+                package.Name, run.Global ? nodeDir : target, package.Cli, package.Hint));
+        }
+        Logger.Information("Пакет {Package} поставлен ({Scope})", package.Id, run.Global ? "общая" : "пользователь");
+    }
+
+    /// <summary>Вывод npm говорит об отказе по правам (EACCES/EPERM, «Access is denied»).</summary>
+    private static bool LooksLikeNoRights(string output) =>
+        new[] { "EACCES", "EPERM", "permission denied", "access is denied", "отказано в доступе",
+                "operation not permitted" }
+            .Any(s => output.Contains(s, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Снять зависший шаг настройки вместе с потомками; неудача не важна.</summary>
     private static void TryKill(System.Diagnostics.Process process)
     {
@@ -1325,7 +1739,7 @@ public sealed class ModelInstallService
     /// Ссылка на дистрибутив: прямой URL либо ассет последнего релиза GitHub по маске
     /// (в маске {flavor} — сборка под железо). Возвращает URL, имя файла и размер (0 — неизвестен).
     /// </summary>
-    private static async Task<(string Url, string Name, long Size)> ResolveDistAsync(
+    private async Task<(string Url, string Name, long Size)> ResolveDistAsync(
         ModelPackage.PackageFile file, string flavor, CancellationToken ct)
     {
         if (file.Url.Length > 0)
@@ -1338,39 +1752,64 @@ public sealed class ModelInstallService
         }
 
         var pattern = file.AssetPattern.Replace("{flavor}", flavor);
-        using var request = new HttpRequestMessage(HttpMethod.Get,
-            $"https://api.github.com/repos/{file.GitHubRepo}/releases/latest");
-        request.Headers.UserAgent.ParseAdd("AI2P");
-        request.Headers.Accept.ParseAdd("application/vnd.github+json");
-        using var response = await Http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode)
+        // ДИСТРИБУТИВ УЖЕ ЛЕЖИТ (T-417-S0): архив под маску или распакованный архив в каталоге
+        // дистрибутивов берётся как есть — без сети и без перекачки ради новой сборки
+        if (FindLocalDist(DistRoot(), pattern) is { } local)
         {
-            throw new InvalidOperationException(
-                Loc.T("msg.modelInstall.7", file.GitHubRepo, (int)response.StatusCode, response.ReasonPhrase));
+            return ($"https://github.com/{file.GitHubRepo}/releases", local.Name, local.Size);
         }
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        if (!doc.RootElement.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+        // releases/latest — только первая попытка: у ggml-org/llama.cpp «последним» отмечен
+        // релиз v0.5.0 без сборок, а сами сборки (b11407…) выходят как prerelease (T-417-S0),
+        // поэтому дальше просматриваем список свежих релизов
+        var lastStatus = "";
+        foreach (var api in new[] { "releases/latest", "releases?per_page=30" })
         {
-            throw new InvalidOperationException(Loc.T("msg.modelInstall.8", file.GitHubRepo));
-        }
-        foreach (var asset in assets.EnumerateArray())
-        {
-            var name = asset.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
-                ? n.GetString()! : "";
-            if (name.Length == 0 || !MatchesMask(name, pattern))
+            using var request = new HttpRequestMessage(HttpMethod.Get,
+                $"https://api.github.com/repos/{file.GitHubRepo}/{api}");
+            request.Headers.UserAgent.ParseAdd("AI2P");
+            request.Headers.Accept.ParseAdd("application/vnd.github+json");
+            using var response = await Http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
             {
+                lastStatus = Loc.T("msg.modelInstall.7", file.GitHubRepo, (int)response.StatusCode,
+                    response.ReasonPhrase);
                 continue;
             }
-            var url = asset.TryGetProperty("browser_download_url", out var u) && u.ValueKind == JsonValueKind.String
-                ? u.GetString()! : "";
-            var size = asset.TryGetProperty("size", out var s) && s.TryGetInt64(out var value) ? value : 0;
-            if (url.Length > 0)
+            lastStatus = "";
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+            var releases = doc.RootElement.ValueKind == JsonValueKind.Array
+                ? doc.RootElement.EnumerateArray().ToList()
+                : new List<JsonElement> { doc.RootElement };
+            foreach (var release in releases)
             {
-                return (url, name, size);
+                if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True
+                    || !release.TryGetProperty("assets", out var assets)
+                    || assets.ValueKind != JsonValueKind.Array)
+                {
+                    continue;
+                }
+                foreach (var asset in assets.EnumerateArray())
+                {
+                    var name = asset.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
+                        ? n.GetString()! : "";
+                    if (name.Length == 0 || !MatchesMask(name, pattern))
+                    {
+                        continue;
+                    }
+                    var url = asset.TryGetProperty("browser_download_url", out var u)
+                              && u.ValueKind == JsonValueKind.String ? u.GetString()! : "";
+                    var size = asset.TryGetProperty("size", out var s) && s.ValueKind == JsonValueKind.Number
+                               && s.TryGetInt64(out var value) ? value : 0;
+                    if (url.Length > 0)
+                    {
+                        return (url, name, size);
+                    }
+                }
             }
         }
-        throw new InvalidOperationException(
-            Loc.T("msg.modelInstall.9", file.GitHubRepo, pattern));
+        throw new InvalidOperationException(lastStatus.Length > 0
+            ? lastStatus
+            : Loc.T("msg.modelInstall.9", file.GitHubRepo, pattern));
     }
 
     /// <summary>Сопоставление имени файла с маской вида "llama-*-bin-win-cpu-x64.zip".</summary>
@@ -1814,7 +2253,9 @@ public sealed class ModelInstallService
     public string? ActivationError(string modelId)
     {
         var status = Status(modelId);
-        if (!status.HasManifest || status.Installed)
+        // CLI-агент (T-431-S0): активность у записи общая на организацию, а ПО ставится на
+        // каждом сервере своё — «не установлено здесь» не повод запрещать её всем
+        if (!status.HasManifest || status.Installed || status.Cli)
         {
             return null;
         }
@@ -1834,7 +2275,9 @@ public sealed class ModelInstallService
     /// </summary>
     public void EnforceActivationOnStartup()
     {
-        foreach (var status in StatusAll())
+        // CLI-агент (T-431-S0) сюда не попадает: активность его записи общая на организацию,
+        // и сервер без программы CLI погасил бы её всем остальным
+        foreach (var status in StatusAll().Where(s => !s.Cli))
         {
             var model = _models.Get(status.ModelId);
             if (model is { IsActive: true } && !status.Installed)

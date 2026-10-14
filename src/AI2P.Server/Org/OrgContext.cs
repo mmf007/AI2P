@@ -109,6 +109,15 @@ public sealed class OrgContext : IDisposable
     /// ЭТОГО сервера. Остальные события уведомлений приходят сменой статуса.</summary>
     public NotificationRunner NotificationRunner { get; }
 
+    /// <summary>Личные настройки уведомлений и подписки Web Push (T-422-S0).</summary>
+    public NotificationPrefsService NotificationPrefs { get; }
+
+    /// <summary>Транспорт Web Push этого сервера (T-422-S0): ключ VAPID и доставка.</summary>
+    public WebPushTransport WebPush { get; }
+
+    /// <summary>Ссылки быстрого ответа на вопрос агента (T-422-S0).</summary>
+    public NotificationReplyTokens ReplyTokens { get; }
+
     /// <summary>Архивы организации (T-40-S0, выпуск 1.105): реестр, состояние на ЭТОМ
     /// сервере и операции с файлами — создать, открыть, закрыть, удалить с сервера.</summary>
     public ArchiveService Archives { get; }
@@ -357,9 +366,21 @@ public sealed class OrgContext : IDisposable
         // в хранилище и отправку в коннекторах. Письмо шлёт ВЛАДЕЛЕЦ ЗАДАЧИ, иначе одно
         // событие дало бы столько писем, сколько в кластере серверов
         NotificationRules = new NotificationRuleService(Db, Events, Scope);
+        // ОПОВЕЩЕНИЕ НА ТЕЛЕФОН (T-422-S0): личные настройки человека, Web Push в браузер
+        // и подписанные ссылки быстрого ответа на вопрос агента
+        NotificationPrefs = new NotificationPrefsService(Db);
+        var mail = deps.Mail ?? EmptyMail;
+        WebPush = new WebPushTransport(NotificationPrefs, deps.Secrets, () =>
+            mail().Sender is { Length: > 0 } sender ? "mailto:" + sender : PublicBaseUrl);
+        ReplyTokens = new NotificationReplyTokens(deps.Secrets);
         Notifications = new NotificationService(Tasks, Executors, Projects, TaskStatuses,
             NotificationRules, Events, () => Org, () => PublicBaseUrl,
-            new EmailTransport(deps.Mail ?? EmptyMail, deps.Secrets));
+            new EmailTransport(mail, deps.Secrets), WebPush)
+        {
+            Prefs = NotificationPrefs,
+            Replies = ReplyTokens,
+        };
+        Notifications.Attach(Chat, Jobs);
         NotificationRunner = new NotificationRunner(Notifications);
 
         // АРХИВАЦИЯ (T-40-S0, выпуск 1.105). Реестр архивов принадлежит организации и

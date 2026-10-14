@@ -80,7 +80,7 @@ public sealed class T265S0Tests : IDisposable
         using var check = _f.Db.Open();
         var columns = Sql.Query(check, null, "PRAGMA table_info(experience)", r => r.S("name"));
         Assert.Contains("is_active", columns);
-        Assert.Equal("48", _f.Db.Meta("schema_version"));
+        Assert.Equal("49", _f.Db.Meta("schema_version"));
         // ни одной погашенной записи: умолчание колонки — 1
         Assert.Equal(0L, Sql.Scalar<long>(check, null,
             "SELECT COUNT(*) FROM experience WHERE is_active=0"));

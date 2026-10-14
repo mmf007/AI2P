@@ -107,6 +107,9 @@ else
                                  Icon="@Icons.Material.Filled.HelpOutline">@task.PendingQuestions</MudChip>
                     }
                     <span class="ai2p-status" style="@State.StatusStyle(task.Status)">@State.StatusName(task.Status)</span>
+                    @* меню «…» в конце строки (T-455-S0) — те же действия, что у квадрата диаграммы *@
+                    <MudSpacer />
+                    <TaskActionsMenu Item="task" OnDone="OnReload" />
                 </MudStack>
             </div>
         }

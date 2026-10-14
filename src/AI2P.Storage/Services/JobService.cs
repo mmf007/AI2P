@@ -52,6 +52,13 @@ public sealed class JobService
     private readonly EventStore _events;
     private readonly ServerScope _scope;
 
+    /// <summary>
+    /// Состояние задания сменилось (T-422-S0): задание, прежнее состояние. Зовётся ПОСЛЕ
+    /// фиксации транзакции и только у локальной смены — строки, приехавшие репликацией,
+    /// сюда не попадают, поэтому уведомление уходит один раз, с сервера-владельца.
+    /// </summary>
+    public event Action<Job, JobState>? StateChanged;
+
     public JobService(Database db, EventStore events, ServerScope? scope = null)
     {
         _db = db;
@@ -326,6 +333,15 @@ public sealed class JobService
         }
 
         tx.Commit();
+        try
+        {
+            StateChanged?.Invoke(job, oldState);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // подписчик (уведомления) не должен ломать смену состояния задания
+            _ = ex;
+        }
         return job;
     }
 

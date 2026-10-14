@@ -1282,9 +1282,17 @@ else
 
     public void Dispose()
     {
-        _poll?.Cancel();
-        _poll?.Dispose();
+        // T-329: карточку закрывают, пока её ReloadAsync ещё ждёт ответа (смена статуса
+        // на «готово»), и он потом зовёт EnsurePolling — Cancel у уже освобождённого
+        // источника бросал ObjectDisposedException и ронял цепь Blazor.
+        _disposed = true;
+        var poll = _poll;
+        _poll = null;
+        poll?.Cancel();
+        poll?.Dispose();
     }
+
+    private bool _disposed;
 
     /// <summary>
     /// Пока по задаче есть активное задание (ИИ работает в фоне, todo17), периодически
@@ -1292,6 +1300,10 @@ else
     /// </summary>
     private void EnsurePolling()
     {
+        if (_disposed)
+        {
+            return;
+        }
         if (ActiveJob is null)
         {
             _poll?.Cancel();

@@ -951,7 +951,8 @@ public sealed class JobOrchestrator : IDisposable
     /// </summary>
     private void EnsureSoftwareIsHere(Executor executor)
     {
-        if (executor.Kind != ExecutorKind.Software || _tasks.Scope.IsMine(executor.ServerId))
+        // с T-327 то же правило у агента по подписке CLI: его ПО и вход — на своём сервере
+        if (!_executors.BoundElsewhere(executor))
         {
             return;
         }
@@ -979,7 +980,7 @@ public sealed class JobOrchestrator : IDisposable
         {
             return;
         }
-        var evaluator = new SecurityEvaluator(_security.EffectiveForTask(task), projectRoot: null);
+        var evaluator = new SecurityEvaluator(_security.EffectiveForTask(task), projectRoot: null, task.ProjectId);
         var (decision, rule) = evaluator.ForAction(SoftwareRunActionCode);
         var (pluginDecision, pluginRule) = evaluator.ForPlugin(executor.PluginCode,
             SecurityEvaluator.PluginRun, executor.PluginOp);
@@ -1091,9 +1092,9 @@ public sealed class JobOrchestrator : IDisposable
             {
                 continue;
             }
-            if (candidate.Kind == ExecutorKind.Software && !_tasks.Scope.IsMine(candidate.ServerId))
+            if (_executors.BoundElsewhere(candidate))
             {
-                continue;   // «авто ПО» чужого сервера: программы здесь нет (T-153-S0)
+                continue;   // «авто ПО» или CLI-агент чужого сервера: здесь его нет (T-153-S0, T-327)
             }
             if (!force && _executors.LimitStatus(candidate) is { IsLow: true })
             {
@@ -1127,7 +1128,7 @@ public sealed class JobOrchestrator : IDisposable
         {
             return null;
         }
-        if (assigned.Kind == ExecutorKind.Software && !_tasks.Scope.IsMine(assigned.ServerId))
+        if (_executors.BoundElsewhere(assigned))
         {
             // «авто ПО» чужого сервера (T-153-S0): очередь не должна и пробовать — программа
             // стоит там, и запуск отсюда кончится отказом
@@ -2125,7 +2126,7 @@ public sealed class JobOrchestrator : IDisposable
         {
             return true;
         }
-        var evaluator = new SecurityEvaluator(_security.EffectiveForTask(child), projectRoot: null);
+        var evaluator = new SecurityEvaluator(_security.EffectiveForTask(child), projectRoot: null, child.ProjectId);
         var (decision, rule) = evaluator.ForAction(AutoStartActionCode);
         if (decision == SecurityDecision.Allow)
         {
@@ -2607,8 +2608,11 @@ public sealed class JobOrchestrator : IDisposable
         {
             return FinishLoop(task, run, actorId, $"пройдено кругов {pass} — предел цикла", exceeded: true);
         }
-        // новый круг: поддерево — в «ожидает», задача ждёт окончания цикла
-        ResetSubtreeForRound(task, actorId);
+        // новый круг: поддерево — в «ожидает», задача ждёт окончания цикла.
+        // Потомков этот же проход УЖЕ обошёл (RunChildrenAsync выше) и запомнил в seen —
+        // без их выписки второй обход ниже счёл бы их пройденными и тело нового круга
+        // осталось бы в «ожидает» до следующего прохода очереди (T-468-S0)
+        seen.ExceptWith(ResetSubtreeForRound(task, actorId));
         _tasks.EditFlowRun(task.Id, root => root[TaskFlowRun.LoopBodyKey] = true);
         _tasks.ChangeStatus(task.Id, TaskStatuses.Paused, actorId);
         Logger.Information("Цикл после {Task}: круг {Pass} — задача ждёт окончания цикла (T-299-S0)",
@@ -2715,11 +2719,13 @@ public sealed class JobOrchestrator : IDisposable
 
     /// <summary>Новый круг цикла (T-299-S0): всё поддерево, сданное в прошлом круге, снова
     /// «ожидает», а вложенные условия и циклы забывают прошлые решения.</summary>
-    private void ResetSubtreeForRound(TaskItem task, string? actorId)
+    private HashSet<string> ResetSubtreeForRound(TaskItem task, string? actorId)
     {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
         void Reset(TaskItem node, int depth)
         {
-            if (depth > MaxHierarchyDepth || node.IsTemplate || node.DeletedAt is not null)
+            if (depth > MaxHierarchyDepth || node.IsTemplate || node.DeletedAt is not null
+                || !ids.Add(node.Id))
             {
                 return;
             }
@@ -2746,6 +2752,7 @@ public sealed class JobOrchestrator : IDisposable
         {
             Reset(child, 1);
         }
+        return ids;
     }
 
     /// <summary>Задачу, вставшую с ошибкой, очередь перезапускает (T-186): галочка в
@@ -2898,8 +2905,7 @@ public sealed class JobOrchestrator : IDisposable
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             // ошибка одной задачи не останавливает очередь
-            Logger.Warning("Иерархия: запуск {Task} не удался: {Error}", task.DisplayId, ex.Message);
-            run.Skipped++;
+            Logger.Warning("Иерархия: запуск {Task} не удался: {Error}", task.DisplayId, ex.Message);            run.Skipped++;
         }
     }
 
