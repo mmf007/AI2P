@@ -2780,6 +2780,13 @@ public sealed class ImportCardDto
 {
     public string Url { get; set; } = "";
     public string? SourceId { get; set; }
+
+    /// <summary>Figma (T-477-S0): ссылка без node-id — импортировать ВЕСЬ файл. Без явного
+    /// согласия такая ссылка отклоняется: файл бывает огромным.</summary>
+    public bool? WholeFile { get; set; }
+
+    /// <summary>Figma (T-477-S0): кроме экранов — и элементы дизайна отдельными картинками.</summary>
+    public bool? Elements { get; set; }
 }
 
 /// <summary>Содержимое импортированной карточки — подставляется в форму новой задачи (гл. 11):
@@ -2801,6 +2808,11 @@ public sealed class ImportedCardDto
     /// <summary>Обсуждение карточки в хронологическом порядке (T-152): переносится
     /// в чат задачи сразу после её создания.</summary>
     public List<ChatImportMessageDto> Comments { get; set; } = [];
+
+    /// <summary>Figma (T-485-S0): импорт прерван пределом запросов — здесь причина отказа
+    /// и что делать дальше. Непусто — окно импорта показывает текст и кнопку «Сохранить»:
+    /// уже собранное уходит в форму новой задачи (черновик), доимпорт — кнопкой «обновить».</summary>
+    public string PendingMessage { get; set; } = "";
 }
 
 /// <summary>

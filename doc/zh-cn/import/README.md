@@ -9,6 +9,7 @@
 
 ## 本节目录
 
+* [figma](figma.md) — 从 Figma 导入设计——连接说明
 * [github](github.md) — 从 GitHub 导入任务 — 接入说明
 * [gitlab](gitlab.md) — 从 GitLab 导入任务 — 接入说明
 * [trello](trello.md) — 从 Trello 导入任务 — 接入说明

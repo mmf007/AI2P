@@ -108,21 +108,8 @@
         }
     </MudSelect>
     @* В АРХИВЕ ФУНКЦИЙ ПРАВКИ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат *@
-    @* импорт задач из внешней системы (ТЗ v1.28, todo30): всегда в текущий проект *@
-    @if (CurrentImportProjectId is not null && !State.InArchive)
-    {
-        <MudTooltip Text="@L["imports.run.title"]">
-            <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
-                           Disabled="@(!State.CanEdit)" OnClick="ImportAsync" />
-        </MudTooltip>
-        <MudTooltip Text="@L["imports.card.title"]">
-            @* data-import-card — опора живой проверки окна импорта по ссылке (T-247):
-               у кнопки-иконки нет ни подписи, ни заголовка, искать её нечем *@
-            <MudIconButton Icon="@Icons.Material.Filled.AddLink" data-import-card="1"
-                           Disabled="@(!State.CanEdit)" OnClick="ImportCardAsync" />
-        </MudTooltip>
-    }
-    @* кнопки-иконки с подсказками (гл. 11, эргономика) *@
+    @* кнопки-иконки с подсказками (гл. 11, эргономика). Порядок (T-492-S0): добавить,
+       импорт задачи по ссылке, импорт задач, обновить *@
     @if (!State.InArchive)
     {
         <MudTooltip Text="@L["board.newTask"]">
@@ -130,6 +117,20 @@
             <MudIconButton Icon="@Icons.Material.Filled.Add"
                            data-newtask="@(FixedProjectId ?? "")"
                            Disabled="@(!State.CanEdit)" OnClick="NewTaskAsync" />
+        </MudTooltip>
+    }
+    @* импорт задач из внешней системы (ТЗ v1.28, todo30): всегда в текущий проект *@
+    @if (CurrentImportProjectId is not null && !State.InArchive)
+    {
+        <MudTooltip Text="@L["imports.card.title"]">
+            @* data-import-card — опора живой проверки окна импорта по ссылке (T-247):
+               у кнопки-иконки нет ни подписи, ни заголовка, искать её нечем *@
+            <MudIconButton Icon="@Icons.Material.Filled.AddLink" data-import-card="1"
+                           Disabled="@(!State.CanEdit)" OnClick="ImportCardAsync" />
+        </MudTooltip>
+        <MudTooltip Text="@L["imports.run.title"]">
+            <MudIconButton Icon="@Icons.Material.Filled.CloudDownload"
+                           Disabled="@(!State.CanEdit)" OnClick="ImportAsync" />
         </MudTooltip>
     }
     <MudTooltip Text="@L["common.refresh"]">
@@ -319,6 +320,10 @@ else
     /// <summary>Встраивание во вкладку «задачи» проекта (ТЗ v1.17): фильтр по проекту фиксирован,
     /// новая задача получает этот проект и его команду по умолчанию.</summary>
     [Parameter] public string? FixedProjectId { get; set; }
+
+    /// <summary>Фрейм, в котором открыт список (T-476-S0): задача, созданная из шаблона,
+    /// открывается в нём же, а не всегда в левом.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
 
     /// <summary>Показано «в работе у ИИ» (T-187): у него нет ни фильтра, ни выбора сортировки —
     /// список сам знает, что показывать, и обновляется сам.</summary>
@@ -780,7 +785,7 @@ else
             await ReloadAsync();
             State.NotifyChanged();
             Snackbar.Add(L["task.instantiate.created"], Severity.Success);
-            State.OpenTask(created.Id, created.DisplayId, created.Title);
+            State.OpenTask(created.Id, created.DisplayId, created.Title, FrameIndex);
         }
         catch (ApiException ex)
         {

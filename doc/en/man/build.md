@@ -1,31 +1,41 @@
 # AI2P — building, releasing and the layout of the repository
 
-> The main page of the repository is `Readme.md` in its root; the documentation for the user is the
+> The main page of the repository is `README.md` in its root; the documentation for the user is the
 > [short description](../README.md) and the [contents](../index.md). Everything here is for the one
-> who builds AI2P from the sources.
+> who builds AI2P from the sources or wants to send in a change of their own.
 
 A system of joint work of AI agents and people on tasks: a work planner, an orchestrator of AI
 agents, an accumulator of experience. It works locally (Windows 10–11, Linux, macOS), the UI goes
 through a web browser.
 
 The documentation falls into two parts: the **project** one — in the `doc/` directory in the root of
-the repository (`doc/AI2P_ТЗ_v1.NN.md` — the description of the system as it is, the previous
-versions are there too; from version 1.60 the number of the specification matches the version of the
-application; `doc/AI2P_release.md` — the versions, the release and the update), and the one
-**shipped together with the program** — in `AI2P_app/doc/` next to the code: the documents of the
-models ([`models/`](../models/README.md)) and of the import kinds
-([`import/`](../import/README.md)), they are opened in the UI by the "i" button. The `AI2P_app/doc`
-directory is copied into the release output as a whole.
+the repository (`doc/AI2P_ТЗ_v1.NN.md` — the description of the system as it is, the number of the
+specification matches the version of the application; `doc/AI2P_release.md` — the versions, the
+release and the update), and the one **shipped together with the program** — in `AI2P_app/doc/` next
+to the code: the guide, the documents of the models ([`models/`](../models/README.md)) and of the
+import kinds ([`import/`](../import/README.md)), they are opened in the UI by the "i" button. The
+`AI2P_app/doc` directory is copied into the release output as a whole.
 
 > Links to files outside `AI2P_app/doc` are not put into a shipped document: it is drawn inside the
 > application, and a relative link outwards leads nowhere there (specification, ch. 14).
 
-**The state: stage 1 — a local task planner.** Implemented: SQLite + an event log + file storage
-(specification, ch. 6), the entities (ch. 2), the HTTP API (API-first, ch. 3), the UI in the VS Code
-style (ch. 11): the task board (kanban, drag-n-drop), the task card (a .md description, the history,
-the chat, the artifacts, the jobs), the lists and forms of projects, teams and executors, the work
-history with filters, a person's Inbox, the settings; the HumanConnector (a human executor through
-the job queue); multilingualism ru/en (the JSON dictionaries in `i18n/`).
+## In short for a contributor
+
+* **What is needed:** the .NET 8 SDK (and the ASP.NET Core 8.x runtime) — they are installed by
+  `install_required` (see below).
+* **How to build:** `build.cmd` (Windows) or `./build.sh` (Linux/macOS) — a build for development;
+  `buildRelease.cmd` / `./buildRelease.sh` — a release output that runs without the sources.
+* **How to run the tests:** `dotnet test` from the `AI2P_app` directory (more in the
+  [Tests](#tests) section).
+* **Found a bug** — open an issue with the "Bug report" form, **a proposal** — with the
+  "Feature request" form; blank issues are turned off. **Questions** go not into an issue but into
+  GitHub Discussions (the Q&A section).
+* **A pull request** is accepted by agreement: first an issue describing the change and an agreement
+  in it — then a PR with a link to that issue. A PR without a discussion may be closed without review.
+* **The license** is Apache-2.0 (the `LICENSE` file in the root). By sending code you agree that it is
+  distributed under the same license.
+* **A vulnerability** — not as a public issue: the procedure is described in the
+  [Security policy](SECURITY.md).
 
 ## Setting up the build environment
 
@@ -51,8 +61,8 @@ cd AI2P_app
 install_required.bat
 ```
 
-It will ask for administrator rights. But not right away. The dialog may not appear in front — you
-have to look for it among the active applications.
+The script will ask for administrator rights, but not right away. The request window may not appear
+in front of the others — look for it among the open applications on the taskbar.
 
 What it does:
 
@@ -100,26 +110,19 @@ The dependencies fall into two kinds (specification, ch. 13.1):
    OpenAI SDK, Anthropic.SDK, ModelContextProtocol and others. They **do not have to be installed
    separately**: `dotnet restore` (a part of `dotnet build`) downloads them automatically by the
    references from the `.csproj`.
-2. **Subproject packages (the sources)** in `packages/` — sqlite-vec, gigachat-adapter (candidates,
-   they will be needed at stages 3+). They have no separate scripts any more:
-   `install_packages.bat` and `install_packages.sh` were removed in T-65-S0 as unnecessary — no list
-   of packages ever appeared in them over the whole history of the project, and the work ascribed to
-   them is done by others: the build tools are installed by `install_required.*`, and the packages
-   for the models (ComfyUI, musubi-tuner, Python) by the program itself when a model is installed. If
-   a subproject is needed, it is added by a single command:
+2. **Subproject packages (the sources)** — there are none right now. The build tools are installed by
+   `install_required.*`, and the packages for the models (ComfyUI, musubi-tuner, Python) by the
+   program itself when a model is installed. If a subproject is needed, it is added by a single
+   command, which creates the `packages/` directory itself:
 
 ```sh
 git submodule add <address> packages/<name>
 ```
 
-There is no `packages/` directory in the repository at all right now (the empty one was removed in
-T-207): all the current dependencies are NuGet ones, and `git submodule add` creates the directory
-itself. The empty `native/` — the groundwork for C/C++ plugins (CMake) — is removed as well.
-
 ## The language of the scripts' output
 
-The build and installation scripts speak **English by default** (T-65-S0). A script is not duplicated
-per language: the texts are moved outside, into the `i18n/` directory:
+The build and installation scripts speak **English by default**. A script is not duplicated per
+language: the texts are moved outside, into the `i18n/` directory:
 
 ```
 i18n/scripts.en.txt          the messages, the base language
@@ -156,21 +159,20 @@ install.cmd D:\AI2P -Lang ru
 
 The `.cmd`/`.bat` wrappers translate nothing themselves and are written in **pure ASCII, in
 English**: `cmd.exe` decodes the file in the console codepage while keeping the reading position in
-bytes, and one multi-byte character shifts the parsing of everything that follows (caught live in
-T-34-S0). They pass all the text, including `--help`, on to their `.ps1`.
+bytes, and one multi-byte character shifts the parsing of everything that follows. They pass all the
+text, including `--help`, on to their `.ps1`.
 
 A new language is **two files and not a line of code**: a copy of `scripts.en.txt` with translated
 values and copies of the needed files of `help/`. The sets of keys have to match one for one, that is
-guarded by `T65S0Tests`.
+guarded by a test.
 
-The own output of `build.*`, `buildRelease.*` and `install_required.*` is deliberately not translated
-(tier B of the T-64-S0 analysis): they are run on the build machine, and they are already English or
-mixed. They do have a `--help`.
+The own output of `build.*`, `buildRelease.*` and `install_required.*` is deliberately not
+translated: they are run on the build machine, and they are already English or mixed. They do have a
+`--help`.
 
 ## Building and running
 
-Building the whole solution (C# only for now; the C/C++ will be added later) with a single
-script:
+Building the whole solution with a single script:
 
 ```powershell
 # Windows
@@ -223,27 +225,22 @@ chmod +x buildRelease.sh
 ./buildRelease.sh ~/ai/AI2P --clean
 ```
 
-Before T-285 these scripts were called `publish.cmd` / `publish.ps1` / `publish.sh` — the name
-changed, the behaviour stayed.
+The `builds` directory lives **inside the working directory** `AI2P_app`, next to `AI2P.sln`.
 
-The `builds` directory itself lives **inside the working directory** `AI2P_app`, next to `AI2P.sln`
-(T-131-S0); before 1.114 it was created one level above, outside the working directory.
-
-Between `builds` and `release`/`releasefull` there stands the **directory of the operating system**
-(T-243): `windows`, `linux` or `macos`. The system is set by the RID of a full output
-(`-Runtime`/`--runtime`), and for an ordinary one by the system the build runs on; the same thing
-decides which installation scripts are put into the output. What is built for different systems does
-not overwrite each other any more.
+Between `builds` and `release`/`releasefull` there stands the **directory of the operating system**:
+`windows`, `linux` or `macos`. The system is set by the RID of a full output (`-Runtime`/`--runtime`),
+and for an ordinary one by the system the build runs on; the same thing decides which installation
+scripts are put into the output. What is built for different systems does not overwrite each other.
 
 A laid-out copy is started by `AI2P.Server.exe` (Windows) or `./AI2P.Server` from its directory; the
 current directory of the process does not matter.
 
-**The server runs as an ORDINARY user, not as root** (T-135). The installation directory on Linux and
-macOS is `~/ai/AI2P`: the data (`data/`), the journals (`logs/`), the settings and the secrets lie
-inside it, the server does not write outside the home directory, and the port (5480) is an
-unprivileged one. Root rights are needed only by the dependency installer (`install_required.sh`) —
-that is a one-off, system-level operation. The application closes the `secrets.json` file with `0600`
-rights: it holds the server administrator password and the organization keys.
+**The server runs as an ORDINARY user, not as root.** The installation directory on Linux and macOS
+is `~/ai/AI2P`: the data (`data/`), the journals (`logs/`), the settings and the secrets lie inside
+it, the server does not write outside the home directory, and the port (5480) is an unprivileged one.
+Root rights are needed only by the dependency installer (`install_required.sh`) — that is a one-off,
+system-level operation. The application closes the `secrets.json` file with `0600` rights: it holds
+the server administrator password and the organization keys.
 
 A path with `~` is understood both by the scripts and by the application itself: `./install.sh
 ~/ai/AI2P`, the directories in `config.json` and in the local server form (`~/ai`), the project
@@ -261,7 +258,7 @@ Two versions do not work on one port at the same time (the single-instance check
 3): the second one will see the port taken, open the browser on the first one and finish. To keep both
 running, change `ui.port` in the `config.json` of the laid-out copy.
 
-## An installation package as a single file (T-285)
+## An installation package as a single file
 
 The output is a directory; giving it to a person is inconvenient. `MakePackage` makes **a single
 installer file** out of a ready output. The script is put into the output by `buildRelease` itself,
@@ -291,10 +288,10 @@ not have to be asked for:
 | `release` | `AI2P_v_1_NN_windows_x64.exe` | `AI2P_v_1_NN_linux_x64.run` | `AI2P_v_1_NN_macos_arm64.run` |
 
 The parts of the name come in this order: `AI2P_v_` + the version number + `_full` for the full
-release + the system (`windows`, `linux`, `macos`) + the architecture (`x64`, `arm64`, `arm`,
-`x86`). For a full release the system and the architecture are named by its runtime (`win-x64`,
-`linux-arm64`, `osx-arm64`); for the usual one by the OS folder and by the architecture of the
-current compiler (T-234-S0).
+output + the system (`windows`, `linux`, `macos`) + the architecture (`x64`, `arm64`, `arm`, `x86`).
+For a full output the system and the architecture are named by its runtime (`win-x64`,
+`linux-arm64`, `osx-arm64`); for an ordinary one by the OS directory and by the architecture of the
+current compiler.
 
 The extension sets the kind of the installer: on Windows this is Inno Setup (`.exe`), on Linux and
 macOS a self-extracting makeself archive (`.run`), which runs the same `install.sh` inside. The
@@ -306,14 +303,14 @@ not get into the package, and is not touched when installing over a previous one
 only if it is absent, and a `config.new.json` is always put next to it — the application will merge
 them at the first start (`ConfigMerge`).
 
-**Where the working files lie (T-287).** Next to the program — but only if its directory is writable.
-An "for all users" installation (`C:\Program Files\AI2P`) is closed for writing to an ordinary user,
-so its `config.json`, `data/`, `logs/` and `secrets/` lie in the common data directory of the
-computer: on Windows `C:\ProgramData\AI2P`, on Linux and macOS `/var/lib/ai2p` (and if that is not
-allowed either — in the user's data directory). The rule lives in one place — `AppHome`
+**Where the working files lie.** Next to the program — but only if its directory is writable. A "for
+all users" installation (`C:\Program Files\AI2P`) is closed for writing to an ordinary user, so its
+`config.json`, `data/`, `logs/` and `secrets/` lie in the common data directory of the computer: on
+Windows `C:\ProgramData\AI2P`, on Linux and macOS `/var/lib/ai2p` (and if that is not allowed either —
+in the user's data directory). The rule lives in one place — `AppHome`
 (`src/AI2P.Server/AppHome.cs`), the scripts do not repeat it but only look for an already created
 `config.json` in the same places. The directory may also be set by hand: by the `AI2P_HOME` variable
-or by the `--config` switch. The details are in `doc/en/man/install.md`.
+or by the `--config` switch. The details are in [Installing AI2P](install.md).
 
 ## The structure of the solution
 
@@ -321,27 +318,42 @@ or by the `--config` switch. The details are in `doc/en/man/install.md`.
 AI2P.sln
 src/
 ├── AI2P.Core/        — the core: the entities (ch. 2), the events (6.4.3), the API contracts,
-│                       the IAgentConnector interface (7.2)
+│                       the IAgentConnector interface (7.2), the dictionaries (Loc)
 ├── AI2P.Storage/     — SQLite (the schema, 6.4.2), the event log, the file storage (6.4.4),
 │                       the services: projects, teams, executors, tasks, jobs, chat
-├── AI2P.Connectors/  — the HumanConnector + the task start orchestrator; the AI connectors are stage 2
+├── AI2P.Connectors/  — the executor connectors (a person, AI models, CLI agents, media)
+│                       and the task start orchestrator
 ├── AI2P.UI/          — the Blazor components (MudBlazor): the VS Code frame (ch. 11), the board,
 │                       the task card, the Inbox, the history, the reference books; ApiClient, i18n
 └── AI2P.Server/      — the ASP.NET Core host: the HTTP API (/api/...) + the Blazor Server UI,
                         config.json, Serilog (the .jsonl logs)
-tests/     — AI2P.Tests: the tests of the storage, the event log, the human-executor cycle
-i18n/      — the localization dictionaries (ru.json, en.json) and the texts of the build
+tests/     — AI2P.Tests: the xUnit tests
+i18n/      — the localization dictionaries (<language>.json) and the texts of the build
               and installation scripts (scripts.<language>.txt, loc.ps1, loc.sh,
-              help/<script>.<language>.txt, T-65-S0) — they are copied into the build directory
+              help/<script>.<language>.txt) — they are copied into the build directory
 doc/       — the documentation next to the code
+.github/   — the issue forms (ISSUE_TEMPLATE)
 ```
 
-## The tests
+## Tests
+
+All the tests are one xUnit project, `tests/AI2P.Tests`:
 
 ```sh
 cd AI2P_app
 dotnet test
 ```
+
+A full run is long (about half an hour or more). While working on a change it is more convenient to
+run only your own classes with a filter — the name in the filter has to be the name of the **class**,
+not of the file:
+
+```sh
+dotnet test tests/AI2P.Tests/AI2P.Tests.csproj --filter "FullyQualifiedName~TestClassName"
+```
+
+Check the number of passed tests: a filter that matches no class gives a "green" run of zero tests.
+A pull request needs a green full run; new logic comes with its own tests.
 
 ## The data storage
 

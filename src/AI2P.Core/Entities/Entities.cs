@@ -1299,6 +1299,10 @@ public static class ImportKinds
 
     /// <summary>Задачи (issues) проектов GitLab — T-249, версия 1.89.</summary>
     public const string GitLab = "gitlab";
+
+    /// <summary>Область макета Figma: экраны картинками и подписи под ними — T-477-S0, версия 1.163.
+    /// Импорт только по ссылке, массового импорта по записи справочника нет.</summary>
+    public const string Figma = "figma";
 }
 
 public sealed class ImportSource : Entity

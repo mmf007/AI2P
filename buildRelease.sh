@@ -159,13 +159,31 @@ fi
 # 1. публикация сервера (тянет за собой Core/Storage/Connectors/UI и статику RCL)
 #    PublishDir вместо -o: ключ -o задаёт OutputPath и для проектов-ссылок,
 #    из-за чего рядом с src/ появляется мусорный каталог сборки
+#    СБОРКА БЕЗ ИНТЕРНЕТА (T-331). Восстановление пакетов идёт отдельным шагом: если
+#    nuget.org недоступен (нет сети, лежит прокси), оно повторяется с источником —
+#    локальным кэшем пакетов (~/.nuget/packages), куда их положила прошлая сборка.
+#    Аудит уязвимостей при этом выключен — ему тоже нужна сеть. Сама публикация
+#    идёт с --no-restore и в сеть не ходит вовсе.
+PROJECT=src/AI2P.Server/AI2P.Server.csproj
 if [ "$SELF_CONTAINED" -eq 1 ]; then
-    if ! dotnet publish src/AI2P.Server/AI2P.Server.csproj -c "$CONFIGURATION" \
-            -r "$RUNTIME" --self-contained true "--property:PublishDir=$OUT_DIR/"; then
-        echo "[ERROR] dotnet publish failed."
+    # свойством, а не ключом --self-contained: у dotnet restore такого ключа нет
+    set -- -r "$RUNTIME" -p:SelfContained=true
+else
+    set --
+fi
+if ! dotnet restore "$PROJECT" "$@"; then
+    NUGET_CACHE="${NUGET_PACKAGES:-}"
+    if [ -z "$NUGET_CACHE" ]; then
+        NUGET_CACHE="$(dotnet nuget locals global-packages --list 2>/dev/null | sed -n 's/^global-packages: *//p')"
+    fi
+    [ -n "$NUGET_CACHE" ] || NUGET_CACHE="$HOME/.nuget/packages"
+    echo "Источник пакетов недоступен — повтор из локального кэша: $NUGET_CACHE"
+    if ! dotnet restore "$PROJECT" "$@" --source "$NUGET_CACHE" -p:NuGetAudit=false; then
+        echo "[ERROR] dotnet restore failed: каких-то пакетов нет в локальном кэше — первую сборку (и сборку после добавления пакета) нужно делать с доступом в интернет."
         exit 1
     fi
-elif ! dotnet publish src/AI2P.Server/AI2P.Server.csproj -c "$CONFIGURATION" "--property:PublishDir=$OUT_DIR/"; then
+fi
+if ! dotnet publish "$PROJECT" -c "$CONFIGURATION" "$@" --no-restore "--property:PublishDir=$OUT_DIR/"; then
     echo "[ERROR] dotnet publish failed."
     exit 1
 fi

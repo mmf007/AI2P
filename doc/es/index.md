@@ -36,6 +36,7 @@
 ## Manual del desarrollador
 * [compilación, publicación y estructura del repositorio](man/build.md)
 * [Cómo está hecha la documentación de AI2P](man/aboutdoc.md)
+* [Política de seguridad y modelo de amenazas](man/SECURITY.md)
 
 ## [Modelos de IA](models/README.md)
 

@@ -36,6 +36,7 @@
 ## 开发者手册     
 * [构建、发布部署与仓库结构](man/build.md)  
 * [AI2P 的文档是怎样组织的](man/aboutdoc.md) 
+* [安全策略与威胁模型](man/SECURITY.md)  
 
 ## [AI 模型](models/README.md)
 

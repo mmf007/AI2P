@@ -123,6 +123,9 @@ public static class ApiEndpoints
         bool IsGitHubSource(string sourceId) =>
             Imports().Get(sourceId) is { } s
             && string.Equals(s.Kind, GitHubImporter.Kind, StringComparison.OrdinalIgnoreCase);
+        FigmaImporter Figma() => Ctx().Figma;
+        bool IsFigmaSource(string sourceId) =>
+            Imports().Get(sourceId) is { } s && FigmaImporter.IsFigma(s);
         AccountService Accounts() => registry.Accounts;
         // вход в Claude CLI (todo96): процесс `claude auth login` живёт на КОМПЬЮТЕРЕ,
         // а не в организации — поэтому сервис общий, синглтон приложения
@@ -3000,7 +3003,9 @@ public static class ApiEndpoints
                 ? await GitLab().CheckAsync(id)
                 : IsGitHubSource(id)
                     ? await GitHub().CheckAsync(id)
-                    : await Trello().CheckAsync(id);
+                    : IsFigmaSource(id)
+                        ? await Figma().CheckAsync(id)
+                        : await Trello().CheckAsync(id);
             return Results.Ok(new ImportCheckDto { Ok = ok, Message = message });
         });
         api.MapPost("/imports", (ImportSource source) =>
@@ -3028,6 +3033,12 @@ public static class ApiEndpoints
             {
                 // импорт ведёт импортёр вида, названного в источнике (T-249)
                 ImportResultDto result;
+                // у Figma массового импорта нет (T-477-S0): «список задач» макета — это
+                // весь файл, а его без явного выбора области не импортируем
+                if (IsFigmaSource(dto.SourceId))
+                {
+                    return Results.Problem(Loc.T("msg.figmaImporter.28"), statusCode: 400);
+                }
                 if (IsGitLabSource(dto.SourceId))
                 {
                     var gl = await GitLab().ImportAsync(project, dto.SourceId,
@@ -3088,7 +3099,46 @@ public static class ApiEndpoints
                 // источник не выбирают, а вставленный адрес сам говорит, откуда он.
                 // GITHUB СПРАШИВАЕТСЯ ПЕРВЫМ: адрес задачи GitHub по форме пути
                 // (<владелец>/<репозиторий>/issues/<номер>) совпадает со СТАРЫМ видом
-                // адреса GitLab — без разделителя «/-/», — и разбору GitLab подходит тоже
+                // адреса GitLab — без разделителя «/-/», — и разбору GitLab подходит тоже.
+                // Figma (T-477-S0) узнаётся по хосту figma.com и ни с кем не путается
+                if (FigmaImporter.CanRefresh(dto.Url))
+                {
+                    FigmaImporter.ImportedDesign design;
+                    try
+                    {
+                        design = await Figma().ImportContentAsync(project, dto.Url, dto.SourceId,
+                            new FigmaImporter.ImportOptions(dto.WholeFile, dto.Elements));
+                    }
+                    catch (FigmaImporter.FigmaRateLimitException limit)
+                    {
+                        // предел запросов Figma (T-481-S0): собранное уже не теряется, доимпорт —
+                        // кнопкой «обновить» карточки задачи. Задача по этой области макета уже
+                        // есть — она обновляется сразу; нет — собранное отдаётся в окно импорта
+                        // с кнопкой «Сохранить», и задачу создаёт обычная форма (T-485-S0)
+                        if (Tasks().FindByExternalRef(project.Id, limit.Design.ExternalRef) is not null)
+                        {
+                            return Results.Problem(Figma().SavePending(project, limit, Actor()), statusCode: 400);
+                        }
+                        var partial = limit.Design;
+                        return Results.Ok(new ImportedCardDto
+                        {
+                            Title = partial.Title,
+                            Description = partial.Description,
+                            ExternalRef = partial.ExternalRef,
+                            ImportUrl = partial.Url,
+                            Files = partial.Files,
+                            PendingMessage = Figma().PendingMessage(limit),
+                        });
+                    }
+                    return Results.Ok(new ImportedCardDto
+                    {
+                        Title = design.Title,
+                        Description = design.Description,
+                        ExternalRef = design.ExternalRef,
+                        ImportUrl = design.Url,
+                        Files = design.Files,
+                    });
+                }
                 if (GitHubImporter.CanRefresh(dto.Url))
                 {
                     var issue = await GitHub().ImportIssueContentAsync(dto.Url, dto.SourceId);
@@ -3188,7 +3238,8 @@ public static class ApiEndpoints
                 // поэтому GitHub проверяется РАНЬШЕ
                 var isGitLab = GitLabImporter.CanRefresh(url);
                 var isGitHub = GitHubImporter.CanRefresh(url);
-                if (!isGitLab && !isGitHub && !TrelloImporter.CanRefresh(url))
+                var isFigma = FigmaImporter.CanRefresh(url);
+                if (!isGitLab && !isGitHub && !isFigma && !TrelloImporter.CanRefresh(url))
                 {
                     return Results.Problem(Loc.T("msg.apiEndpoints.35", url), statusCode: 400);
                 }
@@ -3204,7 +3255,19 @@ public static class ApiEndpoints
                         statusCode: 400);
                 }
                 ImportRefreshResultDto refreshed;
-                if (isGitHub)
+                if (isFigma)
+                {
+                    var fg = await Figma().RefreshTaskAsync(project!, task, dto?.SourceId, Actor());
+                    refreshed = new ImportRefreshResultDto
+                    {
+                        DisplayId = fg.DisplayId,
+                        Title = fg.Title,
+                        Comments = 0,
+                        Files = fg.Files,
+                        Exported = 0,
+                    };
+                }
+                else if (isGitHub)
                 {
                     var gh = await GitHub().RefreshTaskAsync(task, dto?.SourceId, Actor());
                     refreshed = new ImportRefreshResultDto

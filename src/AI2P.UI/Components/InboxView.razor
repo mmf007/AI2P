@@ -139,6 +139,10 @@ else
     /// по клику на элементе списка открываются в этом же фрейме.</summary>
     [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
 
+    /// <summary>Inbox одного проекта — подвкладка карточки проекта (T-498-S0): тот же
+    /// общий список, отобранный по проекту. Пусто — общий Inbox организации.</summary>
+    [Parameter] public string? ProjectId { get; set; }
+
     private List<InboxItemDto> _items = [];
     private readonly Dictionary<string, string> _answers = [];
     private bool _busy;
@@ -185,7 +189,8 @@ else
     {
         try
         {
-            _items = await Api.GetInboxAsync();
+            var items = await Api.GetInboxAsync();
+            _items = string.IsNullOrEmpty(ProjectId) ? items : items.Where(i => i.ProjectId == ProjectId).ToList();
         }
         catch (ApiException ex)
         {

@@ -53,7 +53,11 @@
     {
         try
         {
-            _sources = (await Api.GetImportSourcesAsync()).Where(s => s.IsActive).ToList();
+            // у Figma массового импорта нет (T-477-S0) — только по ссылке с областью макета
+            _sources = (await Api.GetImportSourcesAsync())
+                .Where(s => s.IsActive
+                            && !string.Equals(s.Kind, ImportKinds.Figma, StringComparison.OrdinalIgnoreCase))
+                .ToList();
             _sourceId = _sources.FirstOrDefault()?.Id;
         }
         catch (ApiException ex)

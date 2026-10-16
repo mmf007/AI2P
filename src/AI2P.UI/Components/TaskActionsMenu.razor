@@ -3,111 +3,146 @@
 @inject I18nService L
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
+@inject IJSRuntime Js
 
-@* Меню «…» в конце строки дерева задач (T-455-S0): те же пункты и те же вызовы, что у
-   квадрата диаграммы подзадач (TaskDiagramView, RunningDiagramsView.RunActionAsync).
-   Признака живого задания у строки списка нет, поэтому «запустить»/«остановить»
-   выбираются по статусу: в работе или на паузе — остановить, иначе (не сдана) — запустить. *@
+@* Меню «…» задачи (T-455-S0; полный набор и единый порядок — T-492-S0): стоит в конце
+   строки дерева, таблицы, тэгов, подзадач и в правом верхнем углу карточки доски.
+   Порядок пунктов задан заказчиком: открыть, запустить, запустить иерархию, остановить,
+   изменить статус, изменить, сменить сервер, копировать, все файлы, ссылки, удалить.
+   Признака живого задания у строки списка нет, поэтому видимость пунктов считается
+   по статусу задачи. *@
 <span class="ai2p-tree-menu" @onclick:stopPropagation="true">
     <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
-             data-tree-menu="@Item.DisplayId">
+             data-tree-menu="@Item.DisplayId" data-task-menu="@Item.DisplayId">
         <MudMenuItem Icon="@Icons.Material.Filled.OpenInNew"
                      OnClick="@(() => State.OpenTask(Item.Id, Item.DisplayId, Item.Title, FrameIndex))">@L["task.open"]</MudMenuItem>
-        @if (!Item.IsTemplate && !Running && !TaskStatuses.Settled(Item.Status))
+        @if (CanStartByStatus)
         {
-            <MudMenuItem Icon="@Icons.Material.Filled.PlayArrow" Disabled="@(!CanAct)"
+            <MudMenuItem Icon="@Icons.Material.Filled.PlayArrow" Disabled="@(!CanRun)"
                          OnClick="@(() => RunAsync("start"))">@L["task.start"]</MudMenuItem>
+        }
+        @if (CanStartByStatus && HasChildren)
+        {
+            <MudMenuItem Icon="@Ai2pIcons.TripleArrowRight" Disabled="@(!CanRun)"
+                         OnClick="@(() => RunAsync("hierarchy"))">@L["task.startHierarchy"]</MudMenuItem>
         }
         @if (!Item.IsTemplate && Running)
         {
-            <MudMenuItem Icon="@Icons.Material.Filled.Stop" Disabled="@(!CanAct)"
+            <MudMenuItem Icon="@Icons.Material.Filled.Stop" Disabled="@(!CanRun)"
                          OnClick="@(() => RunAsync("stop"))">@L["task.stop.job"]</MudMenuItem>
         }
-        <MudMenuItem Icon="@Icons.Material.Filled.SwapHoriz" Disabled="@(!CanAct)"
-                     OnClick="@(() => RunAsync("status"))">@L["task.changeStatus"]</MudMenuItem>
+        @if (!Item.IsTemplate && !(Item.Status == TaskStatuses.InProgress && MachineAtWork))
+        {
+            <MudMenuItem Icon="@Icons.Material.Filled.SwapHoriz" Disabled="@(!CanAct)"
+                         OnClick="@(() => RunAsync("status"))">@L["task.changeStatus"]</MudMenuItem>
+        }
         <MudMenuItem Icon="@Icons.Material.Filled.Edit" Disabled="@(!CanAct)"
                      OnClick="@(() => RunAsync("edit"))">@L["common.edit"]</MudMenuItem>
+        @if (State.IsCluster && !Running)
+        {
+            <MudMenuItem Icon="@Icons.Material.Filled.Dns" Disabled="@(!CanAct)"
+                         OnClick="@(() => RunAsync("server"))">@L["task.server.change"]</MudMenuItem>
+        }
+        <MudMenuItem Icon="@Icons.Material.Filled.ContentCopy"
+                     OnClick="@(() => RunAsync("copy"))">@L["copy.title"]</MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Attachment"
+                     OnClick="@(() => RunAsync("files"))">@L["task.files"]</MudMenuItem>
         <MudMenuItem Icon="@Icons.Material.Filled.Link"
                      OnClick="@(() => RunAsync("link"))">@L["task.link"]</MudMenuItem>
         <MudMenuItem Icon="@Icons.Material.Filled.Delete" Disabled="@(!CanAct)"
                      OnClick="@(() => RunAsync("delete"))">@L["common.delete"]</MudMenuItem>
     </MudMenu>
 </span>
+@* переспрос запуска иерархии — тот же, что у кнопки карточки (T-159, T-186, T-210) *@
+<MudMessageBox @ref="_hierarchyBox" Title="@L["task.startHierarchy"]"
+               YesText="@L["task.startHierarchy.yes"]" CancelText="@L["common.cancel"]">
+    <MessageContent>
+        <MudText Typo="Typo.body2">@L["task.startHierarchy.confirm"]</MudText>
+        <MudCheckBox T="bool" @bind-Value="_withErrors" Dense="true" Class="mt-2"
+                     Color="Color.Primary" Label="@L["task.startHierarchy.withErrors"]" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @L["task.startHierarchy.withErrors.hint"]
+        </MudText>
+        <MudCheckBox T="bool" @bind-Value="_withNeedsFix" Dense="true" Class="mt-2"
+                     Color="Color.Primary" Label="@L["task.startHierarchy.withNeedsFix"]" />
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            @L["task.startHierarchy.withNeedsFix.hint"]
+        </MudText>
+    </MessageContent>
+</MudMessageBox>
 
 @code {
     [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
 
     [Parameter, EditorRequired] public TaskItem Item { get; set; } = default!;
 
+    /// <summary>У задачи есть потомки — показывается «запустить иерархию» (T-492-S0).
+    /// В строке списка этого признака нет, его передаёт представление.</summary>
+    [Parameter] public bool HasChildren { get; set; }
+
     /// <summary>Действие выполнено — список перечитывается.</summary>
     [Parameter] public EventCallback OnDone { get; set; }
 
+    private MudMessageBox _hierarchyBox = default!;
+    private bool _withErrors;
+    private bool _withNeedsFix;
+
     private bool CanAct => State.CanEdit && !Item.IsReadOnly;
 
+    /// <summary>Запуск чужой задачи не гаснет (T-196): он уходит её серверу заявкой.</summary>
+    private bool CanRun => State.CanEdit;
+
     private bool Running => Item.Status is TaskStatuses.InProgress or TaskStatuses.Paused;
+
+    /// <summary>Задачу ведёт ИИ или авто ПО (T-495-S0): «изменить статус» у такой задачи
+    /// «в работе» скрыт — статус ведёт само задание. Задачу человека «в работе» он может
+    /// перевести сам. Ведущий — тот, кто реально взял задачу, иначе назначенный;
+    /// исполнителя нет или он не найден — считается человеком.</summary>
+    private bool MachineAtWork =>
+        State.Executors.FirstOrDefault(e => e.Id == (Item.ActualExecutorId ?? Item.ExecutorIds.FirstOrDefault()))
+            ?.Kind is ExecutorKind.Ai or ExecutorKind.Software;
+
+    /// <summary>«Запустить» и «запустить иерархию» (T-492-S0): не в работе, не сдана, не отменена.</summary>
+    private bool CanStartByStatus => !Item.IsTemplate
+        && Item.Status is not (TaskStatuses.InProgress or TaskStatuses.Done
+            or TaskStatuses.Review or TaskStatuses.Cancelled);
 
     private async Task RunAsync(string action)
     {
         try
         {
-            if (action == "link")
-            {
-                var link = new DialogParameters<TaskLinkDialog>
-                {
-                    { d => d.Url, State.TaskUrl(Item.Id) },
-                    { d => d.LocalUrl, State.HasExternalUrl ? State.TaskLocalUrl(Item.Id) : "" },
-                    { d => d.RelativeUrl, LinkUrls.RelativeOf(State.TaskUrl(Item.Id)) },
-                };
-                await Dialogs.ShowAsync<TaskLinkDialog>(L["task.link"], link,
-                    new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
-                return;
-            }
-            var details = await Api.GetTaskAsync(Item.Id);
-            var task = details.Task;
             switch (action)
             {
-                case "edit":
+                case "link":
                 {
-                    var parameters = new DialogParameters<TaskDialog> { { d => d.Source, details } };
-                    var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
-                        FormDialogs.Options(MaxWidth.Medium));
-                    if (await dialog.Result is { Canceled: false, Data: TaskSaveDto dto })
+                    var link = new DialogParameters<TaskLinkDialog>
                     {
-                        await Api.UpdateTaskAsync(dto);
-                    }
-                    break;
+                        { d => d.Url, State.TaskUrl(Item.Id) },
+                        { d => d.LocalUrl, State.HasExternalUrl ? State.TaskLocalUrl(Item.Id) : "" },
+                        { d => d.RelativeUrl, LinkUrls.RelativeOf(State.TaskUrl(Item.Id)) },
+                    };
+                    await Dialogs.ShowAsync<TaskLinkDialog>(L["task.link"], link,
+                        new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
+                    return;
                 }
-                case "status":
+                case "files":
                 {
-                    var parameters = new DialogParameters<StatusDialog> { { d => d.Current, task.Status } };
-                    var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
-                    if (await dialog.Result is { Canceled: false, Data: string status } && status != task.Status)
-                    {
-                        await Api.ChangeTaskStatusAsync(task.Id, status);
-                    }
-                    break;
+                    var files = new DialogParameters<TaskFilesDialog> { { d => d.TaskId, Item.Id } };
+                    await Dialogs.ShowAsync<TaskFilesDialog>(L["task.files"], files,
+                        new DialogOptions { MaxWidth = MaxWidth.ExtraLarge, FullWidth = true });
+                    return;
                 }
-                case "delete":
-                {
-                    var target = task.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
-                    var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
-                        target, task.Id, $"{task.DisplayId} {task.Title}");
-                    if (choice == ArchiveOrDeleteDialog.Archive)
-                    {
-                        await Api.MoveToArchiveAsync(target, task.Id);
-                    }
-                    else if (choice is not null)
-                    {
-                        await Api.DeleteTaskAsync(task.Id);
-                    }
+                case "copy":
+                    await CopyAsync();
+                    return;
+                case "hierarchy":
+                    await StartHierarchyAsync();
                     break;
-                }
-                case "start":
-                    await Api.StartTaskAsync(task.Id);
-                    break;
-                case "stop":
-                    await Api.StopTaskAsync(task.Id, false, false);
-                    Snackbar.Add(L["task.stop.done"], Severity.Success);
+                default:
+                    if (!await RunWithDetailsAsync(action))
+                    {
+                        return;
+                    }
                     break;
             }
             await OnDone.InvokeAsync();
@@ -118,4 +153,144 @@
             Snackbar.Add(ex.Message, Severity.Error);
         }
     }
+
+    /// <summary>Действия, которым нужна полная карточка задачи. false — человек отказался.</summary>
+    private async Task<bool> RunWithDetailsAsync(string action)
+    {
+        var details = await Api.GetTaskAsync(Item.Id);
+        var task = details.Task;
+        switch (action)
+        {
+            case "edit":
+            {
+                var parameters = new DialogParameters<TaskDialog> { { d => d.Source, details } };
+                var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
+                    FormDialogs.Options(MaxWidth.Medium));
+                if (await dialog.Result is not { Canceled: false, Data: TaskSaveDto dto })
+                {
+                    return false;
+                }
+                await Api.UpdateTaskAsync(dto);
+                return true;
+            }
+            case "status":
+            {
+                var parameters = new DialogParameters<StatusDialog> { { d => d.Current, task.Status } };
+                var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
+                if (await dialog.Result is not { Canceled: false, Data: string status } || status == task.Status)
+                {
+                    return false;
+                }
+                await Api.ChangeTaskStatusAsync(task.Id, status);
+                return true;
+            }
+            case "server":
+            {
+                var parameters = new DialogParameters<TaskServerDialog>
+                {
+                    { d => d.Current, task.ServerId ?? "" },
+                    { d => d.IsTemplate, task.IsTemplate },
+                };
+                var dialog = await Dialogs.ShowAsync<TaskServerDialog>(L["task.server.change"], parameters);
+                if (await dialog.Result is not { Canceled: false, Data: string serverId }
+                    || serverId == (task.ServerId ?? ""))
+                {
+                    return false;
+                }
+                await Api.ChangeTaskServerAsync(task.Id, serverId);
+                return true;
+            }
+            case "delete":
+            {
+                var target = task.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
+                var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+                    target, task.Id, $"{task.DisplayId} {task.Title}");
+                if (choice == ArchiveOrDeleteDialog.Archive)
+                {
+                    await Api.MoveToArchiveAsync(target, task.Id);
+                }
+                else if (choice is not null)
+                {
+                    await Api.DeleteTaskAsync(task.Id);
+                }
+                return choice is not null;
+            }
+            case "start":
+                await Api.StartTaskAsync(task.Id);
+                return true;
+            case "stop":
+                await Api.StopTaskAsync(task.Id, false, false);
+                Snackbar.Add(L["task.stop.done"], Severity.Success);
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Запуск иерархии (T-159) с теми же галочками, что у карточки; у чужой
+    /// задачи (T-196) — заявка её серверу.</summary>
+    private async Task StartHierarchyAsync()
+    {
+        _withErrors = false;
+        _withNeedsFix = false;
+        if (await _hierarchyBox.ShowAsync() != true)
+        {
+            return;
+        }
+        if (Item.IsReadOnly)
+        {
+            var request = await Api.RequestRunAsync(Item.Id, RunRequestKinds.Hierarchy, _withErrors, _withNeedsFix);
+            Snackbar.Add(request.AlreadyRunning ? L["task.run.already"]
+                    : request.AlreadyRequested ? L["task.run.pending", request.TargetServer]
+                    : L["task.run.requested", request.TargetServer],
+                request.AlreadyRunning || request.AlreadyRequested ? Severity.Info : Severity.Success);
+            return;
+        }
+        var run = await Api.StartHierarchyAsync(Item.Id, _withErrors, _withNeedsFix);
+        if (run.Stopped)
+        {
+            Snackbar.Add(L["task.startHierarchy.stopped", string.Join(", ", run.StoppedBy)], Severity.Warning);
+            return;
+        }
+        var started = run.Started.Count > 0 ? string.Join(", ", run.Started) : L["common.empty"];
+        Snackbar.Add($"{L["task.startHierarchy.started"]}: {started} " +
+                     $"({L["task.startHierarchy.waiting"]}: {run.Waiting})",
+            run.Started.Count > 0 ? Severity.Success : Severity.Info);
+    }
+
+    /// <summary>«Копировать» (T-67-S0, пункт меню — T-492-S0): описание, критерии, чат и
+    /// текстовый результат Markdown-ом — то же, что копирует кнопка карточки.</summary>
+    private async Task CopyAsync()
+    {
+        var details = await Api.GetTaskAsync(Item.Id);
+        var chat = await Api.GetChatAsync(Item.Id);
+        var artifacts = new List<string>();
+        foreach (var artifact in details.Artifacts.Where(a => a.EndsWith(".md") || a.EndsWith(".txt")))
+        {
+            var text = await Api.GetFileTextAsync(artifact);
+            if (text.Trim().Length > 0)
+            {
+                artifacts.Add($"**{System.IO.Path.GetFileNameWithoutExtension(artifact)}**\n\n{text.Trim()}");
+            }
+        }
+        var parts = new List<CopyPart>
+        {
+            new(L["task.card.description"], details.Description),
+            new(L["task.acceptance"], details.Acceptance),
+            new(L["task.card.chat"], string.Join("\n\n", chat.Select(m =>
+                $"**{(m.AuthorName is { Length: > 0 } name ? name : Nick(m.FromExecutorId))}** · " +
+                $"{m.CreatedAt.ToLocalTime():g}\n\n{m.Text.Trim()}"))),
+            new(L["task.card.artifacts"], string.Join("\n\n", artifacts)),
+        };
+        var copied = CopyText.Build(parts, true);
+        if (copied.Length == 0)
+        {
+            Snackbar.Add(L["common.empty"], Severity.Info);
+            return;
+        }
+        await Js.InvokeVoidAsync("ai2p.copyText", copied);
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+
+    private string Nick(string? executorId) =>
+        State.Executors.FirstOrDefault(e => e.Id == executorId)?.Nick ?? "";
 }

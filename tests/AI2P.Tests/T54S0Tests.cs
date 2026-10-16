@@ -105,8 +105,10 @@ public sealed class T54S0Tests : IDisposable
         var blocker = Task("блокирующая");
         var branch = Task("ветка");
         var waits = Task("ждущая", branch.Id, human.Id, blockers: [blocker.Id]);
-        _f.Tasks.ChangeStatus(blocker.Id, TaskStatuses.Done, null);
+        // пометка ставится ДО «готово»: смена статуса сама будит подписку автозапуска, и при
+        // обратном порядке под нагрузкой она успевала запустить «ждущую» раньше пометки
         await _f.Orchestrator.SetAutoStartAsync(branch.Id, null, on: false);
+        _f.Tasks.ChangeStatus(blocker.Id, TaskStatuses.Done, null);
 
         await _f.Orchestrator.AutoStartUnblockedAsync(_f.Tasks.Get(blocker.Id)!, null);
 

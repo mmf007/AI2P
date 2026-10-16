@@ -223,6 +223,9 @@ else
 @code {
     private static readonly CultureInfo Culture = CultureInfo.CurrentCulture;
 
+    /// <summary>Фрейм, в котором открыт список (T-476-S0): созданная задача открывается в нём же.</summary>
+    [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
+
     /// <summary>Колонки таблицы (todo34_2): все сортируются кликом.</summary>
     private static readonly (string Key, string Title)[] Columns =
     [
@@ -583,7 +586,7 @@ else
             var created = await Api.RunScheduleOverdueAsync(item.ScheduleId);
             Snackbar.Add(L["task.instantiate.created"], Severity.Success);
             State.NotifyChanged();
-            State.OpenTask(created.Id, created.DisplayId, created.Title);
+            State.OpenTask(created.Id, created.DisplayId, created.Title, FrameIndex);
             await ReloadAsync();
         }
         catch (ApiException ex)

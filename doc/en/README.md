@@ -44,6 +44,7 @@ The data goes nowhere: the database, the project files and the keys lie next to 
 * [What it does](#what-it-does)
 * [What it looks like in work](#what-it-looks-like-in-work)
 * [AI2P builds itself](#ai2p-builds-itself)
+* [AI farm: one task, many computers](#ai-farm-one-task-many-computers)
 * [What is needed](#what-is-needed)
 * [Quick start](#quick-start)
 * [Documentation](#documentation)
@@ -101,6 +102,43 @@ the tasks and accepts the results. Every release is a task tree: an agent splits
 into subtasks, hands them out to executors, and the final task sums up and sends back for
 rework whatever did not add up. So this is not a demo on a shopping list, but a product that
 proves itself on itself every day — honest agent mistakes and their fixes included.
+
+## AI farm: one task, many computers
+
+<img src="../images/ai2p-farm.gif" alt="AI farm: a parent task on the conductor, subtasks travel by replication to computers with local models and come back with results" width="960">
+
+A local model lives where its weights and its video card are: video is computed by a gaming
+PC with a powerful card, texts by a llama.cpp model on an office machine, pictures by a Mac.
+The model cannot be moved, but the **work** can. AI2P needs no separate "job dispatcher" for
+that — the replication the cluster already has is enough.
+
+How it works:
+
+1. **The computers are joined into a cluster.** One of them is the organization's conductor,
+   the others connect to it ([Several servers](man/servers.md)). Tasks, chat, executors and
+   experience are shared by everyone: each server replicates them with the conductor (the
+   topology is a star).
+2. **Every machine sets up ITS OWN executors.** An AI executor on a local model is bound to
+   the server where that model is installed: "Kandinsky on S1", "Qwen on S2", "FLUX on S3".
+3. **The parent task is split into subtasks.** An agent (or a template) breaks the work into
+   parts — script, storyboard, video — and gives each part its own executor and an **owner
+   server**: the computer where the right model is installed. A task can also be moved to
+   another server with the "change server" button.
+4. **Replication delivers the subtasks.** A subtask arrives at its server through the change
+   log, and a hierarchy start goes to the owner as a request. Every computer runs only its own
+   tasks and only with its own model — all at the same time.
+5. **The results travel back.** A subtask's result, its artifacts and files are replicated to
+   the other servers; once the subtasks are handed in, the parent task gathers them into one
+   result and sends back for rework whatever did not add up.
+
+What you get: one task "make a clip" loads several video cards at once, the cloud model only
+does the planning, and the expensive computing runs on your own hardware for free. A computer
+that is switched off stops nobody: its subtasks wait, and it catches up with the rest once it
+is switched on.
+
+What the farm does **not** do: it is not load balancing. A task runs only on its owner, and if
+the owner is off, no other server picks it up by itself — you (or the agent) decide the
+distribution by choosing the executor and the server of each subtask.
 
 ## What is needed
 

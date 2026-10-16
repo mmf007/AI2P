@@ -185,6 +185,13 @@ else
             </div>
         </MudTabPanel>
 
+        @* Inbox проекта (T-498-S0): всё как в общем Inbox, но только по этому проекту *@
+        <MudTabPanel Text="@L["inbox.title"]">
+            <div class="pa-2">
+                <InboxView ProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
         <MudTabPanel Text="@L["projects.tab.security"]">
             <div class="pa-2">
                 @* правила безопасности проекта (ТЗ гл. 12, todo25; переименовано из «процесса») *@

@@ -50,7 +50,8 @@ public sealed class ImportKeyService
     /// такой источник становится по одному введённому токену. Trello в этот список
     /// не входит: у него ключ интеграции и токен — два разных значения (T-134).
     /// </summary>
-    private static readonly string[] TokenOnlyKinds = [GitLabImporter.Kind, GitHubImporter.Kind];
+    private static readonly string[] TokenOnlyKinds =
+        [GitLabImporter.Kind, GitHubImporter.Kind, FigmaImporter.Kind];
 
     /// <summary>У вида источника есть отдельный ключ API (T-249): у Trello — да,
     /// у GitLab и GitHub — нет, там всё решает один токен.</summary>
@@ -73,7 +74,11 @@ public sealed class ImportKeyService
         {
             return ("", GitHubImporter.SourceParams.Parse(source.ParamsJson).TokenRef);
         }
-        var p = TrelloImporter.SourceParams.Parse(source.ParamsJson);
+        if (FigmaImporter.IsFigma(source))
+        {
+            return ("", FigmaImporter.SourceParams.Parse(source.ParamsJson).TokenRef);
+        }
+        var p =TrelloImporter.SourceParams.Parse(source.ParamsJson);
         return (NeedsKey(source.Kind) ? p.KeyRef : "", p.TokenRef);
     }
 
@@ -118,6 +123,8 @@ public sealed class ImportKeyService
                 // у GitHub видно по префиксу (ghp_, github_pat_), что в поле токена
                 // оказалось что-то другое — например, ключ Trello (T-247)
                 : isGitHub ? GitHubImporter.SecretHint(token ?? "")
+                // личный токен Figma начинается с figd_ (T-477-S0)
+                : FigmaImporter.IsFigma(source) ? FigmaImporter.SecretHint(token ?? "")
                 : "",
         };
     }

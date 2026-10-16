@@ -13,6 +13,7 @@ fim do navegador) ou direto do diretório `doc/` ao lado do aplicativo instalado
 * [Archives](Archives.md) — Arquivamento
 * [audio](audio.md) — Trabalho com modelos de áudio
 * [build](build.md) — AI2P — compilação, distribuição e estrutura do repositório
+* [cli_install](cli_install.md) — Instalação do software de agentes CLI
 * [config](config.md) — Configuração
 * [experience](experience.md) — Experiência
 * [https](https.md) — HTTPS
@@ -27,8 +28,8 @@ fim do navegador) ou direto do diretório `doc/` ao lado do aplicativo instalado
 * [schedule](schedule.md) — Agenda
 * [servers](servers.md) — Vários servidores
 * [service](service.md) — Executar o AI2P como serviço do sistema operacional
-* [tasks](tasks.md) — Tarefas
 * [TaskDo](TaskDo.md) — Algoritmo de execução das tarefas
+* [tasks](tasks.md) — Tarefas
 * [teams](teams.md) — Equipes
 * [templates](templates.md) — Modelos de processo
 

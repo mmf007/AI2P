@@ -67,7 +67,10 @@ public sealed class T211Tests
         // ключ доходит до dotnet publish, иначе рантайма внутри не окажется
         Assert.Contains("--self-contained", ps);
         Assert.Contains("\"-r\", $Runtime", ps);
-        Assert.Contains("-r \"$RUNTIME\" --self-contained true", sh);
+        // с T-331 (сборка без сети) ключ уходит СВОЙСТВОМ: его получают и dotnet restore
+        // (у которого ключа --self-contained нет), и dotnet publish — через "$@"
+        Assert.Contains("-r \"$RUNTIME\" -p:SelfContained=true", sh);
+        Assert.Contains("dotnet publish \"$PROJECT\" -c \"$CONFIGURATION\" \"$@\"", sh);
     }
 
     /// <summary>Каталоги РАЗНЫЕ: releasefull для полной, release — как было.

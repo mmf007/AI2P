@@ -86,7 +86,8 @@ public sealed class T9S1Tests
             }
         }
 
-        // восьмое место — меню «…» TaskActionsMenu.razor (T-448/T-455-S0)
-        Assert.Equal(8, places);
+        // восьмое место — меню «…» TaskActionsMenu.razor (T-448/T-455-S0); с T-495-S0 мест
+        // семь: диаграммы зовут то же меню, и своего вызова у RunningDiagramsView больше нет
+        Assert.Equal(7, places);
     }
 }

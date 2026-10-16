@@ -11,6 +11,7 @@ de o registro ser salvo.
 
 ## Índice da seção
 
+* [figma](figma.md) — Importar um layout do Figma — guia de conexão
 * [github](github.md) — Importação de tarefas do GitHub — instruções de conexão
 * [gitlab](gitlab.md) — Importação de tarefas do GitLab — instruções de conexão
 * [trello](trello.md) — Importação de tarefas do Trello — instruções de conexão

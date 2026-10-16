@@ -275,40 +275,12 @@ else
                         @* контекстное меню в ПРАВОМ ВЕРХНЕМ углу, а у узкого квадрата — ПОД
                            ручкой переноса (T-135-S0, T-159-S0): рядом они не помещаются, и
                            три значка ставятся друг под другом столбиком *@
-                        <span class="ai2p-diagram-menu" @onclick:stopPropagation="true">
-                            <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
-                                     data-diagram-menu="@node.DisplayId">
-                                <MudMenuItem Icon="@Icons.Material.Filled.OpenInNew"
-                                             OnClick="@(() => Open(node))">@L["task.open"]</MudMenuItem>
-                                @* без обработчика действий («Диаграммы в работе», T-328-S0)
-                                   меню только открывает задачу: прочие пункты молчали бы *@
-                                @if (OnAction.HasDelegate)
-                                {
-                                @if (!node.Settled && !node.HasActiveJob)
-                                {
-                                    <MudMenuItem Icon="@Icons.Material.Filled.PlayArrow"
-                                                 Disabled="@(!CanAct(node))"
-                                                 OnClick="@(() => ActAsync("start", node))">@L["task.start"]</MudMenuItem>
-                                }
-                                @if (node.HasActiveJob)
-                                {
-                                    <MudMenuItem Icon="@Icons.Material.Filled.Stop"
-                                                 Disabled="@(!CanAct(node))"
-                                                 OnClick="@(() => ActAsync("stop", node))">@L["task.stop.job"]</MudMenuItem>
-                                }
-                                <MudMenuItem Icon="@Icons.Material.Filled.SwapHoriz"
-                                             Disabled="@(!CanAct(node))"
-                                             OnClick="@(() => ActAsync("status", node))">@L["task.changeStatus"]</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Filled.Edit"
-                                             Disabled="@(!CanAct(node))"
-                                             OnClick="@(() => ActAsync("edit", node))">@L["common.edit"]</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Filled.Link"
-                                             OnClick="@(() => ActAsync("link", node))">@L["task.link"]</MudMenuItem>
-                                <MudMenuItem Icon="@Icons.Material.Filled.Delete"
-                                             Disabled="@(!CanAct(node))"
-                                             OnClick="@(() => ActAsync("delete", node))">@L["common.delete"]</MudMenuItem>
-                                }
-                            </MudMenu>
+                        @* меню то же, что у всех списков задач (T-495-S0): один компонент
+                           TaskActionsMenu, тот же состав и порядок пунктов *@
+                        <span class="ai2p-diagram-menu" data-diagram-menu="@node.DisplayId"
+                              @onclick:stopPropagation="true">
+                            <TaskActionsMenu Item="@MenuItem(node)" HasChildren="@HasChildren(node)"
+                                             OnDone="AfterActionAsync" />
                         </span>
                         @* внутри квадрата: код, заголовок и два поля состояния внизу. Код
                            отодвинут от ручки переноса и от значка меню, чтобы на них не
@@ -412,9 +384,9 @@ else
     /// Смену набора сообщать через <see cref="Version"/>.</summary>
     [Parameter] public IReadOnlyList<string>? TaskIds { get; set; }
 
-    /// <summary>Действие над задачей квадрата: карточка делает его теми же руками, что и
-    /// в таблице подзадач (правка, статус, удаление, ссылка, запуск, остановка).</summary>
-    [Parameter] public EventCallback<(string Action, string TaskId)> OnAction { get; set; }
+    /// <summary>Диаграмма узлов шаблона: в меню «…» нет запуска, остановки и смены статуса
+    /// (T-495-S0, как у шаблонов в прочих списках).</summary>
+    [Parameter] public bool IsTemplate { get; set; }
 
     /// <summary>Перечитать подзадачи у карточки после переноса по иерархии.</summary>
     [Parameter] public EventCallback OnReload { get; set; }
@@ -1182,15 +1154,33 @@ else
     private bool CanMove(TaskDiagramNodeDto node) =>
         State.CanEdit && !node.IsRoot && !node.Outside && (!node.IsReadOnly || State.IsConductor);
 
-    private bool CanAct(TaskDiagramNodeDto node) => State.CanEdit && !node.IsReadOnly;
-
     private void Open(TaskDiagramNodeDto node) =>
         State.OpenTask(node.Id, node.DisplayId, node.Title, FrameIndex);
 
-    private async Task ActAsync(string action, TaskDiagramNodeDto node)
+    /// <summary>Строка для меню «…» (T-495-S0): меню считает видимость пунктов по статусу,
+    /// исполнителю и признаку чужой задачи — всё это у квадрата есть. Исполнитель квадрата —
+    /// тот, кто реально ведёт задачу, у не начатой — назначенный.</summary>
+    private TaskItem MenuItem(TaskDiagramNodeDto node) => new()
     {
-        await OnAction.InvokeAsync((action, node.Id));
+        Id = node.Id,
+        IsTemplate = IsTemplate,
+        DisplayId = node.DisplayId,
+        Title = node.Title,
+        Status = node.Status,
+        ParentId = node.ParentId,
+        IsReadOnly = node.IsReadOnly,
+        ExecutorIds = node.ExecutorId is { Length: > 0 } executor ? [executor] : [],
+        ActualExecutorId = node.ExecutorId is { Length: > 0 } actual ? actual : null,
+    };
+
+    private bool HasChildren(TaskDiagramNodeDto node) =>
+        _diagram?.Nodes.Any(n => n.ParentId == node.Id) == true;
+
+    /// <summary>Действие меню выполнено: перечитать диаграмму и подзадачи карточки.</summary>
+    private async Task AfterActionAsync()
+    {
         await ReloadAsync();
+        await OnReload.InvokeAsync();
     }
 
     /// <summary>

@@ -1,5 +1,5 @@
 {
-  "seedVersion": 25,
+  "seedVersion": 26,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -182,8 +182,8 @@
       "code": "AI2P.Tasks.ImportFromUrl",
       "tool": "import_task_from_url",
       "title": "Importar un encargo por URL",
-      "hint": "El agente importa una tarjeta de Trello por su enlace: se crea una tarea-borrador del proyecto actual y los archivos adjuntos se descargan a uploads/ del proyecto. Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la importación.",
-      "prompt": "Importar un encargo de un sistema externo por su enlace (por ahora sólo está soportado Trello: https://trello.com/c/<código>). Crea en el proyecto actual una tarea-borrador: título y descripción de la tarjeta, y los archivos adjuntos se descargan y se añaden como enlaces. Volver a importar la misma tarjeta no crea un duplicado. El parámetro url es el enlace a la tarjeta."
+      "hint": "El agente importa un encargo por enlace: una tarjeta de Trello, una issue de GitHub o GitLab, o un área de diseño de Figma. Se crea una tarea borrador en el proyecto actual; los archivos y las imágenes de pantallas se descargan en uploads/ del proyecto. Una regla de seguridad deny/confirm sobre este código prohíbe/confirma la importación. El agente CLI usa el comando «ai2p import».",
+      "prompt": "Importar un encargo de un sistema externo por enlace: tarjeta de Trello (https://trello.com/c/<código>), issue de GitHub o GitLab, área de diseño de Figma (https://www.figma.com/design/<clave>/<nombre>?node-id=<nodo>). Crea una tarea borrador en el proyecto actual; los archivos se descargan y se adjuntan como enlaces. Volver a importar lo mismo no crea duplicados. Parámetro url: el enlace. Figma admite dos parámetros más, y son preguntas para la PERSONA, no los decida usted: elements (true: pantallas y todos los elementos de diseño como imágenes separadas; false: solo las pantallas principales) y wholeFile (true: importar todo el archivo si el enlace no tiene node-id; solo con el consentimiento explícito de la persona). Si no sabe la respuesta, pregunte a la persona; sin ellos Figma no se importa. En la descripción de la tarea, bajo cada imagen van todos los textos de ese marco."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000017",

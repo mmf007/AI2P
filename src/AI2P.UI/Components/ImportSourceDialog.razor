@@ -28,6 +28,7 @@
                     <MudSelectItem T="string" Value="@("trello")">Trello</MudSelectItem>
                     <MudSelectItem T="string" Value="@("github")">GitHub</MudSelectItem>
                     <MudSelectItem T="string" Value="@("gitlab")">GitLab</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("figma")">Figma</MudSelectItem>
                 </MudSelect>
                 <MudTooltip Text="@L["imports.doc"]">
                     <MudIconButton Icon="@Icons.Material.Filled.Info" Variant="Variant.Outlined"
@@ -48,6 +49,13 @@
                 <MudTextField @bind-Value="_labels" Label="@L["imports.gitlab.labels"]"
                               data-import-field="labels"
                               HelperText="@L["imports.gitlab.labelsHint"]" />
+            }
+            else if (IsFigma)
+            {
+                @* у Figma полей нет (T-477-S0): импорт идёт только по ссылке на область макета *@
+                <MudText Typo="Typo.caption" Class="mud-text-secondary" data-import-field="figma">
+                    @L["imports.figma.byUrlOnly"]
+                </MudText>
             }
             else
             {
@@ -180,6 +188,10 @@
     private bool IsGitHub =>
         string.Equals(_source.Kind, "github", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Источник Figma (T-477-S0): полей нет, секрет один — личный токен.</summary>
+    private bool IsFigma =>
+        string.Equals(_source.Kind, "figma", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Ссылки на секреты вида «trello.*» полагаются ТОЛЬКО источнику Trello:
     /// у остальных видов свой токен, и класть его по чужому адресу нельзя.</summary>
     private bool IsTrello =>
@@ -188,13 +200,13 @@
     /// <summary>Обязательное поле вида: у Trello — логин, у GitLab — путь проекта. Без него
     /// массовому импорту неоткуда брать задачи, и «Сохранить» заблокировано.</summary>
     private bool RequiredFilled =>
-        IsGitLab ? _project.Trim().Length > 0 : _login.Trim().Length > 0;
+        IsFigma || (IsGitLab ? _project.Trim().Length > 0 : _login.Trim().Length > 0);
 
     /// <summary>У вида источника есть ОТДЕЛЬНЫЙ ключ API (T-249). Сервер отвечает то же
     /// самое полем NeedsKey состояния секретов, но у ещё не сохранённой записи спрашивать
     /// некого — вид известен и здесь. Слой UI на AI2P.Connectors не ссылается, поэтому
     /// правило повторено кодом вида, а не общей функцией.</summary>
-    private bool NeedsKey => !IsGitLab && !IsGitHub;
+    private bool NeedsKey => !IsGitLab && !IsGitHub && !IsFigma;
 
     private bool NameTaken => Existing.Any(s =>
         s.Id != _source.Id &&
@@ -357,7 +369,7 @@
             _params["project"] = _project.Trim();
             _params["labels"] = _labels.Trim();
         }
-        else
+        else if (!IsFigma)
         {
             _params["login"] = _login.Trim();
             _params["filter"] = _filter.Trim();

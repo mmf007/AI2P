@@ -45,6 +45,7 @@ claves están junto al programa.
 * [Qué hace](#qué-hace)
 * [Cómo se ve en la práctica](#cómo-se-ve-en-la-práctica)
 * [AI2P se construye a sí mismo](#ai2p-se-construye-a-sí-mismo)
+* [Granja de IA: una tarea, muchos ordenadores](#granja-de-ia-una-tarea-muchos-ordenadores)
 * [Qué hace falta](#qué-hace-falta)
 * [Inicio rápido](#inicio-rápido)
 * [Documentación](#documentación)
@@ -102,6 +103,45 @@ agente divide el trabajo en subtareas, las reparte entre ejecutores y la última
 el balance y devuelve a revisión lo que no cuadra. No es una demo sobre una lista de la
 compra, sino un producto que cada día demuestra que funciona sobre sí mismo, con los
 errores honestos de los agentes y su corrección incluidos.
+
+## Granja de IA: una tarea, muchos ordenadores
+
+<img src="../images/ai2p-farm.gif" alt="Granja de IA: la tarea padre en el director; las subtareas viajan por replicación a ordenadores con modelos locales y vuelven con el resultado" width="960">
+
+Un modelo local vive donde están sus pesos y su tarjeta gráfica: el vídeo lo calcula un PC
+de juegos con una tarjeta potente, los textos un modelo llama.cpp en una máquina de oficina,
+las imágenes un Mac. El modelo no se puede trasladar, pero el **trabajo** sí. AI2P no
+necesita para ello un «repartidor de trabajos» aparte: basta con la replicación que el
+clúster ya tiene.
+
+Cómo funciona:
+
+1. **Los ordenadores se unen en un clúster.** Uno de ellos es el director de la
+   organización y los demás se conectan a él ([Varios servidores](man/servers.md)). Las
+   tareas, el chat, los ejecutores y la experiencia son comunes: cada servidor los replica con
+   el director (la topología es una estrella).
+2. **Cada máquina crea SUS PROPIOS ejecutores.** Un ejecutor de IA con un modelo local está
+   ligado al servidor donde ese modelo está instalado: «Kandinsky en S1», «Qwen en S2»,
+   «FLUX en S3».
+3. **La tarea padre se divide en subtareas.** Un agente (o una plantilla) parte el trabajo
+   en piezas —guion, guion gráfico, vídeo— y a cada una le asigna su ejecutor y un
+   **servidor propietario**: el ordenador donde está el modelo adecuado. Una tarea también se
+   puede pasar a otro servidor con el botón «cambiar servidor».
+4. **La replicación reparte las subtareas.** La subtarea llega a su servidor por el registro
+   de cambios, y el lanzamiento de la jerarquía va al propietario como solicitud. Cada
+   ordenador ejecuta solo sus tareas y solo con su modelo, todos a la vez.
+5. **Los resultados vuelven.** El resultado de la subtarea, sus artefactos y archivos se
+   replican al resto de servidores; cuando las subtareas están entregadas, la tarea padre las
+   reúne en un resultado común y devuelve a corrección lo que no cuadra.
+
+Lo que se obtiene: una sola tarea «haz un vídeo» ocupa varias tarjetas gráficas a la vez, el
+modelo en la nube solo planifica y el cálculo caro corre gratis en su propio hardware. Un
+ordenador apagado no detiene a nadie: sus subtareas esperan y él alcanza a los demás al
+encenderse.
+
+Lo que la granja **no** hace: no es balanceo de carga. Una tarea se ejecuta solo en su
+propietario y, si este está apagado, ningún otro servidor la toma por sí solo; el reparto lo
+decide usted (o el agente) al elegir el ejecutor y el servidor de cada subtarea.
 
 ## Qué hace falta
 

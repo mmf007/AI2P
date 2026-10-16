@@ -465,7 +465,7 @@ public abstract class AiConnectorBase : IAgentConnector
         var agentLanguage = AgentLanguageOf(task);
         var tools = new AgentToolset(fileTools,
             new TaskToolset(_tasks, _chat, _executors, _files, task, _refData, _picker, job.ExecutorId,
-                _experience, Trello, project, _publicBaseUrl, GitLab, GitHub, Fetch),
+                _experience, Trello, project, _publicBaseUrl, GitLab, GitHub, Fetch, Figma),
             spec => ResolveSpec(spec, agentLanguage), security, _actions.CodeByTool,
             // медиатека проекта (T-113-S0): ролики, звук и титры складываются ССЫЛКАМИ
             // в объекты проекта — из неё потом собираются проекты видеоредакторов
@@ -1121,6 +1121,10 @@ public abstract class AiConnectorBase : IAgentConnector
     /// <summary>Импортёр GitHub для того же инструмента (T-247) — подставляется так же,
     /// контекстом организации после создания коннектора.</summary>
     public GitHubImporter? GitHub { get; set; }
+
+    /// <summary>Импортёр Figma для того же инструмента (T-477-S0): область макета по ссылке
+    /// с node-id — экраны картинками и подписи под ними.</summary>
+    public FigmaImporter? Figma { get; set; }
 
     /// <summary>
     /// Получение внешних файлов задания (fetch_file, T-255): картинка карточки лежит либо

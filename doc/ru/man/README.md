@@ -13,6 +13,7 @@
 * [Archives](Archives.md) — Архивация
 * [audio](audio.md) — Работа со звуковыми моделями
 * [build](build.md) — AI2P — сборка, выкладка и устройство репозитория
+* [cli_install](cli_install.md) — Установка ПО CLI-агентов
 * [config](config.md) — Настройка
 * [experience](experience.md) — Опыт
 * [https](https.md) — HTTPS
@@ -27,8 +28,8 @@
 * [schedule](schedule.md) — Расписание
 * [servers](servers.md) — Несколько серверов
 * [service](service.md) — Запуск AI2P сервисом операционной системы
-* [tasks](tasks.md) — Задачи
 * [TaskDo](TaskDo.md) — Алгоритм выполнения задач
+* [tasks](tasks.md) — Задачи
 * [teams](teams.md) — Команды
 * [templates](templates.md) — Шаблоны
 

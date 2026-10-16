@@ -14,6 +14,7 @@ application.
 * [Archives](Archives.md) — Archiving
 * [audio](audio.md) — Working with audio models
 * [build](build.md) — AI2P — building, releasing and the layout of the repository
+* [cli_install](cli_install.md) — Installing CLI agent software
 * [config](config.md) — Configuration
 * [experience](experience.md) — Experience
 * [https](https.md) — HTTPS
@@ -28,8 +29,8 @@ application.
 * [schedule](schedule.md) — Schedule
 * [servers](servers.md) — Several servers
 * [service](service.md) — Running AI2P as an operating system service
-* [tasks](tasks.md) — Tasks
 * [TaskDo](TaskDo.md) — How tasks are executed
+* [tasks](tasks.md) — Tasks
 * [teams](teams.md) — Teams
 * [templates](templates.md) — Templates
 

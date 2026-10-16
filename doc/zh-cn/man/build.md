@@ -1,16 +1,28 @@
 # AI2P — 构建、部署包与仓库结构
 
-> 仓库的主页是它根目录下的 `Readme.md`；给用户看的文档是[简要说明](../README.md)和
-> [目录](../index.md)。这里的一切是给从源码构建 AI2P 的人看的。
+> 仓库的主页是它根目录下的 `README.md`；给用户看的文档是[简要说明](../README.md)和
+> [目录](../index.md)。这里的一切是给从源码构建 AI2P、或想提交自己修改的人看的。
 
 一套让 AI 代理和人协同处理任务的系统：工作计划器、AI 代理编排器、经验积累器。在本地运行（Windows 10–11、Linux、macOS），UI 通过 web 浏览器访问。
 
-文档分为两部分：**项目文档** — 在仓库根目录的 `doc/` 中（`doc/AI2P_ТЗ_v1.NN.md` 是系统现状的描述，以前的版本也在那里；从 1.60 版起技术规格的编号与应用版本一致；`doc/AI2P_release.md` 是版本、部署包和更新），以及**随程序一起发布的文档** — 在代码旁边的 `AI2P_app/doc/` 中：模型文档（[`models/`](../models/README.md)）和导入方式文档（[`import/`](../import/README.md)），它们在 UI 中用「i」按钮打开。`AI2P_app/doc` 目录会被整个复制到发布的部署包中。
+文档分为两部分：**项目文档** — 在仓库根目录的 `doc/` 中（`doc/AI2P_ТЗ_v1.NN.md` 是系统现状的描述，技术规格的编号与应用版本一致；`doc/AI2P_release.md` 是版本、部署包和更新），以及**随程序一起发布的文档** — 在代码旁边的 `AI2P_app/doc/` 中：手册、模型文档（[`models/`](../models/README.md)）和导入方式文档（[`import/`](../import/README.md)），它们在 UI 中用「i」按钮打开。`AI2P_app/doc` 目录会被整个复制到发布的部署包中。
 
 > 发布的文档中不放指向 `AI2P_app/doc` 之外文件的链接：它是在应用内部渲染的，而指向外面的
 > 相对链接在那里哪儿也去不了（技术规格第 14 章）。
 
-**状态：第 1 阶段 — 本地任务计划器。** 已实现：SQLite + event log + 文件存储（技术规格第 6 章）、各类实体（第 2 章）、HTTP API（API-first，第 3 章）、VS Code 风格的 UI（第 11 章）：任务看板（kanban，拖放）、任务卡片（.md 描述、历史、聊天、产物、作业）、项目 / 团队 / 执行者的列表与表单、带筛选的工作历史、人的收件箱、设置；HumanConnector（通过作业队列工作的人类执行者）；ru/en 多语言（`i18n/` 的 JSON 词典）。
+## 给参与者的简要说明
+
+* **需要什么：** .NET 8 SDK（以及 ASP.NET Core 8.x 运行时）— 由 `install_required` 安装（见下文）。
+* **如何构建：** `build.cmd`（Windows）或 `./build.sh`（Linux/macOS）— 用于开发的构建；
+  `buildRelease.cmd` / `./buildRelease.sh` — 发布用的部署包，不需要源码就能运行。
+* **如何运行测试：** 在 `AI2P_app` 目录中执行 `dotnet test`（详见[测试](#测试)一节）。
+* **发现错误** — 请按「Bug report」表单提交 issue，**建议** — 按「Feature request」表单；
+  空白 issue 已关闭。**问题** — 不要发 issue，请发到 GitHub Discussions（Q&A 分区）。
+* **Pull request** 需事先商定才会接受：先提交描述修改的 issue，在其中达成一致 — 然后再提交
+  带有该 issue 链接的 PR。未经讨论的 PR 可能不经审阅就被关闭。
+* **许可证** — Apache-2.0（根目录下的 `LICENSE` 文件）。提交代码即表示您同意它按同一许可证
+  分发。
+* **漏洞** — 不要用公开的 issue：流程见[安全策略](SECURITY.md)。
 
 ## 安装构建环境
 
@@ -26,7 +38,9 @@
 cd AI2P_app
 install_required.bat
 ```
-它会请求管理员权限。但不是立刻请求。对话框可能不会出现在前台。需要在活动的应用程序中找一找。
+
+脚本会请求管理员权限，但不是立刻请求。请求窗口可能不会出现在其他窗口的前面 — 请在任务栏的
+已打开应用中找一找。
 
 它做什么：
 
@@ -59,17 +73,15 @@ chmod +x install_required.sh
 依赖分为两类（技术规格第 13.1 章）：
 
 1. **二进制（NuGet）** — MudBlazor、Microsoft.Data.Sqlite、Serilog、Microsoft.Extensions.AI、OpenAI SDK、Anthropic.SDK、ModelContextProtocol 等等。它们**不需要单独安装**：`dotnet restore`（`dotnet build` 的一部分）会按 `.csproj` 中的引用自动下载它们。
-2. `packages/` 中的**子项目包（源码）** — sqlite-vec、gigachat-adapter（候选，在第 3 阶段及以后会用到）。它们已经没有单独的脚本了：`install_packages.bat` 和 `install_packages.sh` 在 T-65-S0 中作为多余的东西被删除 — 在整个项目历史中它们里面从来没有出现过软件包列表，而被归到它们头上的工作是别人做的：构建工具由 `install_required.*` 安装，模型所需的软件包（ComfyUI、musubi-tuner、Python）由程序本身在安装模型时安装。需要子项目时，用一条命令就能加上：
+2. **子项目包（源码）** — 目前没有。构建工具由 `install_required.*` 安装，模型所需的软件包（ComfyUI、musubi-tuner、Python）由程序本身在安装模型时安装。需要子项目时，用一条命令就能加上，`packages/` 目录会由它自己创建：
 
 ```sh
 git submodule add <地址> packages/<名称>
 ```
 
-现在仓库里已经没有 `packages/` 目录了（空目录在 T-207 中被删除）：当前所有依赖都是 NuGet，而 `git submodule add` 会自己创建该目录。空的 `native/`（C/C++ 插件的预留目录，CMake）同样被删除。
-
 ## 脚本输出的语言
 
-构建和安装脚本**默认说英语**（T-65-S0）。脚本不按语言复制多份：文本被移到了外面，放在 `i18n/`
+构建和安装脚本**默认说英语**。脚本不按语言复制多份：文本被移到了外面，放在 `i18n/`
 目录中：
 
 ```
@@ -105,18 +117,18 @@ install.cmd D:\AI2P -Lang ru
 ```
 
 `.cmd`/`.bat` 包装脚本自己什么都不翻译，并且是用**纯 ASCII 英文**写的：`cmd.exe` 按控制台编码
-解码文件，而读取位置是按字节保持的，一个多字节字符就会把之后所有内容的解析错开（在 T-34-S0 中
-实地抓到过）。包括 `--help` 在内的全部文本，它们都转交给自己的 `.ps1`。
+解码文件，而读取位置是按字节保持的，一个多字节字符就会把之后所有内容的解析错开。包括 `--help`
+在内的全部文本，它们都转交给自己的 `.ps1`。
 
 新语言就是**两个文件、一行代码都不用写**：一份带翻译好的值的 `scripts.en.txt` 副本，加上所需
-`help/` 文件的副本。各键的组成必须逐个对得上，这由 `T65S0Tests` 看守。
+`help/` 文件的副本。各键的组成必须逐个对得上，这由测试看守。
 
-`build.*`、`buildRelease.*` 和 `install_required.*` 自身的输出是有意不翻译的（T-64-S0 分析的
-B 层）：它们是在构建机器上运行的，本来就是英文的或混合的。`--help` 帮助它们是有的。
+`build.*`、`buildRelease.*` 和 `install_required.*` 自身的输出是有意不翻译的：它们是在构建机器上
+运行的，本来就是英文的或混合的。`--help` 帮助它们是有的。
 
 ## 构建与运行
 
-用一个脚本构建整个解决方案（目前只有 C#；C/C++ 以后会加上）：
+用一个脚本构建整个解决方案：
 
 ```powershell
 # Windows
@@ -166,20 +178,17 @@ chmod +x buildRelease.sh
 ./buildRelease.sh ~/ai/AI2P --clean
 ```
 
-在 T-285 之前这些脚本叫 `publish.cmd` / `publish.ps1` / `publish.sh` — 名字变了，行为照旧。
+`builds` 目录位于**工作目录内部** `AI2P_app`，与 `AI2P.sln` 并列。
 
-`builds` 目录本身位于**工作目录内部** `AI2P_app`，与 `AI2P.sln` 并列（T-131-S0）；1.114 之前它建在上一级，
-即工作目录之外。
-
-`builds` 和 `release`/`releasefull` 之间还有一层**操作系统目录**（T-243）：`windows`、`linux`
-或 `macos`。系统由完整部署包的 RID（`-Runtime`/`--runtime`）决定，而普通部署包则由构建所在的
-系统决定；同样由它决定把哪些安装脚本放进部署包。为不同系统构建的产物不再互相覆盖。
+`builds` 和 `release`/`releasefull` 之间还有一层**操作系统目录**：`windows`、`linux` 或 `macos`。
+系统由完整部署包的 RID（`-Runtime`/`--runtime`）决定，而普通部署包则由构建所在的系统决定；
+同样由它决定把哪些安装脚本放进部署包。为不同系统构建的产物不会互相覆盖。
 
 运行发布出来的副本 — 在它的目录中执行 `AI2P.Server.exe`（Windows）或 `./AI2P.Server`；进程的
 当前目录无关紧要。
 
-**服务器以普通用户身份运行，而不是 root**（T-135）。Linux 和 macOS 上的安装目录是 `~/ai/AI2P`：
-数据（`data/`）、日志（`logs/`）、设置和密钥库都在它里面，服务器不会往主目录之外写，而端口
+**服务器以普通用户身份运行，而不是 root。** Linux 和 macOS 上的安装目录是 `~/ai/AI2P`：
+数据（`data/`）、日志（`logs/`）、设置和密钥都在它里面，服务器不会往主目录之外写，而端口
 （5480）是非特权的。root 权限只有依赖安装程序（`install_required.sh`）才需要 — 那是一次性的
 系统级操作。`secrets.json` 文件被应用设为 `0600` 权限：里面有服务器管理员的密码和各组织的密钥。
 
@@ -196,7 +205,7 @@ chmod +x buildRelease.sh
 两个版本不能同时用同一个端口运行（单实例检查，技术规格第 3 章）：第二个会发现端口被占用，在第一个
 上打开浏览器然后结束。想让两个都运行着，请修改所发布副本的 `config.json` 中的 `ui.port`。
 
-## 单文件安装包（T-285）
+## 单文件安装包
 
 部署包是一个目录；交给人不方便。`MakePackage` 会把现成的部署包做成**一个安装程序文件**。这个脚本
 是 `buildRelease` 自己放进部署包的，运行它必须**在部署包目录中**；结果会落在 `../../packages`
@@ -225,8 +234,7 @@ cd builds/linux/releasefull
 
 名称的各部分按此顺序排列：`AI2P_v_` + 版本号 + 完整部署包的 `_full` + 系统（`windows`、`linux`、
 `macos`）+ 架构（`x64`、`arm64`、`arm`、`x86`）。完整部署包的系统和架构由其运行时给出
-（`win-x64`、`linux-arm64`、`osx-arm64`），普通部署包则取自操作系统目录和当前编译器的架构
-（T-234-S0）。
+（`win-x64`、`linux-arm64`、`osx-arm64`），普通部署包则取自操作系统目录和当前编译器的架构。
 
 扩展名决定安装程序的种类：Windows 上是 Inno Setup（`.exe`），Linux 和 macOS 上是 makeself 自解压
 归档（`.run`），它内部运行的是同一个 `install.sh`。安装包要在与部署包相对应的系统上构建：在
@@ -236,13 +244,13 @@ Windows 上没有办法做出 `.run`，反过来也一样 — 脚本会诚实地
 覆盖安装到已有安装之上时也不会被动：`config.json` 只有在不存在时才放置，旁边总会放上
 `config.new.json` — 应用会在首次启动时把它们合并（`ConfigMerge`）。
 
-**工作文件放在哪里（T-287）。** 在程序旁边 — 但仅当它的目录可写时。「为所有用户」的安装
+**工作文件放在哪里。** 在程序旁边 — 但仅当它的目录可写时。「为所有用户」的安装
 （`C:\Program Files\AI2P`）对普通用户是禁止写入的，因此它的 `config.json`、`data/`、`logs/` 和
 `secrets/` 放在计算机的公共数据目录中：Windows 上是 `C:\ProgramData\AI2P`，Linux 和 macOS 上是
 `/var/lib/ai2p`（如果那里也不行 — 就放到用户的数据目录）。这条规则只存在于一个地方 —
 `AppHome`（`src/AI2P.Server/AppHome.cs`），脚本并不重复它，只是在同样的位置查找已经建好的
 `config.json`。目录也可以手动指定：用 `AI2P_HOME` 变量或 `--config` 参数。详情见
-`doc/zh-cn/man/install.md`。
+[安装 AI2P](install.md)。
 
 ## 解决方案结构
 
@@ -250,27 +258,41 @@ Windows 上没有办法做出 `.run`，反过来也一样 — 脚本会诚实地
 AI2P.sln
 src/
 ├── AI2P.Core/        — 内核：实体（第 2 章）、事件（6.4.3 节）、API 契约、
-│                       IAgentConnector 接口（7.2 节）
+│                       IAgentConnector 接口（7.2 节）、词典（Loc）
 ├── AI2P.Storage/     — SQLite（架构 6.4.2 节）、event log、文件存储（6.4.4 节）、
 │                       各项服务：项目、团队、执行者、任务、作业、聊天
-├── AI2P.Connectors/  — HumanConnector + 任务启动编排器；AI 连接器 — 第 2 阶段
+├── AI2P.Connectors/  — 执行者连接器（人、AI 模型、CLI 代理、媒体）
+│                       以及任务启动编排器
 ├── AI2P.UI/          — Blazor 组件（MudBlazor）：VS Code 骨架（第 11 章）、看板、
 │                       任务卡片、收件箱、历史、名录；ApiClient、i18n
 └── AI2P.Server/      — ASP.NET Core host：HTTP API (/api/...) + Blazor Server UI，
                         config.json、Serilog（.jsonl 日志）
-tests/     — AI2P.Tests：存储、event log、人类执行者循环的测试
-i18n/      — 本地化词典（ru.json、en.json）以及构建和安装脚本的文本
-              （scripts.<语言>.txt、loc.ps1、loc.sh、
-              help/<脚本>.<语言>.txt，T-65-S0） — 会被复制到构建目录
+tests/     — AI2P.Tests：xUnit 测试
+i18n/      — 本地化词典（<语言>.json）以及构建
+              和安装脚本的文本（scripts.<语言>.txt、loc.ps1、loc.sh、
+              help/<脚本>.<语言>.txt） — 会被复制到构建目录
 doc/       — 代码旁边的文档
+.github/   — issue 表单（ISSUE_TEMPLATE）
 ```
 
 ## 测试
+
+所有测试都在一个 xUnit 项目 `tests/AI2P.Tests` 中：
 
 ```sh
 cd AI2P_app
 dotnet test
 ```
+
+完整运行耗时较长（大约半小时甚至更久）。在修改过程中，更方便的做法是用筛选器只运行自己的类 —
+筛选器中的名称必须是**类**名，而不是文件名：
+
+```sh
+dotnet test tests/AI2P.Tests/AI2P.Tests.csproj --filter "FullyQualifiedName~测试类名"
+```
+
+请核对通过的测试数量：一个匹配不到任何类的筛选器，会给出零个测试的「绿色」运行结果。
+Pull request 需要完整运行全部通过；新的逻辑要带上自己的测试。
 
 ## 数据存储
 

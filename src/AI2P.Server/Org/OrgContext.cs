@@ -93,6 +93,10 @@ public sealed class OrgContext : IDisposable
     /// становится задачей AI2P, обсуждение — чатом задачи.</summary>
     public GitHubImporter GitHub { get; }
 
+    /// <summary>Импорт дизайна из Figma (T-477-S0, версия 1.163): область макета по ссылке —
+    /// экраны картинками и подписи под ними. Только по ссылке, массового импорта нет.</summary>
+    public FigmaImporter Figma { get; }
+
     /// <summary>Получение внешних файлов задания для агентов (T-255, ТЗ v1.90): картинка
     /// по ссылке — из кэша, из хранилища AI2P или из интернета.</summary>
     public FileFetchService Fetch { get; }
@@ -331,6 +335,11 @@ public sealed class OrgContext : IDisposable
         {
             KeyResolver = ModelKeys.ResolveWithSource,
         };
+        // Figma (T-477-S0): обсуждения нет, зато картинки экранов — им нужно хранилище файлов
+        Figma = new FigmaImporter(Tasks, Imports, deps.Secrets, Events, Files)
+        {
+            KeyResolver = ModelKeys.ResolveWithSource,
+        };
         // получение внешних файлов задания (T-255): ключи внешних систем берутся у активных
         // источников импорта, поэтому сервис строится после них — и после коннекторов,
         // которым он подставляется свойством
@@ -350,6 +359,14 @@ public sealed class OrgContext : IDisposable
         text.GitLab = GitLab;
         anthropic.GitHub = GitHub;
         text.GitHub = GitHub;
+        anthropic.Figma = Figma;
+        text.Figma = Figma;
+        // CLI-агенту импорт по ссылке нужен не меньше (T-477-S0): с клиентом ai2p он зовёт
+        // те же действия, а без импортёров «ai2p import» отвечал «недоступно»
+        claudeCli.Trello = Trello;
+        claudeCli.GitLab = GitLab;
+        claudeCli.GitHub = GitHub;
+        claudeCli.Figma = Figma;
         // МЕДИАТЕКА ПРОЕКТА (T-113-S0): инструменты media_add / media_list / media_remove
         // работают над объектами проекта — своего хранилища у медиатеки нет. Нужны ВСЕМ
         // ТРЁМ текстовым коннекторам: монтажный лист собирает тот же агент, что пишет сцены

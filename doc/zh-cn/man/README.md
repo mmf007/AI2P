@@ -13,6 +13,7 @@
 * [Archives](Archives.md) — 归档
 * [audio](audio.md) — 使用音频模型
 * [build](build.md) — AI2P — 构建、部署包与仓库结构
+* [cli_install](cli_install.md) — 安装 CLI 代理软件
 * [config](config.md) — 设置
 * [experience](experience.md) — 经验
 * [https](https.md) — HTTPS
@@ -27,8 +28,8 @@
 * [schedule](schedule.md) — 计划
 * [servers](servers.md) — 多台服务器
 * [service](service.md) — 以操作系统服务方式运行 AI2P
-* [tasks](tasks.md) — 任务
 * [TaskDo](TaskDo.md) — 任务执行算法
+* [tasks](tasks.md) — 任务
 * [teams](teams.md) — 团队
 * [templates](templates.md) — 模板
 

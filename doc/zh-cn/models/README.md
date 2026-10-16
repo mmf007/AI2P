@@ -12,23 +12,23 @@
 **云端（需要 API 密钥）**
 
 * [Chatterbox-TTS](Chatterbox-TTS.md) — 文本 + 语音样本 → 该音色的语音，技能 `audio-speech` 88
-* [Claude-Fable-5](Claude-Fable-5.md)
 * [Claude-Fable-5.1](Claude-Fable-5.1.md)
+* [Claude-Fable-5](Claude-Fable-5.md)
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md)
-* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — Anthropic，上下文 1 000 000 令牌，每百万 0,10 $ / 0,50 $，技能评分 84–90
+* [Claude-Haiku-5.5](Claude-Haiku-5.5.md)
 * [Claude-Opus-5.0](Claude-Opus-5.0.md)
 * [Claude-Opus-5.5](Claude-Opus-5.5.md)
+* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md)
 * [Claude-Sonnet-5](Claude-Sonnet-5.md)
-* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — Anthropic，上下文 1 000 000 令牌，每百万 2,00 $ / 10,00 $，技能评分 90–94
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md)
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md)
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md)
+* [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — 文本 → 音乐和歌曲，版权已清理，技能 `audio-song` 92、`audio-music` 92
 * [ElevenLabs-Music](ElevenLabs-Music.md) — 文本 → 音乐和歌曲，版权已清理，技能 `audio-song` 89、`audio-music` 89
-* [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — 文本 → 版权清晰的音乐与歌曲，技能 `audio-song` 92、`audio-music` 92
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — 文本 → 语音，技能 `audio-speech` 96
 * [FLUX-3](FLUX-3.md) — 文本 → 图像，技能 `image-generate` 95、`image-photo` 95、`image-concept` 91、`image-text` 88
-* [Gemini-3-Ultra](Gemini-3-Ultra.md)（**2026-09-11 已停用**）
-* [Gemini-3.1-Pro](Gemini-3.1-Pro.md)（**2026-09-11 已停用**）
+* [Gemini-3-Ultra](Gemini-3-Ultra.md)
+* [Gemini-3.1-Pro](Gemini-3.1-Pro.md)
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md)
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md)
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — 文本 → 带声音的视频，8 秒，技能 `video-generate` 91
@@ -40,9 +40,9 @@
 * [GPT-6-Astra](GPT-6-Astra.md)
 * [GPT-6-Luna](GPT-6-Luna.md)
 * [GPT-6-Sol](GPT-6-Sol.md)
-* [GPT-6.1-Sol](GPT-6.1-Sol.md) — OpenAI，上下文 1 050 000 令牌，每百万 2,00 $ / 10,00 $，技能评分 91–96
-* [GPT-Image-2](GPT-Image-2.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 96、`image-text` 95、`image-photo` 94、`image-concept` 90
+* [GPT-6.1-Sol](GPT-6.1-Sol.md)
 * [GPT-Image-2.5](GPT-Image-2.5.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 97、`image-text` 96、`image-photo` 95、`image-concept` 92
+* [GPT-Image-2](GPT-Image-2.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 96、`image-text` 95、`image-photo` 94、`image-concept` 90
 * [Grok-4.6](Grok-4.6.md)
 * [Grok-4.7](Grok-4.7.md)
 * [Ideogram-4.5](Ideogram-4.5.md) — 文本 → 图像，画面内排版在目录中仅次于 Nano Banana，技能 `image-text` 96、`image-generate` 92、`image-concept` 91、`image-photo` 87
@@ -51,15 +51,15 @@
 * [Kimi-K3](Kimi-K3.md)
 * [Kling-3.0](Kling-3.0.md) — 图片 → 带声音的视频，最长 15 秒，技能 `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md)
+* [Meshy-7.1](Meshy-7.1.md) — 文本 → 可直接进游戏的 3D 模型，技能 `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — 文本 → 可直接进游戏的 3D 模型，技能 `3d-generate` 87
-* [Meshy-7.1](Meshy-7.1.md) — 文本 → 可直接用于游戏的三维模型，技能 `3d-generate` 89
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — 文本 → 最长 15 秒的视频，技能 `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md)
 * [Mistral-Large-3](Mistral-Large-3.md)
-* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI，上下文 1 048 576 令牌，每百万 0,68 $ / 2,09 $，技能评分 83–88
+* [Mistral-Large-4](Mistral-Large-4.md)
 * [Muse-Spark-1.2](Muse-Spark-1.2.md)
 * [Muse-Spark-1.3](Muse-Spark-1.3.md)
-* [Muse-Wonder](Muse-Wonder.md) — Meta，上下文 1 048 576 令牌，每百万 4,00 $ / 20,00 $，技能评分 91–94
+* [Muse-Wonder](Muse-Wonder.md)
 * [Nano-Banana-2.1](Nano-Banana-2.1.md) — 文本 → 图像，最高 4K，画面内文字出色，技能 `image-text` 97、`image-generate` 96、`image-photo` 95、`image-concept` 92
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — 图片加指令 → 改过的图片，技能 `image-edit` 98、`image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — 文本 → 最高 4K 的图像，画面中的文字最好，技能 `image-text` 98、`image-generate` 97、`image-photo` 96、`image-concept` 92
@@ -70,25 +70,31 @@
 * [Seedance-2.5](Seedance-2.5.md) — 文本 → 最长 30 秒的带声视频，技能 `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — 文本 → 图像，技能 `image-generate` 92、`image-concept` 90、`image-photo` 90
 * [Tripo-H3.1](Tripo-H3.1.md) — 图片 → 带 PBR 贴图的 3D 模型，技能 `3d-image` 92
-* [Tripo-P2](Tripo-P2.md) — 图像 → 带四档 PBR 贴图的三维模型，技能 `3d-image` 94
+* [Tripo-P2](Tripo-P2.md) — 图片 → 带 PBR 贴图的 3D 模型，技能 `3d-image` 94
 * [Veo-3.1](Veo-3.1.md) — 文本 → 带声视频，4–8 秒，最高 4K，技能 `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — 文本 → 最长 30 秒的带声视频，技能 `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md)
-* [Zonos-2-TTS](Zonos-2-TTS.md) — 文本 + 语音样本 → 该音色的语音（样本必填），技能 `audio-speech` 86
+* [Zonos-2-TTS](Zonos-2-TTS.md) — 文本 + 语音样本 → 该音色的语音，技能 `audio-speech` 86
 
 **通过 Claude CLI（按订阅，无需密钥）**
 
-* [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
-* [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
-* [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
 * [Claude-Fable-5.1_cli](Claude-Fable-5.1_cli.md)
+* [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
 * [Claude-Haiku-4.5_cli](Claude-Haiku-4.5_cli.md)
+* [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
 * [Claude-Opus-5.5_cli](Claude-Opus-5.5_cli.md)
+* [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
+* [Gemini-3.1-Pro_cli](Gemini-3.1-Pro_cli.md)
+* [GPT-6-Sol_cli](GPT-6-Sol_cli.md)
+* [Grok-4.7_cli](Grok-4.7_cli.md)
+* [Kimi-K3_cli](Kimi-K3_cli.md)
+* [Mistral-Large-3_cli](Mistral-Large-3_cli.md)
+* [Qwen3.8-Max_cli](Qwen3.8-Max_cli.md)
 
 **本地（由您的计算机计算）**
 
 * [Muse-Glimmer-30B-Local](Muse-Glimmer-30B-Local.md) — 文本和代码，技能评分 73–80
-* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — 用于提词者角色的轻量模型：3 GB 显存，技能评分 62–74
+* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — 轻量文本处理与数据分析，技能评分 62–74
 * [Qwen3.6-27B-Local](Qwen3.6-27B-Local.md) — 代码和文本，技能评分 75–82
 * [Qwen3.6-35B-A3B-Local](Qwen3.6-35B-A3B-Local.md) — 代码和文本，技能评分 72–80
 * [Qwen3.8-27B-Local](Qwen3.8-27B-Local.md) — 代码和文本，技能评分 80–87
@@ -111,6 +117,9 @@
 * [Kandinsky-5.0-T2V-Lite-nocfg-5s](Kandinsky-5.0-T2V-Lite-nocfg-5s.md) — 文本 → 视频，技能 `video-generate` 74
 * [Kandinsky-5.0-T2V-Lite-sft-10s](Kandinsky-5.0-T2V-Lite-sft-10s.md) — 文本 → 视频，技能 `video-generate` 76
 * [Kandinsky-5.0-T2V-Lite-sft-5s](Kandinsky-5.0-T2V-Lite-sft-5s.md) — 文本 → 视频（5 秒），技能 `video-generate` 76、`video-animate` 72
+* [Kandinsky-6.0-Lite-distill-5s-I2V](Kandinsky-6.0-Lite-distill-5s-I2V.md)
+* [Kandinsky-6.0-Lite-distill-5s](Kandinsky-6.0-Lite-distill-5s.md)
+* [Kandinsky-6.0-Pro-distill-5s](Kandinsky-6.0-Pro-distill-5s.md)
 * [LTX-2.5](LTX-2.5.md) — 文本 → 带声音的视频，技能 `video-generate` 85
 * [Qwen-Image-2512](Qwen-Image-2512.md) — 文本 → 图像，技能 `image-text` 94、`image-photo` 91、 `image-generate` 90、`image-concept` 85
 * [Qwen-Image-Edit-2511](Qwen-Image-Edit-2511.md) — 图片 + 指令 → 改过的图片，技能 `image-edit` 90、 `image-text` 90、`image-inpaint` 85、`image-generate` 82
@@ -118,8 +127,8 @@
 * [SDXL-1.0](SDXL-1.0.md) — 文本 → 图像，技能 `image-generate` 70、`image-concept` 70、 `image-photo` 68
 * [TRELLIS-2](TRELLIS-2.md) — 图像 → 带颜色的 3D 模型，技能 `3d-image` 85
 * [TripoSplat](TripoSplat.md) — 图像 → 高斯泼溅，技能 `3d-image` 80
-* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — 图片 + 文本 → 视频，技能 `video-animate` 80、`video-generate` 74 — **已于 2026-09-23 停用**（2.2 之后出现了 Wan 2.6、2.7 与 3.0）
-* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — 文本 → 视频，技能 `video-generate` 80 — **已于 2026-09-23 停用**（2.2 之后出现了 Wan 2.6、2.7 与 3.0）
+* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — 图片 + 文本 → 视频，技能 `video-animate` 80、`video-generate` 74
+* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — 文本 → 视频，技能 `video-generate` 80
 * [Z-Image-Turbo](Z-Image-Turbo.md) — 文本 → 图像，技能 `image-generate` 85、`image-photo` 84、 `image-concept` 82、`image-text` 78
 
 ## 三种接入方式

@@ -1,0 +1,61 @@
+name: 🚀 Feature Request
+description: Suggest an idea or improvement for this project
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to suggest a new feature! Please fill out the form below to help us understand your request.
+
+  - type: textarea
+    id: problem-description
+    attributes:
+      label: 🎯 Is your feature request related to a problem?
+      description: A clear and concise description of what the problem or pain point is.
+      placeholder: "Example: I am always frustrated when..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: ✨ Describe the solution you'd like
+      description: A clear and concise description of what you want to happen.
+      placeholder: "Example: I would like to see a button that enables..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 🔄 Describe alternatives you've considered
+      description: A clear and concise description of any alternative solutions or workarounds you've considered.
+      placeholder: "Example: Currently, I am using a custom script to..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: 🧩 Scope of the change
+      description: Which part of the project does this feature request affect?
+      options:
+        - Frontend / UI / UX
+        - Backend / Core Logic
+        - Performance
+        - Security
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: 📌 Final Checklist
+      options:
+        - label: I have searched existing issues and this feature has not been requested before.
+          required: true
+        - label: I am willing to help implement this feature by submitting a Pull Request.
+          required: false

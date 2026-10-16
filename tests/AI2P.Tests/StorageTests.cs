@@ -421,8 +421,10 @@ public sealed class AiModelAndExecutorTests : IDisposable
         //   Claude-Sonnet-5.5, Claude-Haiku-5.5, GPT-6.1-Sol, Mistral-Large-4, Muse-Wonder —
         //   текст; Nano-Banana-2.1, Kandinsky-6.0-Pro, FLUX-3, Ideogram-4.5 — медиа через
         //   шлюз fal.ai)
+        // + 3 локальные записи Kandinsky 6.0 через ComfyUI (T-469-S0, сверка 14.10.2026:
+        //   Lite-distill-5s, Lite-distill-5s-I2V, Pro-distill-5s)
         // — точный состав проверяет T214Tests
-        Assert.Equal(107, models.Count);
+        Assert.Equal(110, models.Count);
         Assert.All(models, m => Assert.False(m.IsCustom));           // из дистрибутива
         var claude = models.Single(m => m.Name == "Claude-Fable-5");
         Assert.Equal($"models/profile_{claude.Id}.json", claude.ProfilePath);

@@ -1,5 +1,5 @@
 {
-  "seedVersion": 25,
+  "seedVersion": 26,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -182,8 +182,8 @@
       "code": "AI2P.Tasks.ImportFromUrl",
       "tool": "import_task_from_url",
       "title": "Importar tarefa por URL",
-      "hint": "O agente importa um cartão do Trello pelo link: é criada uma tarefa rascunho no projeto atual, e os anexos são baixados para uploads/ do projeto. Uma regra de segurança deny/confirm sobre este código proíbe ou exige confirmação para a importação.",
-      "prompt": "Importar uma tarefa de um sistema externo pelo link (por enquanto só o Trello é suportado: https://trello.com/c/<código>). Cria no projeto atual uma tarefa rascunho: título e descrição vindos do cartão, e os anexos são baixados e adicionados como links. Importar o mesmo cartão de novo não cria duplicata. O parâmetro url é o link do cartão."
+      "hint": "O agente importa uma tarefa por link: um cartão do Trello, uma issue do GitHub ou GitLab, ou uma área de layout do Figma. É criada uma tarefa rascunho no projeto atual; arquivos e imagens das telas são baixados para uploads/ do projeto. Uma regra de segurança deny/confirm neste código proíbe/confirma a importação. O agente CLI usa o comando «ai2p import».",
+      "prompt": "Importar uma tarefa de um sistema externo por link: cartão do Trello (https://trello.com/c/<código>), issue do GitHub ou GitLab, área de layout do Figma (https://www.figma.com/design/<chave>/<nome>?node-id=<nó>). Cria uma tarefa rascunho no projeto atual; os arquivos são baixados e anexados como links. Importar o mesmo de novo não cria duplicata. Parâmetro url — o link. O Figma aceita mais dois parâmetros, e são perguntas para a PESSOA — não decida por conta própria: elements (true — telas e todos os elementos de design como imagens separadas, false — só as telas principais) e wholeFile (true — importar o arquivo inteiro quando o link não tem node-id; só com o consentimento explícito da pessoa). Se não souber a resposta, pergunte à pessoa; sem eles o Figma não é importado. Na descrição da tarefa, abaixo de cada imagem vêm todos os textos daquele quadro."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000017",

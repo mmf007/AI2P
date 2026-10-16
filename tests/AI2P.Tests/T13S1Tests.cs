@@ -257,6 +257,9 @@ public sealed class T13S1Tests
             // ТОЛЬКО ЛОКАЛЬНЫЕ (провайдер comfyui): облачная Kandinsky-6.0-Pro через шлюз
             // fal.ai (T-466-S0) своего адаптера не принимает
             .Where(m => m.IsLocal)
+            // ТОЛЬКО ЛИНЕЙКА 5.0: локальные записи Kandinsky 6.0 (T-474-S0) адаптера не
+            // принимают — у них lora.reason = no-lora
+            .Where(m => !m.Name.StartsWith("Kandinsky-6", StringComparison.Ordinal))
             .ToList();
         // две записи T-258 (текст → ролик и картинка → ролик) плюс пять вариантов линейки
         // Video Lite, заведённых T-15-S0 (10-секундные, no-CFG и distil16)

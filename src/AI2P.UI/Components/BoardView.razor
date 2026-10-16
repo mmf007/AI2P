@@ -55,9 +55,13 @@
                                  data-board-task="@task.Id"
                                  @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
                             <MudCardContent Class="pa-2">
-                                <MudText Typo="Typo.body2">
-                                    <b>@task.DisplayId</b> @task.Title
-                                </MudText>
+                                @* меню «…» в правом верхнем углу карточки (T-492-S0) *@
+                                <div class="d-flex align-start">
+                                    <MudText Typo="Typo.body2" Class="flex-grow-1">
+                                        <b>@task.DisplayId</b> @task.Title
+                                    </MudText>
+                                    <TaskActionsMenu Item="task" HasChildren="@_parentIds.Contains(task.Id)" />
+                                </div>
                                 @* превью описания — Markdown, заполняется лениво по видимости (ТЗ v1.17) *@
                                 @if (_previews.TryGetValue(task.Id, out var preview))
                                 {
@@ -154,8 +158,12 @@
     private IEnumerable<TaskItem> Cards(string statusId) =>
         BoardColumns.Column(Tasks, statusId, LimitOf(statusId));
 
+    /// <summary>Задачи, у которых в списке есть потомки, — пункт меню «запустить иерархию» (T-492-S0).</summary>
+    private HashSet<string> _parentIds = [];
+
     protected override void OnParametersSet()
     {
+        _parentIds = Tasks.Where(t => t.ParentId is not null).Select(t => t.ParentId!).ToHashSet();
         // порядок колонок — на аккаунт+проект (T-128); смена проекта в фильтре меняет ключ.
         // Флаг нужен отдельно от сравнения: доска без фильтра по проекту (ProjectId = null)
         // иначе не подхватила бы сохранённый порядок ни разу

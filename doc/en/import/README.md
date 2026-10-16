@@ -10,6 +10,7 @@ the record is saved.
 
 ## Section contents
 
+* [figma](figma.md) — Importing a design from Figma — connection guide
 * [github](github.md) — Importing tasks from GitHub — connection guide
 * [gitlab](gitlab.md) — Importing tasks from GitLab — connection guide
 * [trello](trello.md) — Importing tasks from Trello — how to connect

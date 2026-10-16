@@ -1,5 +1,5 @@
 {
-  "seedVersion": 25,
+  "seedVersion": 26,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -182,8 +182,8 @@
       "code": "AI2P.Tasks.ImportFromUrl",
       "tool": "import_task_from_url",
       "title": "Import task by URL",
-      "hint": "The agent imports a single Trello card by link: a draft task is created in the current project, attachments are downloaded into the project uploads/. A deny/confirm security rule on this code blocks/confirms the import.",
-      "prompt": "Import a task from an external system by link (currently Trello only: https://trello.com/c/<code>). Creates a draft task in the current project: title and description from the card, attachments are downloaded and linked. Importing the same card again does not create a duplicate. Parameter url is the card link."
+      "hint": "The agent imports one task by link: a Trello card, a GitHub or GitLab issue, or a Figma design area. A draft task is created in the current project, files and screen images are downloaded to the project's uploads/. A deny/confirm security rule on this code forbids/confirms the import. A CLI agent uses the “ai2p import” command.",
+      "prompt": "Import a task from an external system by link: a Trello card (https://trello.com/c/<code>), a GitHub or GitLab issue, a Figma design area (https://www.figma.com/design/<key>/<name>?node-id=<node>). Creates a draft task in the current project; files are downloaded and attached as links. Importing the same thing again creates no duplicate. Parameter url is the link. Figma takes two more parameters, and they are questions for the HUMAN — do not decide them yourself: elements (true — screens and every design element as separate images, false — main screens only) and wholeFile (true — import the whole file when the link has no node-id; only with the human's explicit consent). If you do not know the answer, ask the human; Figma is not imported without them. In the task description every image is followed by all captions of that frame."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000017",

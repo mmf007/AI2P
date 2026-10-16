@@ -83,7 +83,7 @@ public sealed class T287S0Tests : IDisposable
     private const string FullAnswer = """
         {
           "tags": "dream pop, женский вокал, синтезатор, дождь",
-          "lyrics": "Первый куплет\nвторой куплет",
+          "lyrics": "[verse]\nПервый куплет\nвторой куплет",
           "duration": 90,
           "language": "ru",
           "bpm": 84,
@@ -104,7 +104,8 @@ public sealed class T287S0Tests : IDisposable
 
         var planner = Planner(graph);
         Assert.Equal("dream pop, женский вокал, синтезатор, дождь", planner.GetProperty("tags").GetString());
-        Assert.Equal("Первый куплет\nвторой куплет", planner.GetProperty("lyrics").GetString());
+        // слова с меткой строения доходят дословно: такие PadSongLyrics (T-497-S0) не трогает
+        Assert.Equal("[verse]\nПервый куплет\nвторой куплет", planner.GetProperty("lyrics").GetString());
         Assert.Equal(90.0, planner.GetProperty("duration").GetDouble());
         Assert.Equal("ru", planner.GetProperty("language").GetString());
         Assert.Equal(84, planner.GetProperty("bpm").GetInt32());
@@ -132,6 +133,40 @@ public sealed class T287S0Tests : IDisposable
         // и без суфлёра обе величины те же и обе — из профайла
         Assert.Equal(profile.MediaLength, Latent(silent).GetProperty("seconds").GetInt32());
         Assert.Equal(profile.MediaLength, Planner(silent).GetProperty("duration").GetInt32());
+    }
+
+    /// <summary>T-497-S0: короткие слова на длинный трек повторяются куплетом и припевом,
+    /// иначе ACE-Step раскладывает их в инструментал и голоса нет.</summary>
+    [Fact]
+    public void Short_Lyrics_Are_Repeated_To_The_Length_Of_The_Track()
+    {
+        const string rock = "We will we will rock you";
+
+        // шесть слов на 180 с — нужно 30, то есть пять блоков, первым идёт куплет
+        var padded = ComfyPrompterGraph.PadSongLyrics(rock, 180);
+        Assert.StartsWith("[verse]\n" + rock + "\n\n[chorus]\n" + rock, padded);
+        Assert.Equal(5, padded.Split(rock).Length - 1);
+
+        // длинный трек упирается в предел повторов
+        Assert.Equal(12, ComfyPrompterGraph.PadSongLyrics("ля", 3600).Split("ля").Length - 1);
+
+        // достаточно длинный текст, текст с метками и трек без длительности — как были
+        var enough = string.Join(' ', Enumerable.Repeat("слово", 30));
+        Assert.Same(enough, ComfyPrompterGraph.PadSongLyrics(enough, 180));
+        Assert.Equal("[chorus]\nла-ла", ComfyPrompterGraph.PadSongLyrics("[chorus]\nла-ла", 180));
+        Assert.Equal(rock, ComfyPrompterGraph.PadSongLyrics(rock, 0));
+        Assert.Equal("", ComfyPrompterGraph.PadSongLyrics("", 180));
+    }
+
+    /// <summary>Повтор доезжает до узла планировщика через подстановку суфлёра.</summary>
+    [Theory]
+    [MemberData(nameof(Names))]
+    public void Short_Lyrics_Of_The_Prompter_Reach_The_Node_Repeated(string name)
+    {
+        using var graph = Build(Profile(name), FullAnswer.Replace("[verse]\\n", ""));
+
+        var lyrics = Planner(graph).GetProperty("lyrics").GetString()!;
+        Assert.StartsWith("[verse]\nПервый куплет\nвторой куплет\n\n[chorus]\n", lyrics);
     }
 
     // ---------- 2. устойчивость ----------

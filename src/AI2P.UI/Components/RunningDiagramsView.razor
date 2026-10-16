@@ -13,8 +13,8 @@
    дорожки исполнителей общие. В общем списке задач появляется ещё одна полоса — ПРОЕКТ:
    слева код и название проекта, повёрнутые на 90° против часовой стрелки, справа диаграмма
    его корней. Исполнитель, работающий в двух проектах, повторяется в каждой полосе — только
-   с задачами этого проекта. Меню квадрата — полное, как на диаграмме подзадач карточки
-   (второй прогон T-328-S0): действия делает RunActionAsync теми же вызовами и формами. *@
+   с задачами этого проекта. Меню квадрата — то же меню «…», что у всех списков
+   задач (TaskActionsMenu, T-495-S0): действия делает оно само. *@
 
 @if (_groups is null)
 {
@@ -47,8 +47,7 @@ else
                     </div>
                 }
                 <div style="flex: 1; min-width: 0; padding: 4px;">
-                    <TaskDiagramView TaskIds="group.RootIds" Version="@string.Join(",", group.RootIds)"
-                                     OnAction="RunActionAsync" />
+                    <TaskDiagramView TaskIds="group.RootIds" Version="@string.Join(",", group.RootIds)" />
                 </div>
             </div>
         }
@@ -118,81 +117,6 @@ else
         {
             Snackbar.Add(ex.Message, Severity.Error);
             _groups ??= [];
-        }
-    }
-
-    /// <summary>Действие меню квадрата (второй прогон T-328-S0) — те же формы и вызовы, что у
-    /// диаграммы подзадач карточки (TaskCardView.RunSubtaskActionAsync). Диаграмма после
-    /// действия перечитывает себя сама, список корней — по State.NotifyChanged.</summary>
-    private async Task RunActionAsync((string Action, string TaskId) request)
-    {
-        try
-        {
-            if (request.Action == "link")
-            {
-                var parameters = new DialogParameters<TaskLinkDialog>
-                {
-                    { d => d.Url, State.TaskUrl(request.TaskId) },
-                    { d => d.LocalUrl, State.HasExternalUrl ? State.TaskLocalUrl(request.TaskId) : "" },
-                    { d => d.RelativeUrl, LinkUrls.RelativeOf(State.TaskUrl(request.TaskId)) },
-                };
-                await Dialogs.ShowAsync<TaskLinkDialog>(L["task.link"], parameters,
-                    new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
-                return;
-            }
-            var details = await Api.GetTaskAsync(request.TaskId);
-            var task = details.Task;
-            switch (request.Action)
-            {
-                case "edit":
-                {
-                    var parameters = new DialogParameters<TaskDialog> { { d => d.Source, details } };
-                    var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
-                        FormDialogs.Options(MaxWidth.Medium));
-                    if (await dialog.Result is { Canceled: false, Data: TaskSaveDto dto })
-                    {
-                        await Api.UpdateTaskAsync(dto);
-                    }
-                    break;
-                }
-                case "status":
-                {
-                    var parameters = new DialogParameters<StatusDialog> { { d => d.Current, task.Status } };
-                    var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
-                    if (await dialog.Result is { Canceled: false, Data: string status } && status != task.Status)
-                    {
-                        await Api.ChangeTaskStatusAsync(task.Id, status);
-                    }
-                    break;
-                }
-                case "delete":
-                {
-                    var target = task.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
-                    var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
-                        target, task.Id, $"{task.DisplayId} {task.Title}");
-                    if (choice == ArchiveOrDeleteDialog.Archive)
-                    {
-                        await Api.MoveToArchiveAsync(target, task.Id);
-                    }
-                    else if (choice is not null)
-                    {
-                        await Api.DeleteTaskAsync(task.Id);
-                    }
-                    break;
-                }
-                case "start":
-                    await Api.StartTaskAsync(task.Id);
-                    break;
-                case "stop":
-                    await Api.StopTaskAsync(task.Id, false, false);
-                    Snackbar.Add(L["task.stop.done"], Severity.Success);
-                    break;
-            }
-            State.NotifyChanged();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 

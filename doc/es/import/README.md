@@ -11,6 +11,7 @@ que el registro esté guardado.
 
 ## Índice de la sección
 
+* [figma](figma.md) — Importar un diseño de Figma — guía de conexión
 * [github](github.md) — Importación de tareas desde GitHub: instrucciones de conexión
 * [gitlab](gitlab.md) — Importación de tareas desde GitLab: instrucciones de conexión
 * [trello](trello.md) — Importación de tareas desde Trello: instrucciones de conexión

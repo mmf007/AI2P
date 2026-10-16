@@ -12,23 +12,23 @@
 **Облачные (нужен ключ API)**
 
 * [Chatterbox-TTS](Chatterbox-TTS.md) — текст + образец голоса → речь этим голосом, навыки `audio-speech` 88
-* [Claude-Fable-5](Claude-Fable-5.md) — API провайдера Anthropic
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API провайдера Anthropic
+* [Claude-Fable-5](Claude-Fable-5.md) — API провайдера Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API Anthropic
-* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — Anthropic, контекст 1 000 000 токенов, 0,10 $ / 0,50 $ за 1 млн, оценки навыков 84–90
+* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — API провайдера Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API провайдера Anthropic
 * [Claude-Opus-5.5](Claude-Opus-5.5.md) — API провайдера Anthropic
+* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — API провайдера Anthropic
 * [Claude-Sonnet-5](Claude-Sonnet-5.md) — API Anthropic
-* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — Anthropic, контекст 1 000 000 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 90–94
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md) — API DeepSeek, OpenAI-совместимый
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md) — API DeepSeek, OpenAI-совместимый
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md) — API DeepSeek, OpenAI-совместимый
-* [ElevenLabs-Music](ElevenLabs-Music.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 89, `audio-music` 89
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 92, `audio-music` 92
+* [ElevenLabs-Music](ElevenLabs-Music.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 89, `audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — текст → речь, навыки `audio-speech` 96
 * [FLUX-3](FLUX-3.md) — текст → изображение, навыки `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
-* [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, через OpenAI-совместимый слой (**погашена 11.09.2026**)
-* [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, через OpenAI-совместимый слой (**погашена 11.09.2026**)
+* [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, через OpenAI-совместимый слой
+* [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, через OpenAI-совместимый слой
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, через OpenAI-совместимый слой
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, через OpenAI-совместимый слой
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — текст → видео со звуком, 8 секунд, навыки `video-generate` 91
@@ -40,9 +40,9 @@
 * [GPT-6-Astra](GPT-6-Astra.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Luna](GPT-6-Luna.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Sol](GPT-6-Sol.md) — API OpenAI, OpenAI-совместимый
-* [GPT-6.1-Sol](GPT-6.1-Sol.md) — OpenAI, контекст 1 050 000 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 91–96
-* [GPT-Image-2](GPT-Image-2.md) — текст → изображение, счёт по токенам, навыки `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
+* [GPT-6.1-Sol](GPT-6.1-Sol.md) — API OpenAI, OpenAI-совместимый
 * [GPT-Image-2.5](GPT-Image-2.5.md) — текст → изображение, счёт по токенам, навыки `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
+* [GPT-Image-2](GPT-Image-2.md) — текст → изображение, счёт по токенам, навыки `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — API xAI, OpenAI-совместимый
 * [Grok-4.7](Grok-4.7.md) — API xAI, OpenAI-совместимый
 * [Ideogram-4.5](Ideogram-4.5.md) — текст → изображение, лучший в справочнике набор текста в кадре после Nano Banana, навыки `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
@@ -51,15 +51,15 @@
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-совместимый
 * [Kling-3.0](Kling-3.0.md) — картинка → видео со звуком, до 15 секунд, навыки `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, через шлюз OpenRouter
-* [Meshy-7](Meshy-7.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 87
 * [Meshy-7.1](Meshy-7.1.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 89
+* [Meshy-7](Meshy-7.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — текст → видео до 15 секунд, навыки `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-совместимый
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Франция; OpenAI-совместимый
-* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, контекст 1 048 576 токенов, 0,68 $ / 2,09 $ за 1 млн, оценки навыков 83–88
+* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, Франция; OpenAI-совместимый
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, через шлюз OpenRouter
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, через шлюз OpenRouter
-* [Muse-Wonder](Muse-Wonder.md) — Meta, контекст 1 048 576 токенов, 4,00 $ / 20,00 $ за 1 млн, оценки навыков 91–94
+* [Muse-Wonder](Muse-Wonder.md) — Meta, через шлюз OpenRouter
 * [Nano-Banana-2.1](Nano-Banana-2.1.md) — текст → изображение до 4K, сильный текст в кадре, навыки `image-text` 97, `image-generate` 96, `image-photo` 95, `image-concept` 92
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — картинка и указание → изменённая картинка, навыки `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — текст → изображение до 4K, лучший текст в кадре, навыки `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
@@ -70,25 +70,31 @@
 * [Seedance-2.5](Seedance-2.5.md) — текст → видео до 30 секунд со звуком, навыки `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — текст → изображение, навыки `image-generate` 92, `image-concept` 90, `image-photo` 90
 * [Tripo-H3.1](Tripo-H3.1.md) — картинка → 3D-модель с PBR-текстурами, навыки `3d-image` 92
-* [Tripo-P2](Tripo-P2.md) — картинка → 3D-модель с PBR-текстурами четырёх уровней, навыки `3d-image` 94
+* [Tripo-P2](Tripo-P2.md) — картинка → 3D-модель с PBR-текстурами, навыки `3d-image` 94
 * [Veo-3.1](Veo-3.1.md) — текст → видео со звуком, 4–8 секунд, до 4K, навыки `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — текст → видео до 30 секунд со звуком, навыки `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Россия; OpenAI-совместимый
-* [Zonos-2-TTS](Zonos-2-TTS.md) — текст + образец голоса → речь этим голосом (образец обязателен), навыки `audio-speech` 86
+* [Zonos-2-TTS](Zonos-2-TTS.md) — текст + образец голоса → речь этим голосом, навыки `audio-speech` 86
 
 **Через Claude CLI (по подписке, ключ не нужен)**
 
-* [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
-* [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
-* [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
 * [Claude-Fable-5.1_cli](Claude-Fable-5.1_cli.md)
+* [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
 * [Claude-Haiku-4.5_cli](Claude-Haiku-4.5_cli.md)
+* [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
 * [Claude-Opus-5.5_cli](Claude-Opus-5.5_cli.md)
+* [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
+* [Gemini-3.1-Pro_cli](Gemini-3.1-Pro_cli.md)
+* [GPT-6-Sol_cli](GPT-6-Sol_cli.md)
+* [Grok-4.7_cli](Grok-4.7_cli.md)
+* [Kimi-K3_cli](Kimi-K3_cli.md)
+* [Mistral-Large-3_cli](Mistral-Large-3_cli.md)
+* [Qwen3.8-Max_cli](Qwen3.8-Max_cli.md)
 
 **Локальные (считает ваш компьютер)**
 
 * [Muse-Glimmer-30B-Local](Muse-Glimmer-30B-Local.md) — тексты и код, оценки навыков 73–80
-* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — лёгкая модель для роли суфлёра: 3 ГБ видеопамяти, оценки навыков 62–74
+* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — лёгкая работа с текстом и разбор данных, оценки навыков 62–74
 * [Qwen3.6-27B-Local](Qwen3.6-27B-Local.md) — код и тексты, оценки навыков 75–82
 * [Qwen3.6-35B-A3B-Local](Qwen3.6-35B-A3B-Local.md) — код и тексты, оценки навыков 72–80
 * [Qwen3.8-27B-Local](Qwen3.8-27B-Local.md) — код и тексты, оценки навыков 80–87
@@ -111,6 +117,9 @@
 * [Kandinsky-5.0-T2V-Lite-nocfg-5s](Kandinsky-5.0-T2V-Lite-nocfg-5s.md) — текст → видео, навык `video-generate` 74
 * [Kandinsky-5.0-T2V-Lite-sft-10s](Kandinsky-5.0-T2V-Lite-sft-10s.md) — текст → видео, навык `video-generate` 76
 * [Kandinsky-5.0-T2V-Lite-sft-5s](Kandinsky-5.0-T2V-Lite-sft-5s.md) — текст → видео (5 секунд), навыки `video-generate` 76, `video-animate` 72
+* [Kandinsky-6.0-Lite-distill-5s-I2V](Kandinsky-6.0-Lite-distill-5s-I2V.md) — изображение + текст → видео (5 секунд, 864×480, 24 кадра/с), навыки `video-animate` 81, `video-generate` 77
+* [Kandinsky-6.0-Lite-distill-5s](Kandinsky-6.0-Lite-distill-5s.md) — текст → видео (5 секунд, 864×480, 24 кадра/с), навык `video-generate` 80
+* [Kandinsky-6.0-Pro-distill-5s](Kandinsky-6.0-Pro-distill-5s.md) — текст → видео (5 секунд, 864×480, 24 кадра/с), навык `video-generate` 86
 * [LTX-2.5](LTX-2.5.md) — текст → видео со звуком, навык `video-generate` 85
 * [Qwen-Image-2512](Qwen-Image-2512.md) — текст → изображение, навыки `image-text` 94, `image-photo` 91, `image-generate` 90, `image-concept` 85
 * [Qwen-Image-Edit-2511](Qwen-Image-Edit-2511.md) — картинка + указание → изменённая картинка, навыки `image-edit` 90, `image-text` 90, `image-inpaint` 85, `image-generate` 82
@@ -118,8 +127,8 @@
 * [SDXL-1.0](SDXL-1.0.md) — текст → изображение, навыки `image-generate` 70, `image-concept` 70, `image-photo` 68
 * [TRELLIS-2](TRELLIS-2.md) — изображение → 3D-модель С ЦВЕТОМ, навык `3d-image` 85
 * [TripoSplat](TripoSplat.md) — изображение → ГАУССОВЫ СПЛАТЫ, навык `3d-image` 80
-* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — картинка + текст → видео, навыки `video-animate` 80, `video-generate` 74 — **погашена 23.09.2026** (после 2.2 вышли Wan 2.6, 2.7 и 3.0)
-* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — текст → видео, навык `video-generate` 80 — **погашена 23.09.2026** (после 2.2 вышли Wan 2.6, 2.7 и 3.0)
+* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — картинка + текст → видео, навыки `video-animate` 80, `video-generate` 74
+* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — текст → видео, навык `video-generate` 80
 * [Z-Image-Turbo](Z-Image-Turbo.md) — текст → изображение, навыки `image-generate` 85, `image-photo` 84, `image-concept` 82, `image-text` 78
 
 ## Три способа подключения

@@ -110,16 +110,8 @@ else
         <MudChip T="string" Size="Size.Small" Style="@State.StatusStyle(task.Status)">
             @State.StatusName(task.Status)
         </MudChip>
-        @* В АРХИВЕ СМЕНЫ СОСТОЯНИЯ НЕТ ВОВСЕ (T-45-S0): данные архива изменению не подлежат,
-           и погашенная кнопка здесь читалась бы как «прав не хватает», а не как «так устроено» *@
-        @if (!task.IsTemplate && !State.InArchive)
-        {
-            @* смена статуса вручную — кнопка рядом со статусом (ТЗ v1.14) *@
-            <MudTooltip Text="@L["task.changeStatus"]">
-                <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
-                               Disabled="@(!CanEditTask)" OnClick="ChangeStatusAsync" />
-            </MudTooltip>
-        }
+        @* смена статуса вручную (ТЗ v1.14) с T-492-S0 стоит в правом тулбаре между
+           «запустить» и «изменить» *@
         @if (task.IsTemplate)
         {
             <MudChip T="string" Size="Size.Small" Color="Color.Warning">@L["task.isTemplate"]</MudChip>
@@ -318,6 +310,15 @@ else
                          Class="mt-2 ml-1" data-task-autostart="above" />
             </MudTooltip>
         }
+        @* смена статуса (ТЗ v1.14; место — T-492-S0). В АРХИВЕ ЕЁ НЕТ ВОВСЕ (T-45-S0):
+           весь этот блок там не рисуется *@
+        @if (!task.IsTemplate)
+        {
+            <MudTooltip Text="@L["task.changeStatus"]">
+                <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" data-task-status-change="1"
+                               Disabled="@(!CanEditTask)" OnClick="ChangeStatusAsync" />
+            </MudTooltip>
+        }
         <MudTooltip Text="@L["common.edit"]">
             @* data-* — опора живой проверки в браузере (T-196): у иконки нет текста, а
                проверять надо именно то, что ПРАВКА чужой задачи осталась закрытой *@
@@ -346,10 +347,6 @@ else
                                Disabled="@(!CanEditTask)" OnClick="SplitAsync" />
             </MudTooltip>
         }
-        <MudTooltip Text="@L["common.delete"]">
-            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
-                           Disabled="@(!CanEditTask)" OnClick="DeleteAsync" />
-        </MudTooltip>
         }
         @* ВОССТАНОВИТЬ (T-45-S0) — операция, обратная архивации: задача со всеми потомками,
            файлами и ссылками возвращается в рабочую среду (механика — T-42-S0).
@@ -390,6 +387,14 @@ else
             <MudIconButton Icon="@Icons.Material.Filled.Link" OnClick="@(() => ShowLinkAsync())"
                            data-task-link="1" />
         </MudTooltip>
+        @* удалить — правее всех, но до «обновить» (T-492-S0); в архиве её нет (T-45-S0) *@
+        @if (!State.InArchive)
+        {
+            <MudTooltip Text="@L["common.delete"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                               Disabled="@(!CanEditTask)" OnClick="DeleteAsync" />
+            </MudTooltip>
+        }
         @* ОБНОВИТЬ (T-246): у задачи со ссылкой импорта кнопка переспрашивает — обновить
            из источника (перечитать карточку Trello) или просто перечитать задачу здесь.
            У задачи без ссылки спрашивать нечего, кнопка работает как раньше *@
@@ -504,6 +509,19 @@ else
                         <MudIconButton Icon="@Icons.Material.Filled.Add" Disabled="@(!CanEditTask)"
                                        OnClick="AddSubtaskAsync" data-subtask-add="1" />
                     </MudTooltip>
+                    @* T-492-S0: добавить, импорт задачи по ссылке, обновить. Шаблон из
+                       внешней системы не импортируется — у него кнопки нет *@
+                    @if (!task.IsTemplate && !State.InArchive)
+                    {
+                        <MudTooltip Text="@L["imports.card.title"]">
+                            <MudIconButton Icon="@Icons.Material.Filled.AddLink" data-subtask-import-card="1"
+                                           Disabled="@(!CanEditTask)" OnClick="ImportSubtaskAsync" />
+                        </MudTooltip>
+                    }
+                    <MudTooltip Text="@L["common.refresh"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.Refresh" data-subtask-refresh="1"
+                                       OnClick="ReloadAsync" />
+                    </MudTooltip>
                 </MudStack>
                 @if (_subtasks.Count == 0)
                 {
@@ -523,8 +541,8 @@ else
                 {
                     @* Version — подпись поддерева (T-305-S0): карточка перечитала подзадачи
                        (новая из шаблона, правка, смена статуса) — диаграмма перечитывает себя *@
-                    <TaskDiagramView TaskId="@TaskId" OnAction="RunSubtaskActionAsync"
-                                     OnReload="ReloadAsync" Version="@SubtreeVersion" />
+                    <TaskDiagramView TaskId="@TaskId" OnReload="ReloadAsync" Version="@SubtreeVersion"
+                                     IsTemplate="@(_details?.Task.IsTemplate == true)" />
                 }
                 else
                 {
@@ -554,32 +572,11 @@ else
                                     <td style="white-space: nowrap;" data-subtask-prio="@subtask.PriorityNum">@subtask.PriorityNum</td>
                                     <td>@Nick(subtask.ExecutorIds.FirstOrDefault())</td>
                                     <td>@subtask.DueDate?.ToLocalTime().ToString("d")</td>
-                                    @* кнопки строки не должны открывать карточку — stopPropagation *@
-                                    <td style="white-space: nowrap;" @onclick:stopPropagation="true">
-                                        @* смена статуса подзадачи прямо из списка (T-136):
-                                           иконка та же, что у задачи рядом со статусом *@
-                                        <MudTooltip Text="@L["task.changeStatus"]">
-                                            <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
-                                                           Disabled="@(!CanEditTask)"
-                                                           OnClick="@(() => ChangeSubtaskStatusAsync(subtask))" />
-                                        </MudTooltip>
-                                        <MudTooltip Text="@L["common.edit"]">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                                           Disabled="@(!CanEditTask)"
-                                                           OnClick="@(() => EditSubtaskAsync(subtask))" />
-                                        </MudTooltip>
-                                        @* ссылка на подзадачу (T-132-S0): то же окно, что у
-                                           кнопки «ссылка» в тулбаре карточки *@
-                                        <MudTooltip Text="@L["task.link"]">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Link" Size="Size.Small"
-                                                           data-subtask-link="1"
-                                                           OnClick="@(() => ShowLinkAsync(subtask.Id))" />
-                                        </MudTooltip>
-                                        <MudTooltip Text="@L["common.delete"]">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
-                                                           Color="Color.Error" Disabled="@(!CanEditTask)"
-                                                           OnClick="@(() => DeleteSubtaskAsync(subtask))" />
-                                        </MudTooltip>
+                                    @* вместо разрозненных кнопок строки — одно меню «…» (T-492-S0) *@
+                                    <td style="white-space: nowrap;">
+                                        <TaskActionsMenu Item="subtask"
+                                                         HasChildren="@_subtree.Any(t => t.ParentId == subtask.Id)"
+                                                         OnDone="ReloadAsync" />
                                     </td>
                                 </tr>
                             }
@@ -2082,140 +2079,6 @@ else
         return result;
     }
 
-    /// <summary>
-    /// ДЕЙСТВИЕ НАД ПОДЗАДАЧЕЙ ИЗ ДИАГРАММЫ (T-132-S0): контекстное меню квадрата зовёт
-    /// ровно те же руки, что и кнопки строки таблицы, — чтобы поведение (переспросы,
-    /// сообщения, перечитывание) не разъезжалось между представлениями.
-    /// </summary>
-    private async Task RunSubtaskActionAsync((string Action, string TaskId) request)
-    {
-        if (request.Action == "link")
-        {
-            await ShowLinkAsync(request.TaskId);
-            return;
-        }
-        TaskItem subtask;
-        try
-        {
-            subtask = _subtree.FirstOrDefault(t => t.Id == request.TaskId)
-                      ?? (await Api.GetTaskAsync(request.TaskId)).Task;
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
-            return;
-        }
-        switch (request.Action)
-        {
-            case "edit":
-                await EditSubtaskAsync(subtask);
-                break;
-            case "status":
-                await ChangeSubtaskStatusAsync(subtask);
-                break;
-            case "delete":
-                await DeleteSubtaskAsync(subtask);
-                break;
-            case "start":
-            case "stop":
-                try
-                {
-                    if (request.Action == "start")
-                    {
-                        await Api.StartTaskAsync(subtask.Id);
-                    }
-                    else
-                    {
-                        await Api.StopTaskAsync(subtask.Id, false, false);
-                        Snackbar.Add(L["task.stop.done"], Severity.Success);
-                    }
-                    await ReloadAsync();
-                    State.NotifyChanged();
-                }
-                catch (ApiException ex)
-                {
-                    Snackbar.Add(ex.Message, Severity.Error);
-                }
-                break;
-        }
-    }
-
-    private async Task EditSubtaskAsync(TaskItem subtask)
-    {
-        try
-        {
-            var details = await Api.GetTaskAsync(subtask.Id);
-            var parameters = new DialogParameters<TaskDialog> { { d => d.Source, details } };
-            var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.edit"], parameters,
-                FormDialogs.Options(MaxWidth.Medium));
-            var result = await dialog.Result;
-            if (result is { Canceled: false, Data: TaskSaveDto dto })
-            {
-                await Api.UpdateTaskAsync(dto);
-                await ReloadAsync();
-                State.NotifyChanged();
-            }
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
-        }
-    }
-
-    /// <summary>Смена статуса подзадачи из списка подзадач (T-136): тот же диалог и тот же
-    /// вызов API, что у кнопки рядом со статусом самой задачи, — человеку не нужно открывать
-    /// карточку подзадачи ради одного клика.</summary>
-    private async Task ChangeSubtaskStatusAsync(TaskItem subtask)
-    {
-        var parameters = new DialogParameters<StatusDialog> { { d => d.Current, subtask.Status } };
-        var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
-        var result = await dialog.Result;
-        if (result is { Canceled: false, Data: string status } && status != subtask.Status)
-        {
-            try
-            {
-                await Api.ChangeTaskStatusAsync(subtask.Id, status);
-                await ReloadAsync();
-                State.NotifyChanged();
-            }
-            catch (ApiException ex)
-            {
-                Snackbar.Add(ex.Message, Severity.Error);
-            }
-        }
-    }
-
-    /// <summary>Удаление подзадачи из списка родителя — та же форма выбора (T-44-S0).
-    /// Перенести в архив её саму нельзя, и форма скажет почему: иерархия архивируется
-    /// целиком, частями нельзя.</summary>
-    private async Task DeleteSubtaskAsync(TaskItem subtask)
-    {
-        var target = subtask.IsTemplate ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
-        var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
-            target, subtask.Id, $"{subtask.DisplayId} {subtask.Title}");
-        if (choice is null)
-        {
-            return;
-        }
-        try
-        {
-            if (choice == ArchiveOrDeleteDialog.Archive)
-            {
-                await Api.MoveToArchiveAsync(target, subtask.Id);
-            }
-            else
-            {
-                await Api.DeleteTaskAsync(subtask.Id);
-            }
-            await ReloadAsync();
-            State.NotifyChanged();
-        }
-        catch (ApiException ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
-        }
-    }
-
     /// <summary>Новая подзадача (ТЗ гл. 11): та же форма, что и у кнопки «новая задача»
     /// в списке задач проекта (T-201) — сначала выбор «пустая задача или шаблон», список
     /// шаблонов по проекту этой задачи. Пустая — прежняя форма ввода с проставленным
@@ -2263,6 +2126,52 @@ else
             {
                 Snackbar.Add(ex.Message, Severity.Error);
             }
+        }
+    }
+
+    /// <summary>Подзадача импортом по ссылке (T-492-S0): то же окно, что у списка задач
+    /// проекта (ТЗ v1.50), содержимое карточки — в форму новой подзадачи этой задачи.</summary>
+    private async Task ImportSubtaskAsync()
+    {
+        if (_details?.Task.ProjectId is not { Length: > 0 } projectId)
+        {
+            return;
+        }
+        var parameters = new DialogParameters<ImportCardDialog> { { d => d.ProjectId, projectId } };
+        var dialog = await Dialogs.ShowAsync<ImportCardDialog>(L["imports.card.title"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        if (await dialog.Result is not { Canceled: false, Data: ImportedCardDto card })
+        {
+            return;
+        }
+        var formParameters = new DialogParameters<TaskDialog>
+        {
+            { d => d.Parent, _details.Task },
+            { d => d.Preset, card },
+        };
+        var form = await Dialogs.ShowAsync<TaskDialog>(L["task.form.new"], formParameters,
+            FormDialogs.Options(MaxWidth.Medium));
+        if (await form.Result is not { Canceled: false, Data: TaskSaveDto dto })
+        {
+            return;
+        }
+        try
+        {
+            var created = await Api.CreateTaskAsync(dto);
+            if (card.Comments.Count > 0)
+            {
+                var moved = await Api.ImportChatAsync(created.Id, card.Comments);
+                if (moved.Comments > 0)
+                {
+                    Snackbar.Add(string.Format(L["imports.card.chat"], moved.Comments), Severity.Success);
+                }
+            }
+            await ReloadAsync();
+            State.NotifyChanged();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 

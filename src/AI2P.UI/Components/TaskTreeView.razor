@@ -109,7 +109,7 @@ else
                     <span class="ai2p-status" style="@State.StatusStyle(task.Status)">@State.StatusName(task.Status)</span>
                     @* меню «…» в конце строки (T-455-S0) — те же действия, что у квадрата диаграммы *@
                     <MudSpacer />
-                    <TaskActionsMenu Item="task" OnDone="OnReload" />
+                    <TaskActionsMenu Item="task" HasChildren="hasChildren" OnDone="OnReload" />
                 </MudStack>
             </div>
         }

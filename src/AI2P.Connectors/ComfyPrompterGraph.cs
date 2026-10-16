@@ -55,7 +55,7 @@ public static class ComfyPrompterGraph
         {
             return classic(graph); // шаблона без суфлёра эта правка не касается вовсе
         }
-        var values = Values(prompterJson);
+        var values = WithSongLyrics(Values(prompterJson));
         var result = new StringBuilder(graph.Length + 256);
         var pending = 0;
         var from = 0;
@@ -125,6 +125,64 @@ public static class ComfyPrompterGraph
             // мусор вместо json — «суфлёр не назвал ничего», шаблон соберётся умолчаниями
         }
         return result;
+    }
+
+    /// <summary>Сколько секунд трека приходится на одно спетое слово, чтобы вокал не тонул
+    /// в инструментале (T-497-S0): у удачной песни 50 слов на 160 с — около трёх секунд.</summary>
+    private const double SecondsPerSungWord = 6;
+
+    /// <summary>Сколько раз самое большее повторяются слова песни.</summary>
+    private const int MaxLyricsBlocks = 12;
+
+    /// <summary>
+    /// Слова песни, слишком короткие для длительности трека, повторить куплетом и
+    /// припевами (T-497-S0). ACE-Step 1.5 планирует вокал по словам: строка «We will we
+    /// will rock you» на три минуты давала трек БЕЗ ГОЛОСА — планировщик раскладывал пять
+    /// слов в инструментал. Слова не меняются, только повторяются с метками строения
+    /// [verse]/[chorus], которые модель понимает. Достаточно длинный текст и текст, где
+    /// человек сам расставил метки, не трогаются; без duration суфлёра — тоже.
+    /// </summary>
+    public static string PadSongLyrics(string lyrics, double seconds)
+    {
+        var text = lyrics.Trim();
+        if (text.Length == 0 || seconds <= 0 || text.Contains('['))
+        {
+            return lyrics;
+        }
+        var words = text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
+        var needed = seconds / SecondsPerSungWord;
+        if (words >= needed)
+        {
+            return lyrics;
+        }
+        var blocks = Math.Clamp((int)Math.Ceiling(needed / words), 2, MaxLyricsBlocks);
+        var result = new StringBuilder();
+        for (var i = 0; i < blocks; i++)
+        {
+            result.Append(i == 0 ? "" : "\n\n").Append(i % 2 == 0 ? "[verse]\n" : "[chorus]\n").Append(text);
+        }
+        return result.ToString();
+    }
+
+    private static IReadOnlyDictionary<string, PrompterValue> WithSongLyrics(
+        IReadOnlyDictionary<string, PrompterValue> values)
+    {
+        if (!values.TryGetValue("lyrics", out var lyrics) || lyrics.Kind != JsonValueKind.String ||
+            !values.TryGetValue("duration", out var duration) ||
+            !double.TryParse(duration.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+        {
+            return values;
+        }
+        var padded = PadSongLyrics(lyrics.Text, seconds);
+        if (ReferenceEquals(padded, lyrics.Text))
+        {
+            return values;
+        }
+        var copy = new Dictionary<string, PrompterValue>(values, StringComparer.OrdinalIgnoreCase)
+        {
+            ["lyrics"] = lyrics with { Text = padded },
+        };
+        return copy;
     }
 
     /// <summary>Что встанет на место одного плейсхолдера.</summary>

@@ -36,6 +36,7 @@
 ## The developer's guide
 * [building, releasing and the layout of the repository](man/build.md)
 * [How the AI2P documentation is arranged](man/aboutdoc.md)
+* [Security policy and threat model](man/SECURITY.md)
 
 ## [AI models](models/README.md)
 

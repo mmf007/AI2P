@@ -36,6 +36,8 @@ else
                         }
                     </th>
                 }
+                @* колонка меню «…» (T-492-S0) *@
+                <th style="width: 1%;"></th>
             </tr>
         </thead>
         <tbody>
@@ -75,6 +77,10 @@ else
                             @ServerTitle(task)
                         </td>
                     }
+                    @* меню «…» в конце строки (T-492-S0) — то же, что у дерева задач *@
+                    <td style="white-space: nowrap;">
+                        <TaskActionsMenu Item="task" HasChildren="@ParentIds.Contains(task.Id)" />
+                    </td>
                 </tr>
             }
         </tbody>
@@ -143,11 +149,15 @@ else
 
     protected override void OnParametersSet()
     {
+        ParentIds = Tasks.Where(t => t.ParentId is not null).Select(t => t.ParentId!).ToHashSet();
         if (StateKey is not null)
         {
             _sort = State.ComponentState<TableSortState>(StateKey);
         }
     }
+
+    /// <summary>Задачи списка, у которых в нём же есть потомки, — пункт «запустить иерархию».</summary>
+    private HashSet<string> ParentIds = [];
 
     private string? _sortKey => _sort.Key;
     private bool _desc => _sort.Desc;

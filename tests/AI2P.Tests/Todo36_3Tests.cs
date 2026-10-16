@@ -67,9 +67,10 @@ public sealed class Todo36_3Tests : IDisposable
         // SD 3.5 Large и SDXL 1.0, T-20-S0 — три локальные 3D-модели: Hunyuan3D 2.1,
         // TRELLIS 2 и TripoSplat, T-347-S0 — лёгкая локальная Qwen3.5-4B для роли суфлёра;
         // T-431-S0 — двенадцать CLI-записей: у них манифест собирается из справочника пакетов
-        // (Node.js + программа CLI), шесть Claude-*_cli и шесть CLI других вендоров)
+        // (Node.js + программа CLI), шесть Claude-*_cli и шесть CLI других вендоров;
+        // T-469-S0 — три локальные Kandinsky 6.0)
         var all = service.StatusAll();
-        Assert.Equal(43, all.Count);
+        Assert.Equal(46, all.Count);
         Assert.Equal(12, all.Count(s => s.Cli));
         Assert.Contains(all, s => s.ModelId == KandinskyId);
     }

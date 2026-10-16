@@ -1,5 +1,5 @@
 {
-  "seedVersion": 25,
+  "seedVersion": 26,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -182,8 +182,8 @@
       "code": "AI2P.Tasks.ImportFromUrl",
       "tool": "import_task_from_url",
       "title": "按 URL 导入任务",
-      "hint": "代理按链接导入一张 Trello 卡片：会在当前项目中创建一个草稿任务，附件文件下载到项目的 uploads/ 中。针对该代号的 deny/confirm 安全规则会禁止/需确认导入。",
-      "prompt": "按链接从外部系统导入任务（目前只支持 Trello：https://trello.com/c/<代号>）。在当前项目中创建草稿任务：标题和描述取自卡片，附件文件会被下载并以链接形式附上。重复导入同一张卡片不会产生副本。参数 url — 卡片链接。"
+      "hint": "智能体按链接导入一个任务：Trello 卡片、GitHub 或 GitLab 问题，或 Figma 设计区域。在当前项目中创建草稿任务，文件和屏幕图片下载到项目的 uploads/。针对此代号的 deny/confirm 安全规则禁止/确认导入。CLI 智能体使用“ai2p import”命令。",
+      "prompt": "按链接从外部系统导入任务：Trello 卡片（https://trello.com/c/<代码>）、GitHub 或 GitLab 问题、Figma 设计区域（https://www.figma.com/design/<键>/<名称>?node-id=<节点>）。在当前项目中创建草稿任务；文件会下载并以链接附上。重复导入同一内容不会产生重复。参数 url——链接。Figma 还有两个参数，它们是要问用户的问题，不要自行决定：elements（true——屏幕及所有设计元素作为单独图片，false——仅主要屏幕）和 wholeFile（true——链接中没有 node-id 时导入整个文件；仅在用户明确同意后）。不知道答案就询问用户；没有它们 Figma 不会导入。任务描述中每张图片下方列出该画框的全部文字。"
     },
     {
       "id": "ac710000-0000-4000-9000-000000000017",

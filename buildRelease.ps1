@@ -124,14 +124,32 @@ else {
 #    из-за чего рядом с src/ появляется мусорный каталог сборки
 #    прямые слэши и завершающий '/': PowerShell при передаче в native-программу
 #    экранирует кавычку идущим перед ней '\', и путь приезжает в MSBuild искажённым
+#    СБОРКА БЕЗ ИНТЕРНЕТА (T-331): восстановление пакетов — отдельным шагом, при
+#    недоступном nuget.org повтор с источником «локальный кэш пакетов» и без аудита
+#    уязвимостей (ему тоже нужна сеть); публикация идёт с --no-restore.
 $publishDir = ($outDir -replace '\\', '/').TrimEnd('/') + '/'
-$publishArgs = @(
-    "publish", "src/AI2P.Server/AI2P.Server.csproj",
-    "-c", $Configuration,
-    "--property:PublishDir=$publishDir"
-)
-if ($SelfContained) { $publishArgs += @("-r", $Runtime, "--self-contained", "true") }
+$project = "src/AI2P.Server/AI2P.Server.csproj"
+$ridArgs = @()
+if ($SelfContained) { $ridArgs = @("-r", $Runtime, "-p:SelfContained=true") }   # у dotnet restore ключа --self-contained нет
 
+dotnet restore $project @ridArgs
+if ($LASTEXITCODE -ne 0) {
+    $nugetCache = $env:NUGET_PACKAGES
+    if (-not $nugetCache) {
+        $line = dotnet nuget locals global-packages --list | Select-Object -First 1
+        if ($line -match '^global-packages:\s*(.+)$') { $nugetCache = $Matches[1].Trim() }
+    }
+    if (-not $nugetCache) { $nugetCache = Join-Path $env:USERPROFILE ".nuget\packages" }
+    $nugetCache = ($nugetCache -replace '\\', '/').TrimEnd('/') + '/'
+    Write-Host "Источник пакетов недоступен — повтор из локального кэша: $nugetCache"
+    dotnet restore $project @ridArgs --source $nugetCache -p:NuGetAudit=false
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[ERROR] dotnet restore failed: каких-то пакетов нет в локальном кэше — первую сборку нужно делать с доступом в интернет." -ForegroundColor Red
+        exit 1
+    }
+}
+
+$publishArgs = @("publish", $project, "-c", $Configuration) + $ridArgs + @("--no-restore", "--property:PublishDir=$publishDir")
 dotnet @publishArgs
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] dotnet publish failed." -ForegroundColor Red

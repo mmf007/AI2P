@@ -99,7 +99,7 @@ public sealed class AiModelService
 
     /// <summary>Версия файла справочника пакетов models/packages.json (T-431-S0: пакеты
     /// CLI-агентов). Своя, чтобы пополнение пакетов не переписывало профайлы моделей.</summary>
-    private const int PackagesSeedVersion = 23;
+    private const int PackagesSeedVersion = 24;
 
     /// <summary>
     /// Модели дистрибутива: фиксированные UUID — при распределённом вводе (дистрибутив +
@@ -6839,6 +6839,7 @@ public sealed class AiModelService
             }
             """),
         .. KandinskyLiteVariants(),
+        .. Kandinsky6Variants(),
         .. AceStep15Variants(),
         .. OtherCliVariants(),
     ];
@@ -7523,7 +7524,7 @@ public sealed class AiModelService
     /// </summary>
     private const string PackagesSeedJson = """
         {
-          "_seed": 23,
+          "_seed": 24,
           "packages": [
             {
               "id": "nodejs",
@@ -7635,6 +7636,32 @@ public sealed class AiModelService
                   "name": "ComfyUI_windows_portable_nvidia.7z",
                   "url": "https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z",
                   "unpack": "7z"
+                }
+              ]
+            },
+            {
+              "id": "kandinsky6",
+              "name": "Kandinsky 6 (узлы ComfyUI)",
+              "dir": "kandinsky6",
+              "os": "windows",
+              "check": "model_downloads.py",
+              "requires": ["comfyui"],
+              "setup": {
+                "workDir": "{package:kandinsky6:model_downloads.py}",
+                "check": "ai2p-setup.done",
+                "timeoutMinutes": 60,
+                "idleMinutes": 20,
+                "steps": [
+                  { "name": "kandinsky6 requirements", "run": "{package:comfyui:python.exe}", "args": "-s -m pip install -r requirements.txt" },
+                  { "name": "ComfyUI/custom_nodes/kandinsky6", "run": "{package:comfyui:python.exe}", "args": "-s -c \"import os,shutil,sys; d=os.path.join(os.path.dirname(sys.argv[1]),'custom_nodes','kandinsky6'); shutil.copytree('.',d,dirs_exist_ok=True); open('ai2p-setup.done','w').write(d)\" \"{package:comfyui:main.py}\"" }
+                ]
+              },
+              "hint": "Нужен ComfyUI 0.38 или новее. Скачайте https://github.com/kandinskylab/kandinsky-6/archive/119d58ee5c5de0157644f09ef20bc9b2ab68a064.zip и распакуйте в каталог пакета; затем скопируйте содержимое папки comfyui в ComfyUI/custom_nodes/kandinsky6 и выполните встроенным Python ComfyUI: python -m pip install -r requirements.txt.",
+              "files": [
+                {
+                  "name": "kandinsky-6-119d58e.zip",
+                  "url": "https://github.com/kandinskylab/kandinsky-6/archive/119d58ee5c5de0157644f09ef20bc9b2ab68a064.zip",
+                  "unpack": "zip"
                 }
               ]
             },
@@ -8392,6 +8419,192 @@ public sealed class AiModelService
           }
         }
         """;
+
+    /// <summary>
+    /// ЛОКАЛЬНЫЙ KANDINSKY 6.0 (T-469-S0, сверка 14.10.2026). В ядре ComfyUI (v0.40.0) модели
+    /// нет: её узлы даёт расширение kandinskylab/kandinsky-6 (папка comfyui, MIT, нужен
+    /// ComfyUI 0.38+), и ставится оно пакетом «kandinsky6» — распаковка архива коммита и
+    /// два шага настройки: зависимости pip во встроенный Python ComfyUI и копия узлов в
+    /// ComfyUI/custom_nodes/kandinsky6. Модель сама считает видео СО ЗВУКОМ, но звук
+    /// декодируется весами MMAudio v1-44.pth под CC-BY-NC-4.0 — некоммерческая лицензия,
+    /// такие мы не берём (как XTTS и F5-TTS, T-18-S0). Поэтому граф забирает только видео:
+    /// VAEDecode общего латента, без Kandinsky6AudioVAEDecode, ролик без дорожки.
+    /// Без улучшателя промпта (Qwen3.5-9B, ещё 19 ГБ), MagCache и апскейла VSR — это
+    /// необязательные узлы официального графа. Веса Lite и Pro distill открыты (MIT,
+    /// gated=false); не-distill Pro закрыт согласием (gated=auto) — не заводится.
+    /// Размеры сняты запросом ?blobs=true и HEAD (X-Linked-Size) к HuggingFace 14.10.2026.
+    /// </summary>
+    private static (string Id, string Name, string ProfileJson, string ScopeJson)[]
+        Kandinsky6Variants() =>
+    [
+        Kandinsky6Record("6f1a45e0-0d31-4c65-9a01-000000000119", "Kandinsky-6.0-Lite-distill-5s",
+            "Kandinsky-6.0-Lite-distill-5s.safetensors",
+            "https://huggingface.co/kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers/resolve/main/transformer/diffusion_pytorch_model.safetensors",
+            6381599096, i2v: false, timeout: 180,
+            """
+                { "name": "video-generate", "score": 80 }
+            """),
+        Kandinsky6Record("6f1a45e0-0d31-4c65-9a01-000000000120", "Kandinsky-6.0-Lite-distill-5s-I2V",
+            "Kandinsky-6.0-Lite-distill-5s.safetensors",
+            "https://huggingface.co/kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers/resolve/main/transformer/diffusion_pytorch_model.safetensors",
+            6381599096, i2v: true, timeout: 180,
+            """
+                { "name": "video-animate",  "score": 81 },
+                { "name": "video-generate", "score": 77 }
+            """),
+        Kandinsky6Record("6f1a45e0-0d31-4c65-9a01-000000000121", "Kandinsky-6.0-Pro-distill-5s",
+            "Kandinsky-6.0-Pro-distill-5s.safetensors",
+            "https://huggingface.co/kandinskylab/Kandinsky-6.0-Pro-distill-5s-Diffusers/resolve/main/transformer/diffusion_pytorch_model.safetensors",
+            60344993576, i2v: false, timeout: 360,
+            """
+                { "name": "video-generate", "score": 86 }
+            """),
+    ];
+
+    /// <summary>Записи Kandinsky 6 из общего шаблона: различаются файлом DiT, режимом
+    /// (текст → видео либо картинка → видео) и пределом времени.</summary>
+    private static (string Id, string Name, string ProfileJson, string ScopeJson) Kandinsky6Record(
+        string id, string name, string unet, string url, long size, bool i2v, int timeout, string skills)
+    {
+        var refImage = i2v
+            ? """
+              {
+                "kind": "upload",
+                "placeholder": "{image}",
+                "uploadPath": "/upload/image",
+                "field": "image",
+                "maxCount": 1,
+                "formats": ["image/png", "image/jpeg", "image/webp"],
+                "required": true
+              }
+              """
+            : """{ "kind": "none" }""";
+        var model = unet.Replace(".safetensors", "", StringComparison.Ordinal);
+        var inputs = i2v ? """["text/plain", "image/*"]""" : """["text/plain"]""";
+        var profile = $$"""
+            {
+              "_seed": 22,
+              "provider": "comfyui",
+              "model": "{{model}}",
+              "baseUrl": "http://127.0.0.1:8188",
+              "secretRef": "",
+              "launchCommand": "",
+              "workflow": "models/workflow_{{id}}.json",
+              "params": {
+                "width": 864,
+                "height": 480,
+                "length": 121,
+                "steps": 10,
+                "negative": "Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards",
+                "timeoutMinutes": {{timeout}}
+              },
+              "install": {
+                "group": "Kandinsky-6",
+                "packages": ["comfyui", "kandinsky6"],
+                "launchCommand": "\"{package:comfyui:python.exe}\" -s \"{package:comfyui:main.py}\" --windows-standalone-build --disable-auto-launch --extra-model-paths-config \"{extraModelPaths}\"",
+                "files": [
+                  {
+                    "name": "{{unet}}",
+                    "url": "{{url}}",
+                    "size": {{size}},
+                    "category": "diffusion_models"
+                  },
+                  {
+                    "name": "qwen_2.5_vl_7b.safetensors",
+                    "url": "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b.safetensors",
+                    "size": 16584415576,
+                    "category": "text_encoders"
+                  },
+                  {
+                    "name": "clip_l.safetensors",
+                    "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+                    "size": 246144152,
+                    "category": "text_encoders"
+                  },
+                  {
+                    "name": "hunyuan_video_vae_bf16.safetensors",
+                    "url": "https://huggingface.co/Kijai/HunyuanVideo_comfy/resolve/main/hunyuan_video_vae_bf16.safetensors",
+                    "size": 492986478,
+                    "category": "vae"
+                  }
+                ]
+              },
+              "lora": {
+                "supported": false,
+                "reason": "no-lora"
+              },
+              "refImage": {{refImage}}
+            }
+            """;
+        var scope = $$"""
+            {
+              "_seed": 22,
+              "id": "{{model}}",
+              "inputs":  {{inputs}},
+              "outputs": ["video/*"],
+              "skills":  [
+            {{skills.TrimEnd()}}
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0 }
+            }
+            """;
+        return (id, name, profile, scope);
+    }
+
+    /// <summary>
+    /// Граф Kandinsky 6 (T-469-S0) — API-формат POST /prompt, сконвертирован из шаблонов
+    /// расширения kandinskylab/kandinsky-6 «Kandinsky 6.0 Text to Video+Audio» и
+    /// «… Image to Video+Audio» (коммит 119d58e). Сэмплер distill-режима: 10 шагов, CFG 1,
+    /// euler/simple (PiFlow расширение включает само). Звуковая ветка снята (см.
+    /// <see cref="Kandinsky6Variants"/>). {unet} — технический плейсхолдер, его подставляет
+    /// <see cref="Kandinsky6Workflow"/>; узлы 12–16 — только у «картинка → видео»: стартовый
+    /// кадр → VAEEncode → Kandinsky6ImageToVideoAudio, после сэмплера опорный кадр снимается
+    /// Kandinsky6RemoveReferenceLatent.
+    /// </summary>
+    private const string Kandinsky6WorkflowJson = """
+        {
+          "_seed": 22,
+          "prompt": {
+            "1": { "class_type": "UNETLoader", "inputs": { "unet_name": "{unet}", "weight_dtype": "default" } },
+            "2": { "class_type": "DualCLIPLoader", "inputs": { "clip_name1": "qwen_2.5_vl_7b.safetensors", "clip_name2": "clip_l.safetensors", "type": "kandinsky5", "device": "default" } },
+            "3": { "class_type": "VAELoader", "inputs": { "vae_name": "hunyuan_video_vae_bf16.safetensors" } },
+            "5": { "class_type": "Kandinsky6TextEncode", "inputs": { "clip": ["2", 0], "video_caption": "{prompt}", "audio_caption": "" } },
+            "6": { "class_type": "Kandinsky6TextEncode", "inputs": { "clip": ["2", 0], "video_caption": "{negative}", "audio_caption": "" } },
+            "7": { "class_type": "Kandinsky6EmptyLatent", "inputs": { "width": "{width}", "height": "{height}", "length": "{length}", "fps": 24, "batch_size": 1 } },
+            "8": { "class_type": "Kandinsky6Sampler", "inputs": { "seed": "{seed}", "steps": "{steps}", "cfg": 1, "sampler_name": "euler", "scheduler": "simple", "denoise": 1, "model": ["1", 0], "positive": ["5", 0], "negative": ["6", 0], "latent_image": ["7", 0] } },
+            "9": { "class_type": "VAEDecode", "inputs": { "samples": ["8", 0], "vae": ["3", 0] } },
+            "10": { "class_type": "CreateVideo", "inputs": { "fps": 24, "images": ["9", 0] } },
+            "11": { "class_type": "SaveVideo", "inputs": { "filename_prefix": "AI2P/{job}", "format": "mp4", "codec": "h264", "video": ["10", 0] } }
+          }
+        }
+        """;
+
+    /// <summary>Граф Kandinsky 6: подставить файл весов; для «картинка → видео» —
+    /// дописать ветку стартового кадра и переключить сэмплер и декодер на неё.</summary>
+    private static string Kandinsky6Workflow(string unetName, bool i2v)
+    {
+        var json = Kandinsky6WorkflowJson.Replace("{unet}", unetName, StringComparison.Ordinal);
+        if (!i2v)
+        {
+            return json;
+        }
+        return json
+            .Replace("\"positive\": [\"5\", 0], \"negative\": [\"6\", 0], \"latent_image\": [\"7\", 0]",
+                "\"positive\": [\"14\", 0], \"negative\": [\"14\", 1], \"latent_image\": [\"14\", 2]",
+                StringComparison.Ordinal)
+            .Replace("\"samples\": [\"8\", 0]", "\"samples\": [\"15\", 0]", StringComparison.Ordinal)
+            .Replace("\"video\": [\"10\", 0] } }",
+                """
+                "video": ["10", 0] } },
+                    "12": { "class_type": "LoadImage", "inputs": { "image": "{image}" } },
+                    "13": { "class_type": "ImageScale", "inputs": { "image": ["12", 0], "upscale_method": "bilinear", "width": "{width}", "height": "{height}", "crop": "center" } },
+                    "16": { "class_type": "VAEEncode", "inputs": { "pixels": ["13", 0], "vae": ["3", 0] } },
+                    "14": { "class_type": "Kandinsky6ImageToVideoAudio", "inputs": { "positive": ["5", 0], "negative": ["6", 0], "empty_latent": ["7", 0], "reference_latent": ["16", 0] } },
+                    "15": { "class_type": "Kandinsky6RemoveReferenceLatent", "inputs": { "joint_latent": ["8", 0] } }
+                """.TrimEnd(),
+                StringComparison.Ordinal);
+    }
 
     /// <summary>Шаблон варианта Kandinsky Lite: подставить файл весов и силу следования.</summary>
     private static string KandinskyLiteWorkflow(string unetName, int cfg) =>
@@ -9331,6 +9544,13 @@ public sealed class AiModelService
         {
             WriteSeedFile("models/workflow_" + v.Id + ".json", KandinskyLiteWorkflow(v.Unet, v.Cfg));
         }
+        // локальный Kandinsky 6 (T-469-S0): граф общий, у «картинка → видео» своя ветка кадра
+        WriteSeedFile("models/workflow_6f1a45e0-0d31-4c65-9a01-000000000119.json",
+            Kandinsky6Workflow("Kandinsky-6.0-Lite-distill-5s.safetensors", i2v: false));
+        WriteSeedFile("models/workflow_6f1a45e0-0d31-4c65-9a01-000000000120.json",
+            Kandinsky6Workflow("Kandinsky-6.0-Lite-distill-5s.safetensors", i2v: true));
+        WriteSeedFile("models/workflow_6f1a45e0-0d31-4c65-9a01-000000000121.json",
+            Kandinsky6Workflow("Kandinsky-6.0-Pro-distill-5s.safetensors", i2v: false));
         // локальные модели звука (T-18-S0): у трёх вариантов ACE-Step 1.5 XL граф общий,
         // подставляются свой файл весов, сила следования тексту и top_p планировщика
         foreach (var v in AceStep15)

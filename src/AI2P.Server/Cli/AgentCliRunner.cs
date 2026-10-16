@@ -86,7 +86,7 @@ public static class AgentCliRunner
 
     /// <summary>Параметры-флаги: «--restart» без значения означает true.</summary>
     private static readonly HashSet<string> BoolParams = new(StringComparer.OrdinalIgnoreCase)
-        { "restart", "wait", "includeInactive", "active", "alwaysLoad" };
+        { "restart", "wait", "includeInactive", "active", "alwaysLoad", "wholeFile", "elements" };
 
     /// <summary>Параметры-списки: «--skills a --skills b» либо «--skills a,b».</summary>
     private static readonly HashSet<string> ListParams = new(StringComparer.OrdinalIgnoreCase)

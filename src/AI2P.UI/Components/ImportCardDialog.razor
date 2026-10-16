@@ -31,20 +31,49 @@
                         }
                     </MudSelect>
                 }
+                @* Figma (T-477-S0): два вопроса человеку прямо в окне — весь ли файл (ссылка
+                   без node-id) и нужны ли элементы дизайна отдельными картинками *@
+                @if (UrlKind == ImportKinds.Figma)
+                {
+                    @if (!_url.Contains("node-id=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">@L["imports.figma.noNode"]</MudAlert>
+                        <MudSwitch T="bool" @bind-Value="_wholeFile" Color="Color.Warning"
+                                   data-import-figma="whole" Label="@L["imports.figma.wholeFile"]" />
+                    }
+                    <MudSwitch T="bool" @bind-Value="_elements" Color="Color.Primary"
+                               data-import-figma="elements" Label="@L["imports.figma.elements"]" />
+                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["imports.figma.elementsHint"]</MudText>
+                }
                 @* отказ Trello — целиком и в самом окне (T-134): в хинте snackbar'а длинное
                    объяснение «что именно не принято и что с этим делать» не помещалось *@
                 @if (_error.Length > 0)
                 {
                     <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
                 }
+                @* Figma упёрлась в предел запросов (T-485-S0): собранное — не ошибка, а
+                   незаконченный импорт; его сохраняют кнопкой «Сохранить» черновиком *@
+                @if (_pending is not null)
+                {
+                    <MudAlert Severity="Severity.Warning" Dense="true" data-import-pending="1"
+                              Style="white-space: pre-line">@_pending.PendingMessage</MudAlert>
+                }
             </MudStack>
         }
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled"
-                   Disabled="@(_sources.Count == 0 || _url.Trim().Length == 0 || _running)"
-                   OnClick="RunAsync">@L["imports.card.run"]</MudButton>
+        @if (_pending is not null)
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled" data-import-save="1"
+                       OnClick="@(() => Dialog.Close(DialogResult.Ok(_pending)))">@L["common.save"]</MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                       Disabled="@(_sources.Count == 0 || _url.Trim().Length == 0 || _running)"
+                       OnClick="RunAsync">@L["imports.card.run"]</MudButton>
+        }
     </DialogActions>
 </MudDialog>
 
@@ -59,10 +88,16 @@
     private bool _loaded;
     private bool _running;
     private string _error = "";
+    /// <summary>Незаконченный импорт Figma (T-485-S0): собранное ждёт кнопки «Сохранить».</summary>
+    private ImportedCardDto? _pending;
 
     /// <summary>Виды источников, из которых можно импортировать ОДНО задание по ссылке.</summary>
     private static readonly string[] UrlKinds =
-        [ImportKinds.Trello, ImportKinds.GitHub, ImportKinds.GitLab];
+        [ImportKinds.Trello, ImportKinds.GitHub, ImportKinds.GitLab, ImportKinds.Figma];
+
+    // выбор для Figma (T-477-S0): весь файл — только явно, элементы — по желанию
+    private bool _wholeFile;
+    private bool _elements;
 
     /// <summary>
     /// Вид источника, к которому относится введённый адрес: пусто — адрес пока ни на что
@@ -70,7 +105,9 @@
     /// НАРОЧНО грубый — по имени сервиса в адресе: точный разбор делает сервер, а форме
     /// нужно только понять, чьи ключи предлагать.
     /// </summary>
-    private string UrlKind => _url.Contains("trello.com/c/", StringComparison.OrdinalIgnoreCase)
+    private string UrlKind => _url.Contains("figma.com/", StringComparison.OrdinalIgnoreCase)
+        ? ImportKinds.Figma
+        : _url.Contains("trello.com/c/", StringComparison.OrdinalIgnoreCase)
         ? ImportKinds.Trello
         : _url.Contains("github.com/", StringComparison.OrdinalIgnoreCase)
             ? ImportKinds.GitHub
@@ -121,7 +158,14 @@
             {
                 Url = _url.Trim(),
                 SourceId = sourceId,
+                WholeFile = UrlKind == ImportKinds.Figma ? _wholeFile : null,
+                Elements = UrlKind == ImportKinds.Figma ? _elements : null,
             });
+            if (card.PendingMessage.Length > 0)
+            {
+                _pending = card;
+                return;
+            }
             Dialog.Close(DialogResult.Ok(card));
         }
         catch (ApiException ex)

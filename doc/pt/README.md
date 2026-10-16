@@ -45,6 +45,7 @@ ao lado do programa.
 * [O que ele faz](#o-que-ele-faz)
 * [Como isso se parece na prática](#como-isso-se-parece-na-prática)
 * [O AI2P constrói a si mesmo](#o-ai2p-constrói-a-si-mesmo)
+* [Fazenda de IA: uma tarefa, muitos computadores](#fazenda-de-ia-uma-tarefa-muitos-computadores)
 * [O que é preciso](#o-que-é-preciso)
 * [Início rápido](#início-rápido)
 * [Documentação](#documentação)
@@ -101,6 +102,45 @@ executores de IA; uma pessoa define as tarefas e aceita o resultado. Cada versã
 executores, e a última tarefa faz o balanço e devolve para retrabalho o que não fechou.
 Não é uma demo sobre uma lista de compras, e sim um produto que todo dia prova que funciona
 em si mesmo — incluindo os erros honestos dos agentes e como foram corrigidos.
+
+## Fazenda de IA: uma tarefa, muitos computadores
+
+<img src="../images/ai2p-farm.gif" alt="Fazenda de IA: a tarefa-mãe no maestro; as subtarefas vão por replicação para computadores com modelos locais e voltam com o resultado" width="960">
+
+Um modelo local vive onde estão seus pesos e sua placa de vídeo: o vídeo é calculado por um
+PC gamer com uma placa potente, os textos por um modelo llama.cpp numa máquina do escritório,
+as imagens por um Mac. O modelo não pode ser levado para outro lugar, mas o **trabalho**
+pode. Para isso o AI2P não precisa de um «distribuidor de tarefas» à parte — basta a
+replicação que o cluster já tem.
+
+Como funciona:
+
+1. **Os computadores se unem em um cluster.** Um deles é o maestro da organização, os outros
+   se conectam a ele ([Vários servidores](man/servers.md)). Tarefas, chat, executores e
+   experiência são comuns a todos: cada servidor os replica com o maestro (a topologia é uma
+   estrela).
+2. **Cada máquina cadastra os SEUS executores.** Um executor de IA com modelo local fica
+   ligado ao servidor onde esse modelo está instalado: «Kandinsky no S1», «Qwen no S2»,
+   «FLUX no S3».
+3. **A tarefa-mãe é dividida em subtarefas.** Um agente (ou um modelo de tarefas) divide o
+   trabalho em partes — roteiro, storyboard, vídeo — e dá a cada parte o seu executor e um
+   **servidor dono**: o computador onde está o modelo certo. Uma tarefa também pode ser levada
+   para outro servidor com o botão «trocar servidor».
+4. **A replicação entrega as subtarefas.** A subtarefa chega ao seu servidor pelo registro de
+   alterações, e o início da hierarquia vai para o dono como pedido. Cada computador executa
+   só as suas tarefas e só com o seu modelo — todos ao mesmo tempo.
+5. **Os resultados voltam.** O resultado da subtarefa, seus artefatos e arquivos são
+   replicados para os demais servidores; quando as subtarefas são entregues, a tarefa-mãe as
+   junta em um resultado comum e devolve para retrabalho o que não fechou.
+
+O que se ganha: uma única tarefa «faça um vídeo» ocupa várias placas de vídeo ao mesmo tempo,
+o modelo na nuvem só planeja, e o cálculo caro roda de graça no seu próprio hardware. Um
+computador desligado não para ninguém: as subtarefas dele esperam, e ele alcança os outros
+quando for ligado.
+
+O que a fazenda **não** faz: não é balanceamento de carga. A tarefa roda só no seu dono e, se
+ele estiver desligado, nenhum outro servidor a assume sozinho — a distribuição é decidida por
+você (ou pelo agente) ao escolher o executor e o servidor de cada subtarefa.
 
 ## O que é preciso
 

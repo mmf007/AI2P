@@ -54,6 +54,10 @@ public sealed class TaskToolset
     /// <summary>Импорт из GitHub (T-247) — третья процедура импорта по URL; выбор тот же,
     /// по виду ссылки.</summary>
     private readonly GitHubImporter? _github;
+
+    /// <summary>Импорт из Figma (T-477-S0) — четвёртая процедура; у неё два вопроса к человеку
+    /// (весь файл, элементы), поэтому инструмент принимает wholeFile и elements.</summary>
+    private readonly FigmaImporter? _figma;
     private readonly Project? _project;
     private readonly string? _publicBaseUrl;
 
@@ -98,9 +102,10 @@ public sealed class TaskToolset
         ExecutorPickService? picker = null, string? actorExecutorId = null,
         ExperienceService? experience = null, TrelloImporter? importer = null,
         Project? project = null, string? publicBaseUrl = null, GitLabImporter? gitlab = null,
-        GitHubImporter? github = null, FileFetchService? fetch = null)
+        GitHubImporter? github = null, FileFetchService? fetch = null, FigmaImporter? figma = null)
     {
         _fetch = fetch;
+        _figma = figma;
         _gitlab = gitlab;
         _github = github;
         _tasks = tasks;
@@ -151,7 +156,8 @@ public sealed class TaskToolset
     /// один импортёр и проект текущей задачи (файлы вложений сохраняются в uploads/ проекта).
     /// Какой именно импортёр возьмётся за ссылку, решает её вид (T-249).</summary>
     public bool CanImport =>
-        (_importer is not null || _gitlab is not null || _github is not null) && _project is not null;
+        (_importer is not null || _gitlab is not null || _github is not null || _figma is not null)
+        && _project is not null;
 
     /// <summary>
     /// Получение внешнего файла задания (fetch_file, T-255) публикуется, когда сервис задан.
@@ -419,7 +425,17 @@ public sealed class TaskToolset
             }
             """),
         new("import_task_from_url", "",
-            """{ "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] }"""),
+            """
+            {
+              "type": "object",
+              "properties": {
+                "url":       { "type": "string" },
+                "wholeFile": { "type": "boolean" },
+                "elements":  { "type": "boolean" }
+              },
+              "required": ["url"]
+            }
+            """),
         new("fetch_file", "",
             """{ "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] }"""),
         new("send_chat_message", "",
@@ -493,7 +509,7 @@ public sealed class TaskToolset
                 "list_templates" => ListTemplates(),
                 "create_template" => CreateTemplate(args),
                 "update_template" => UpdateTemplate(args),
-                "import_task_from_url" => await ImportTaskFromUrlAsync(RequiredString(args, "url", Language), ct),
+                "import_task_from_url" => await ImportTaskFromUrlAsync(RequiredString(args, "url", Language), args, ct),
                 "fetch_file" => await FetchFileAsync(RequiredString(args, "url", Language), ct),
                 "send_chat_message" => SendChatMessage(RequiredString(args, "text", Language)),
                 "send_task_message" => SendTaskMessage(args),
@@ -521,7 +537,7 @@ public sealed class TaskToolset
     /// и обсуждением; повторный импорт той же карточки не создаёт дубль (external_ref).
     /// Процедуру выбирает ВИД ССЫЛКИ: агенту не нужно знать, какие источники заведены.
     /// </summary>
-    private async Task<string> ImportTaskFromUrlAsync(string url, CancellationToken ct)
+    private async Task<string> ImportTaskFromUrlAsync(string url, JsonElement args, CancellationToken ct)
     {
         // СНАЧАЛА ИЩЕМ У СЕБЯ (T-196-S0): ссылка на НАШУ же задачу — это не импорт, а чтение.
         // Во внешнюю систему по ней лезть незачем — там такой карточки нет вовсе, и агент
@@ -541,7 +557,38 @@ public sealed class TaskToolset
         DateTime? due;
         List<string> files;
         Func<string, int> importChat;
-        if (_github is not null && GitHubImporter.CanRefresh(url))
+        if (_figma is not null && FigmaImporter.ParseUrl(url) is { } figmaRef)
+        {
+            // два вопроса к человеку (T-477-S0) задаёт АГЕНТ, а не инструмент: без ответа
+            // импорт не идёт, и агент получает внятную просьбу переспросить
+            var wholeFile = OptionalBool(args, "wholeFile") ?? figmaRef.WholeMark;
+            var elements = OptionalBool(args, "elements") ?? (figmaRef.ElementsMark ? true : (bool?)null);
+            if (!figmaRef.HasNode && !wholeFile)
+            {
+                return Loc.In(Language, "prompt.tasks.187");
+            }
+            if (elements is null)
+            {
+                return Loc.In(Language, "prompt.tasks.188");
+            }
+            FigmaImporter.ImportedDesign design;
+            try
+            {
+                design = await _figma.ImportContentAsync(_project!, url, sourceId: null,
+                    new FigmaImporter.ImportOptions(wholeFile, elements), ct);
+            }
+            catch (FigmaImporter.FigmaRateLimitException limit)
+            {
+                // предел запросов Figma (T-481-S0): собранное сохраняется черновиком,
+                // доимпорт — кнопкой «обновить» в карточке задачи
+                return _figma.SavePending(_project!, limit, _actorExecutorId);
+            }
+            (title, description, due, externalRef, files, importUrl) =
+                (design.Title, design.Description, null, design.ExternalRef, design.Files, design.Url);
+            // обсуждения у макета нет — в чат переносить нечего
+            importChat = _ => 0;
+        }
+        else if (_github is not null && GitHubImporter.CanRefresh(url))
         {
             var issue = await _github.ImportIssueContentAsync(url, sourceId: null, ct);
             (title, description, due, externalRef, files, importUrl) =

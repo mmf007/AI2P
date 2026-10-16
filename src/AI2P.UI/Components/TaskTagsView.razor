@@ -28,6 +28,8 @@ else
                     <th style="width: 1%; white-space: nowrap;">@L["task.executor"]</th>
                     <th style="width: 1%; white-space: nowrap;">@L["task.dueDate"]</th>
                     <th style="width: 1%; white-space: nowrap;">@L["task.project"]</th>
+                    @* колонка меню «…» (T-492-S0) *@
+                    <th style="width: 1%;"></th>
                 </tr>
             </thead>
             <tbody>
@@ -39,7 +41,7 @@ else
                     <tr class="ai2p-tag-cat" style="cursor: pointer;"
                         data-tag-cat="@group.Tag" data-tag-open="@(open ? "1" : "0")"
                         @onclick="@(() => Toggle(group.Tag))">
-                        <td colspan="7">
+                        <td colspan="8">
                             <MudIcon Icon="@(open ? Icons.Material.Filled.ExpandMore : Icons.Material.Filled.ChevronRight)"
                                      Size="Size.Small" Style="vertical-align: middle;" />
                             <b>@TagTitle(group.Tag)</b>
@@ -71,6 +73,10 @@ else
                                 <td style="white-space: nowrap;">@Nick(task.ExecutorIds.FirstOrDefault())</td>
                                 <td style="white-space: nowrap;">@(task.DueDate?.ToLocalTime().ToString("d"))</td>
                                 <td style="white-space: nowrap;">@ProjectName(task.ProjectId)</td>
+                                @* меню «…» в конце строки (T-492-S0) *@
+                                <td style="white-space: nowrap;">
+                                    <TaskActionsMenu Item="task" HasChildren="@_parentIds.Contains(task.Id)" />
+                                </td>
                             </tr>
                         }
                     }
@@ -86,6 +92,12 @@ else
     [CascadingParameter(Name = "FrameIndex")] public int FrameIndex { get; set; }
 
     [Parameter] public List<TaskItem> Tasks { get; set; } = [];
+
+    /// <summary>Задачи, у которых в списке есть потомки, — пункт меню «запустить иерархию» (T-492-S0).</summary>
+    private HashSet<string> _parentIds = [];
+
+    protected override void OnParametersSet() =>
+        _parentIds = Tasks.Where(t => t.ParentId is not null).Select(t => t.ParentId!).ToHashSet();
 
     /// <summary>Раскрытые категории. Пусто при каждом открытии представления — «все тэги
     /// при загрузке свёрнуты» (T-222); в UiState этот набор не сохраняется намеренно.</summary>

@@ -11,24 +11,24 @@ key, why a model may be inactive and how to create your own record.
 
 **Cloud (an API key is needed)**
 
-* [Chatterbox-TTS](Chatterbox-TTS.md) — text plus a voice sample → speech in that voice, skills `audio-speech` 88
-* [Claude-Fable-5](Claude-Fable-5.md) — the API of the provider Anthropic
+* [Chatterbox-TTS](Chatterbox-TTS.md) — text plus a voice sample into speech in that voice, skills `audio-speech` 88
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — the API of the provider Anthropic
+* [Claude-Fable-5](Claude-Fable-5.md) — the API of the provider Anthropic
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — the Anthropic API
-* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — Anthropic, a context of 1,000,000 tokens, $0.10 / $0.50 per 1M, skill scores 84-90
+* [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — the API of the provider Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — the API of the provider Anthropic
 * [Claude-Opus-5.5](Claude-Opus-5.5.md) — the API of the provider Anthropic
+* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — the API of the provider Anthropic
 * [Claude-Sonnet-5](Claude-Sonnet-5.md) — the Anthropic API
-* [Claude-Sonnet-5.5](Claude-Sonnet-5.5.md) — Anthropic, a context of 1,000,000 tokens, $2.00 / $10.00 per 1M, skill scores 90-94
 * [DeepSeek-V4-Flash](DeepSeek-V4-Flash.md) — the DeepSeek API, OpenAI-compatible
 * [DeepSeek-V4-Pro](DeepSeek-V4-Pro.md) — the DeepSeek API, OpenAI-compatible
 * [DeepSeek-V4.1-Flash](DeepSeek-V4.1-Flash.md) — the DeepSeek API, OpenAI-compatible
+* [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — text into music and songs, rights-cleared, skills `audio-song` 92, `audio-music` 92
 * [ElevenLabs-Music](ElevenLabs-Music.md) — text into music and songs, rights-cleared, skills `audio-song` 89, `audio-music` 89
-* [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — text into rights-cleared music and songs, skills `audio-song` 92, `audio-music` 92
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — text into speech, skills `audio-speech` 96
 * [FLUX-3](FLUX-3.md) — text into an image, skills `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
-* [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, through an OpenAI-compatible layer (**switched off on 2026-09-11**)
-* [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, through an OpenAI-compatible layer (**switched off on 2026-09-11**)
+* [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, through an OpenAI-compatible layer
+* [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, through an OpenAI-compatible layer
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — text into an 8-second video with sound, skills `video-generate` 91
@@ -40,9 +40,9 @@ key, why a model may be inactive and how to create your own record.
 * [GPT-6-Astra](GPT-6-Astra.md) — the OpenAI API, OpenAI-compatible
 * [GPT-6-Luna](GPT-6-Luna.md) — the OpenAI API, OpenAI-compatible
 * [GPT-6-Sol](GPT-6-Sol.md) — the OpenAI API, OpenAI-compatible
-* [GPT-6.1-Sol](GPT-6.1-Sol.md) — OpenAI, a context of 1,050,000 tokens, $2.00 / $10.00 per 1M, skill scores 91-96
-* [GPT-Image-2](GPT-Image-2.md) — text into an image, billed by tokens, skills `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
+* [GPT-6.1-Sol](GPT-6.1-Sol.md) — the OpenAI API, OpenAI-compatible
 * [GPT-Image-2.5](GPT-Image-2.5.md) — text into an image, billed by tokens, skills `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
+* [GPT-Image-2](GPT-Image-2.md) — text into an image, billed by tokens, skills `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — the xAI API, OpenAI-compatible
 * [Grok-4.7](Grok-4.7.md) — the xAI API, OpenAI-compatible
 * [Ideogram-4.5](Ideogram-4.5.md) — text into an image, the best in-frame typography of the reference after Nano Banana, skills `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
@@ -51,15 +51,15 @@ key, why a model may be inactive and how to create your own record.
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-compatible
 * [Kling-3.0](Kling-3.0.md) — a picture into a video with sound, up to 15 seconds, skills `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, through the OpenRouter gateway
-* [Meshy-7](Meshy-7.md) — text into a game-ready 3D model, skills `3d-generate` 87
 * [Meshy-7.1](Meshy-7.1.md) — text into a game-ready 3D model, skills `3d-generate` 89
+* [Meshy-7](Meshy-7.md) — text into a game-ready 3D model, skills `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — text into a video up to 15 seconds, skills `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-compatible
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, France; OpenAI-compatible
-* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, a context of 1,048,576 tokens, $0.68 / $2.09 per 1M, skill scores 83-88
+* [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, France; OpenAI-compatible
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, through the OpenRouter gateway
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, through the OpenRouter gateway
-* [Muse-Wonder](Muse-Wonder.md) — Meta, a context of 1,048,576 tokens, $4.00 / $20.00 per 1M, skill scores 91-94
+* [Muse-Wonder](Muse-Wonder.md) — Meta, through the OpenRouter gateway
 * [Nano-Banana-2.1](Nano-Banana-2.1.md) — text into an image up to 4K, strong in-frame text, skills `image-text` 97, `image-generate` 96, `image-photo` 95, `image-concept` 92
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — a picture plus an instruction into an edited picture, skills `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — text into an image up to 4K, the best text in the frame, skills `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
@@ -70,25 +70,31 @@ key, why a model may be inactive and how to create your own record.
 * [Seedance-2.5](Seedance-2.5.md) — text into a video up to 30 seconds with sound, skills `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — text into an image, skills `image-generate` 92, `image-concept` 90, `image-photo` 90
 * [Tripo-H3.1](Tripo-H3.1.md) — a picture into a 3D model with PBR textures, skills `3d-image` 92
-* [Tripo-P2](Tripo-P2.md) — a picture into a 3D model with PBR textures at four levels, skills `3d-image` 94
+* [Tripo-P2](Tripo-P2.md) — a picture into a 3D model with PBR textures, skills `3d-image` 94
 * [Veo-3.1](Veo-3.1.md) — text into a video with sound, 4-8 seconds, up to 4K, skills `video-generate` 93
 * [Wan-3.0-Prime](Wan-3.0-Prime.md) — text into a video up to 30 seconds with sound, skills `video-generate` 94
 * [YandexGPT-5.1-Pro](YandexGPT-5.1-Pro.md) — Yandex Cloud, Russia; OpenAI-compatible
-* [Zonos-2-TTS](Zonos-2-TTS.md) — text plus a voice sample → speech in that voice (the sample is mandatory), skills `audio-speech` 86
+* [Zonos-2-TTS](Zonos-2-TTS.md) — text plus a voice sample into speech in that voice, skills `audio-speech` 86
 
 **Over the Claude CLI (by subscription, no key)**
 
-* [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
-* [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
-* [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
 * [Claude-Fable-5.1_cli](Claude-Fable-5.1_cli.md)
+* [Claude-Fable-5_cli](Claude-Fable-5_cli.md)
 * [Claude-Haiku-4.5_cli](Claude-Haiku-4.5_cli.md)
+* [Claude-Opus-5.0_cli](Claude-Opus-5.0_cli.md)
 * [Claude-Opus-5.5_cli](Claude-Opus-5.5_cli.md)
+* [Claude-Sonnet-5_cli](Claude-Sonnet-5_cli.md)
+* [Gemini-3.1-Pro_cli](Gemini-3.1-Pro_cli.md)
+* [GPT-6-Sol_cli](GPT-6-Sol_cli.md)
+* [Grok-4.7_cli](Grok-4.7_cli.md)
+* [Kimi-K3_cli](Kimi-K3_cli.md)
+* [Mistral-Large-3_cli](Mistral-Large-3_cli.md)
+* [Qwen3.8-Max_cli](Qwen3.8-Max_cli.md)
 
 **Local (your computer does the work)**
 
 * [Muse-Glimmer-30B-Local](Muse-Glimmer-30B-Local.md) — texts and code, skill scores 73–80
-* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — a light model for the prompter role: 3 GB of video memory, skill scores 62-74
+* [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — light text work and data analysis, skill scores 62-74
 * [Qwen3.6-27B-Local](Qwen3.6-27B-Local.md) — code and texts, skill scores 75–82
 * [Qwen3.6-35B-A3B-Local](Qwen3.6-35B-A3B-Local.md) — code and texts, skill scores 72–80
 * [Qwen3.8-27B-Local](Qwen3.8-27B-Local.md) — code and texts, skill scores 80–87
@@ -111,6 +117,9 @@ key, why a model may be inactive and how to create your own record.
 * [Kandinsky-5.0-T2V-Lite-nocfg-5s](Kandinsky-5.0-T2V-Lite-nocfg-5s.md) — text → video, skill `video-generate` 74
 * [Kandinsky-5.0-T2V-Lite-sft-10s](Kandinsky-5.0-T2V-Lite-sft-10s.md) — text → video, skill `video-generate` 76
 * [Kandinsky-5.0-T2V-Lite-sft-5s](Kandinsky-5.0-T2V-Lite-sft-5s.md) — text → video (5 seconds), skills `video-generate` 76, `video-animate` 72
+* [Kandinsky-6.0-Lite-distill-5s-I2V](Kandinsky-6.0-Lite-distill-5s-I2V.md) — image + text → video (5 seconds, 864×480, 24 fps), skills `video-animate` 81, `video-generate` 77
+* [Kandinsky-6.0-Lite-distill-5s](Kandinsky-6.0-Lite-distill-5s.md) — text → video (5 seconds, 864×480, 24 fps), skill `video-generate` 80
+* [Kandinsky-6.0-Pro-distill-5s](Kandinsky-6.0-Pro-distill-5s.md) — text → video (5 seconds, 864×480, 24 fps), skill `video-generate` 86
 * [LTX-2.5](LTX-2.5.md) — text → video with sound, skill `video-generate` 85
 * [Qwen-Image-2512](Qwen-Image-2512.md) — text → image, skills `image-text` 94, `image-photo` 91, `image-generate` 90, `image-concept` 85
 * [Qwen-Image-Edit-2511](Qwen-Image-Edit-2511.md) — image + instruction → edited image, skills `image-edit` 90, `image-text` 90, `image-inpaint` 85, `image-generate` 82
@@ -118,8 +127,8 @@ key, why a model may be inactive and how to create your own record.
 * [SDXL-1.0](SDXL-1.0.md) — text → image, skills `image-generate` 70, `image-concept` 70, `image-photo` 68
 * [TRELLIS-2](TRELLIS-2.md) — image → 3D model WITH COLOUR, skill `3d-image` 85
 * [TripoSplat](TripoSplat.md) — image → GAUSSIAN SPLATS, skill `3d-image` 80
-* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — image + text → video, skills `video-animate` 80, `video-generate` 74 — **switched off on 2026-09-23** (Wan 2.6, 2.7 and 3.0 came out after 2.2)
-* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — text → video, skill `video-generate` 80 — **switched off on 2026-09-23** (Wan 2.6, 2.7 and 3.0 came out after 2.2)
+* [Wan-2.2-I2V-A14B](Wan-2.2-I2V-A14B.md) — image + text → video, skills `video-animate` 80, `video-generate` 74
+* [Wan-2.2-T2V-A14B](Wan-2.2-T2V-A14B.md) — text → video, skill `video-generate` 80
 * [Z-Image-Turbo](Z-Image-Turbo.md) — text → image, skills `image-generate` 85, `image-photo` 84, `image-concept` 82, `image-text` 78
 
 ## Three ways of connecting

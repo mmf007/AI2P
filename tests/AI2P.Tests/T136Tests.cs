@@ -67,16 +67,16 @@ public sealed class T136Tests
     [Fact]
     public void Subtask_Row_Has_Status_Button_With_The_Same_Icon()
     {
+        // T-492-S0: разрозненные кнопки строки подзадачи заменены меню «…» (TaskActionsMenu),
+        // смена статуса — его пункт с той же иконкой, что у кнопки самой задачи
         var card = Ui("Components", "TaskCardView.razor");
-        Assert.Contains("ChangeSubtaskStatusAsync", card, StringComparison.Ordinal);
-        // иконка та же, что у кнопки смены статуса самой задачи
         Assert.Contains("OnClick=\"ChangeStatusAsync\"", card, StringComparison.Ordinal);
-        var swaps = System.Text.RegularExpressions.Regex.Matches(card, "Icons.Material.Filled.SwapHoriz");
-        Assert.Equal(2, swaps.Count); // задача и строка подзадачи
-        // кнопка стоит рядом с «изменить» и «удалить» подзадачи
-        var status = card.IndexOf("ChangeSubtaskStatusAsync(subtask)", StringComparison.Ordinal);
-        var edit = card.IndexOf("EditSubtaskAsync(subtask)", StringComparison.Ordinal);
-        var delete = card.IndexOf("DeleteSubtaskAsync(subtask)", StringComparison.Ordinal);
+        Assert.Contains("<TaskActionsMenu Item=\"subtask\"", card, StringComparison.Ordinal);
+        var menu = Ui("Components", "TaskActionsMenu.razor");
+        Assert.Contains("Icons.Material.Filled.SwapHoriz", menu, StringComparison.Ordinal);
+        var status = menu.IndexOf("RunAsync(\"status\")", StringComparison.Ordinal);
+        var edit = menu.IndexOf("RunAsync(\"edit\")", StringComparison.Ordinal);
+        var delete = menu.IndexOf("RunAsync(\"delete\")", StringComparison.Ordinal);
         Assert.True(status > 0 && status < edit && edit < delete);
     }
 

@@ -1,6 +1,7 @@
 using AI2P.Core;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using Serilog;
 
 namespace AI2P.Connectors;
@@ -98,6 +99,10 @@ public sealed class LocalModelProcessService
 
         // сервер уже отвечает (внешний или наш от предыдущего запуска) — не стартуем второй
         var alreadyUp = await IsListeningAsync(baseUrl);
+        if (alreadyUp && !OwnProcessAlive(launchCommand) && await KillOrphanAsync(launchCommand, baseUrl))
+        {
+            alreadyUp = await IsListeningAsync(baseUrl);
+        }
 
         lock (_lock)
         {
@@ -178,6 +183,97 @@ public sealed class LocalModelProcessService
                 process.Id, psi.WorkingDirectory, launchCommand);
             _servers[launchCommand] = entry;
         }
+    }
+
+    private bool OwnProcessAlive(string launchCommand)
+    {
+        lock (_lock)
+        {
+            return _servers.TryGetValue(launchCommand, out var entry) && entry.Process is { HasExited: false };
+        }
+    }
+
+    /// <summary>
+    /// Снять сервер модели, оставшийся от ПРЕЖНЕГО экземпляра AI2P (T-497-S0). На порту
+    /// отвечает процесс, который мы в этом экземпляре не запускали, но его исполняемый файл —
+    /// ровно файл нашей команды запуска (python.exe из пакета ComfyUI): это не чужой
+    /// сервер, а сирота с трубой вывода без читателя. Такой ComfyUI падает на каждом
+    /// задании «[Errno 22] Invalid argument», и до T-497-S0 его приходилось закрывать
+    /// руками в диспетчере задач. Только Windows (там и живёт эта беда) и только для
+    /// команды с полным путём: «python» из PATH не отличить от чужого сервера.
+    /// </summary>
+    private static async Task<bool> KillOrphanAsync(string launchCommand, string baseUrl)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+        try
+        {
+            var (fileName, _) = SplitCommand(launchCommand);
+            if (!Path.IsPathRooted(fileName) || !Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri))
+            {
+                return false;
+            }
+            var pid = await ListenerPidAsync(uri.Port);
+            if (pid <= 0)
+            {
+                return false;
+            }
+            using var process = Process.GetProcessById(pid);
+            var exe = process.MainModule?.FileName;
+            if (exe is null || !string.Equals(Path.GetFullPath(exe), Path.GetFullPath(fileName),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false; // на порту действительно чужой сервер — работаем с ним, как раньше
+            }
+            Logger.Warning("На порту {Port} отвечает сервер модели от прежнего экземпляра AI2P (pid {Pid}) — " +
+                           "останавливаю и запускаю заново", uri.Port, pid);
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit(10000);
+            for (var i = 0; i < 20 && await IsListeningAsync(baseUrl); i++)
+            {
+                await Task.Delay(500);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Warning(ex, "Не удалось проверить или снять прежний сервер модели по {BaseUrl}", baseUrl);
+            return false;
+        }
+    }
+
+    /// <summary>PID процесса, слушающего TCP-порт (netstat -ano); 0 — не найден.</summary>
+    private static async Task<int> ListenerPidAsync(int port)
+    {
+        var psi = new ProcessStartInfo("netstat", "-ano -p TCP")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+        };
+        using var netstat = Process.Start(psi);
+        if (netstat is null)
+        {
+            return 0;
+        }
+        var output = await netstat.StandardOutput.ReadToEndAsync();
+        await netstat.WaitForExitAsync();
+        var suffix = ":" + port.ToString(CultureInfo.InvariantCulture);
+        foreach (var line in output.Split('\n'))
+        {
+            // «TCP  127.0.0.1:8188  0.0.0.0:0  LISTENING  1234» — слово состояния бывает
+            // переведено, поэтому слушающий сокет узнаётся по пустому удалённому адресу
+            var parts = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length >= 5 && parts[1].EndsWith(suffix, StringComparison.Ordinal) &&
+                (parts[2] is "0.0.0.0:0" or "[::]:0") &&
+                int.TryParse(parts[^1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pid))
+            {
+                return pid;
+            }
+        }
+        return 0;
     }
 
     /// <summary>Жив ли запущенный нами процесс сервера (для ожидания готовности); null — не наш/не запускался.</summary>
