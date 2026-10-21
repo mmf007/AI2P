@@ -27,10 +27,12 @@ key, why a model may be inactive and how to create your own record.
 * [ElevenLabs-Music](ElevenLabs-Music.md) — text into music and songs, rights-cleared, skills `audio-song` 89, `audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — text into speech, skills `audio-speech` 96
 * [FLUX-3](FLUX-3.md) — text into an image, skills `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
+* [FLUX-3-Max-Video](FLUX-3-Max-Video.md) — text into a 5-20 second video with sound, skills `video-generate` 93
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, through an OpenAI-compatible layer
+* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, a context of 1,048,576 tokens, $2.00 / $10.00 per 1M, skill scores 91-95
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — text into an 8-second video with sound, skills `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Sber, Russia; OpenAI-compatible
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, OpenAI-compatible
@@ -64,6 +66,7 @@ key, why a model may be inactive and how to create your own record.
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — a picture plus an instruction into an edited picture, skills `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — text into an image up to 4K, the best text in the frame, skills `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, through the OpenRouter gateway
+* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, a context of 262,144 tokens, $0.15 / $0.50 per 1M, skill scores 77-83
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, OpenAI-compatible
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, OpenAI-compatible
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — a picture into a video with sound, skills `video-animate` 95

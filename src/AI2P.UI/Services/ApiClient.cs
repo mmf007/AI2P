@@ -226,8 +226,8 @@ public sealed class ApiClient
     /// <summary>Страница поставляемой документации по пути внутри языкового каталога
     /// (T-17-S1): пусто — первая страница (<c>README.md</c>). По таким же путям ходят
     /// внутренние ссылки документов, поэтому переход по ссылке — это тот же вызов.</summary>
-    public Task<DocPageDto> GetDocPageAsync(string relPath) =>
-        Get<DocPageDto>("api/doc?path=" + Uri.EscapeDataString(relPath));
+    public Task<DocPageDto> GetDocPageAsync(string relPath, string lang = "") =>
+        Get<DocPageDto>("api/doc?path=" + Uri.EscapeDataString(relPath) + "&lang=" + Uri.EscapeDataString(lang));
 
     /// <summary>Содержимое <c>.repignore</c> папки Common проекта на этом сервере.</summary>
     public Task<RepIgnoreDto> GetRepIgnoreAsync(string projectId) =>
@@ -393,6 +393,13 @@ public sealed class ApiClient
     public Task<PluginInstallDto> GetPluginInstallAsync(string code, string lang) =>
         Get<PluginInstallDto>(
             $"api/plugins/{Uri.EscapeDataString(code)}/install?lang={Uri.EscapeDataString(lang)}");
+
+    // «подключить плагин» из другой формы (T-530-S0): найти поставленное, поставить недостающее
+    // в фоне и включить плагин, если всё на месте
+    public Task<PluginInstallDto> EnsurePluginAsync(string code, string lang) =>
+        Post<PluginInstallDto>(
+            $"api/plugins/{Uri.EscapeDataString(code)}/ensure?lang={Uri.EscapeDataString(lang)}",
+            new { });
 
     // soft — имя записи софта (T-146-S0): у плагина, ведущего к нескольким программам,
     // каждая ставится и настраивается своей строкой. Пусто — главная программа
@@ -925,6 +932,46 @@ public sealed class ApiClient
     /// не уходят, — иначе «уведомления не приходят» разбирать нечем.</summary>
     public Task<NotificationTransportDto> GetNotificationTransportAsync() =>
         Get<NotificationTransportDto>("api/notifications/transport");
+
+    // --- токены устройств VS Code (T-508-S0) ---
+
+    /// <summary>Мои токены устройств в организации; projectId — только по проекту.</summary>
+    public Task<List<DeviceToken>> GetDeviceTokensAsync(string? projectId = null) =>
+        Get<List<DeviceToken>>("api/device-tokens"
+                               + (projectId is { Length: > 0 } ? "?projectId=" + Uri.EscapeDataString(projectId) : ""));
+
+    /// <summary>Выпустить токен (кнопка «Подключить VS Code», этап 8.5): сам токен — только в ответе.</summary>
+    public Task<DeviceTokenIssuedDto> IssueDeviceTokenAsync(string projectId, string name) =>
+        Post<DeviceTokenIssuedDto>("api/device-tokens", new DeviceTokenIssueDto { ProjectId = projectId, Name = name });
+
+    public Task RevokeDeviceTokenAsync(string id) =>
+        Send(HttpMethod.Delete, "api/device-tokens/" + Uri.EscapeDataString(id));
+
+    /// <summary>«Отключить VS Code»: отозвать все мои токены проекта.</summary>
+    public Task RevokeProjectDeviceTokensAsync(string projectId) =>
+        Send(HttpMethod.Post, "api/device-tokens/revoke-project", new DeviceTokenProjectDto { ProjectId = projectId });
+
+    // --- подключение проекта к VS Code (T-510-S0) ---
+
+    public Task<List<VsCodeInstall>> GetVsCodeInstallsAsync() => Get<List<VsCodeInstall>>("api/vscode/installs");
+
+    public Task<ProjectVsCodeDto> GetProjectVsCodeAsync(string projectId, bool refresh = false) =>
+        Get<ProjectVsCodeDto>("api/projects/" + Uri.EscapeDataString(projectId) + "/vscode"
+                              + (refresh ? "?refresh=true" : ""));
+
+    public Task<ProjectVsCodeDto> SelectProjectVsCodeAsync(string projectId, string codePath) =>
+        Post<ProjectVsCodeDto>("api/projects/" + Uri.EscapeDataString(projectId) + "/vscode/select",
+            new ProjectVsCodeSelectDto { CodePath = codePath });
+
+    public Task<ProjectVsCodeConnectResultDto> ConnectProjectVsCodeAsync(string projectId,
+        ProjectVsCodeConnectDto dto) =>
+        Post<ProjectVsCodeConnectResultDto>("api/projects/" + Uri.EscapeDataString(projectId) + "/vscode/connect", dto);
+
+    public Task OpenProjectVsCodeAsync(string projectId) =>
+        Send(HttpMethod.Post, "api/projects/" + Uri.EscapeDataString(projectId) + "/vscode/open");
+
+    public Task DisconnectProjectVsCodeAsync(string projectId) =>
+        Send(HttpMethod.Post, "api/projects/" + Uri.EscapeDataString(projectId) + "/vscode/disconnect");
 
     // --- мои уведомления (T-422-S0) ---
 

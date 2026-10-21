@@ -27,12 +27,14 @@ application.
 * [quickstart](quickstart.md) — Quick start
 * [sample_video1](sample_video1.md) — A video clip made from a character's reference frame. An example
 * [schedule](schedule.md) — Schedule
+* [SECURITY](SECURITY.md) — AI2P security policy
 * [servers](servers.md) — Several servers
 * [service](service.md) — Running AI2P as an operating system service
 * [TaskDo](TaskDo.md) — How tasks are executed
 * [tasks](tasks.md) — Tasks
 * [teams](teams.md) — Teams
 * [templates](templates.md) — Templates
+* [vscode](vscode.md) — AI2P in VS Code
 
 ## What is inside
 

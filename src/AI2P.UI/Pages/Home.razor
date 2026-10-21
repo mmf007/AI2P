@@ -115,6 +115,10 @@
     .ai2p-board-header:active { cursor: grabbing; }
     /* представление «задачи» (T-128): колонка на всю высоту фрейма, доска — её нижний этаж */
     .ai2p-tasks-frame { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    /* подсказка у кнопки на правом краю вылезает за окно: без этого появляется
+       горизонтальная полоса, с ней вертикальная, окно сужается и подсказка уходит —
+       страница дрожит (T-528-S0: панель VS Code, Firefox на Windows 10) */
+    html { overflow-x: hidden; }
     /* доска (T-128): фрейм фиксированной высоты — страница по вертикали не растёт,
        горизонтальная полоса видна всегда, без прокрутки вниз */
     .ai2p-board-frame { flex: 1 1 auto; height: 100%; min-height: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: auto; scrollbar-color: var(--mud-palette-primary) var(--mud-palette-background-gray); }
@@ -259,6 +263,11 @@
 @if (!State.Initialized)
 {
     <MudProgressLinear Indeterminate="true" />
+}
+else if (State.Embedded)
+{
+    @* встроенный режим VS Code (T-507-S0): своя лёгкая оболочка, шапки и закладок нет *@
+    <EmbedLayout TaskKey="@DeepLinkTaskId" DocPath="@DeepLinkDocPath" />
 }
 else
 {
@@ -601,6 +610,16 @@ else
     {
         State.Changed += StateHasChanged;
         L.OnChange += StateHasChanged; // смена языка «на лету» (гл. 9)
+        // ВСТРОЕННЫЙ РЕЖИМ (T-507-S0): признак берётся из адреса ПЕРВОЙ страницы circuit'а
+        // и живёт в UiState; язык — свой у circuit'а, в настройки не пишется
+        if (EmbedParams.Parse(Nav.Uri, L.Languages) is { } embed)
+        {
+            State.EnterEmbed(embed);
+            if (embed.Lang is { } lang)
+            {
+                L.UseOwnLanguage(lang);
+            }
+        }
         try
         {
             await State.InitializeAsync();
@@ -612,6 +631,16 @@ else
             // /no-org: она уводит на вход или в свою организацию (ТЗ гл. 12, п. 2.15).
             // Без этого пользователь видел бы «глухую» ошибку интерфейса
             Nav.NavigateTo("no-org", forceLoad: true);
+            return;
+        }
+        if (State.Embedded)
+        {
+            // тема VS Code — поверх темы из лейаута, но без записи в него; открытием
+            // карточки и видов занимается EmbedLayout, заявки серверов здесь не всплывают
+            if (State.Embed!.Theme is { } theme)
+            {
+                State.SetEmbedTheme(theme == "dark");
+            }
             return;
         }
         await OpenDeepLinkAsync();
@@ -649,7 +678,7 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!State.Initialized)
+        if (!State.Initialized || State.Embedded)
         {
             return;
         }
@@ -757,7 +786,7 @@ else
     /// </summary>
     protected override async Task OnParametersSetAsync()
     {
-        if (State.Initialized
+        if (State.Initialized && !State.Embedded
             && ((!string.IsNullOrEmpty(DeepLinkTaskId) && _openedDeepLink != DeepLinkTaskId)
                 || (!string.IsNullOrEmpty(DeepLinkObjectId) && _openedDeepLink != DeepLinkObjectId)
                 || (!string.IsNullOrEmpty(DeepLinkDocPath) && _openedDeepLink != DeepLinkDocPath)))

@@ -29,6 +29,7 @@
 * [经验](man/experience.md)
 * [LoRA 编辑器](man/LoRAEditor.md) 
 * [使用音频模型](man/audio.md)
+* [在 VS Code 中使用 AI2P](man/vscode.md)
 
 ## 使用示例
 * [按角色参考帧制作视频短片](man/sample_video1.md)

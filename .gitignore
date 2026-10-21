@@ -5,6 +5,7 @@
 **/TestResults/
 out/
 build/
+vscode/
 cmake-build*/
 
 # --- release output: builds/<OS>/release|releasefull and builds/packages (T-243, T-285) ---

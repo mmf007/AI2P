@@ -43,6 +43,18 @@ public sealed class OrgRegistry : IDisposable
     /// <summary>Очередь повтора: строки, отвергнутые базой по ограничению целостности (T-160).</summary>
     public ReplPendingService ReplPending { get; }
 
+    /// <summary>Токены устройств — вход расширения VS Code (T-508-S0); не реплицируются.</summary>
+    public DeviceTokenService DeviceTokens { get; }
+
+    /// <summary>Одноразовые токены входа встроенного режима (T-508-S0) — только в памяти.</summary>
+    public EmbedTokenStore EmbedTokens { get; } = new();
+
+    /// <summary>Выбор копии VS Code по проектам (T-510-S0) — свойство машины, не реплицируется.</summary>
+    public ProjectVsCodeService ProjectVsCode { get; }
+
+    /// <summary>Поиск установленных VS Code (T-510-S0) с коротким кешем.</summary>
+    public VsCodeLocator VsCode { get; } = new();
+
     public OrgRegistry(string dataDir, string serverDbFile, OrgDeps deps)
     {
         _dataDir = Path.GetFullPath(dataDir);
@@ -56,6 +68,8 @@ public sealed class OrgRegistry : IDisposable
         ReplState = new ReplicationStateService(ServerDb);
         FileSync = new FileSyncStateService(ServerDb);
         ReplPending = new ReplPendingService(ServerDb);
+        DeviceTokens = new DeviceTokenService(ServerDb, ServerEvents);
+        ProjectVsCode = new ProjectVsCodeService(ServerDb);
     }
 
     /// <summary>

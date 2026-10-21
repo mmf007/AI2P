@@ -26,12 +26,14 @@
 * [quickstart](quickstart.md) — Быстрый старт
 * [sample_video1](sample_video1.md) — Видео ролик по эталонному кадру персонажа. Пример
 * [schedule](schedule.md) — Расписание
+* [SECURITY](SECURITY.md) — Политика безопасности AI2P
 * [servers](servers.md) — Несколько серверов
 * [service](service.md) — Запуск AI2P сервисом операционной системы
 * [TaskDo](TaskDo.md) — Алгоритм выполнения задач
 * [tasks](tasks.md) — Задачи
 * [teams](teams.md) — Команды
 * [templates](templates.md) — Шаблоны
+* [vscode](vscode.md) — AI2P в VS Code
 
 ## Что внутри
 

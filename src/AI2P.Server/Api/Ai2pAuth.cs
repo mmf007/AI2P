@@ -27,6 +27,69 @@ public static class Ai2pAuth
     /// <summary>Схема (и cookie) входа admin'а сервера — отдельная от пользовательской.</summary>
     public const string AdminScheme = Core.Api.Ai2pSchemes.ServerAdmin;
 
+    /// <summary>
+    /// Схема (и cookie) ВСТРОЕННОГО РЕЖИМА — страница внутри панели VS Code (T-508-S0).
+    /// Отдельная от <see cref="Scheme"/>: в iframe cookie с SameSite=Lax не сохраняется
+    /// (проверено прототипом T-499-S0), а сделать общую cookie None+Secure нельзя — по http
+    /// не с localhost браузер такую не примет, и обычный вход по адресу машины сломался бы.
+    /// </summary>
+    public const string EmbedScheme = "AI2P.Embed";
+
+    /// <summary>Имя cookie встроенного режима.</summary>
+    public const string EmbedCookie = "ai2p.embed";
+
+    /// <summary>Схема ПО УМОЛЧАНИЮ: выбирает между обычным входом и встроенным режимом
+    /// по тому, какая cookie пришла (<see cref="SelectScheme"/>).</summary>
+    public const string AnyScheme = "AI2P.Any";
+
+    /// <summary>Утверждение личности встроенного режима: id токена устройства.</summary>
+    public const string DeviceClaim = "ai2p:device";
+
+    /// <summary>Утверждение личности встроенного режима: id организации токена.</summary>
+    public const string OrgClaim = "ai2p:org";
+
+    /// <summary>Какой схемой разбирать запрос: обычная cookie сильнее, без неё — встроенный
+    /// режим, если его cookie есть. В iframe обычная (Lax) не приходит, в браузере нет
+    /// cookie встроенного режима — поэтому оба входа друг другу не мешают.</summary>
+    public static string SelectScheme(HttpContext ctx) =>
+        !ctx.Request.Cookies.ContainsKey("ai2p.auth") && ctx.Request.Cookies.ContainsKey(EmbedCookie)
+            ? EmbedScheme
+            : Scheme;
+
+    /// <summary>
+    /// Атрибуты cookie встроенного режима: SameSite=None; Secure; HttpOnly, путь — базовый
+    /// путь приложения. Вынесено отдельно, чтобы атрибуты проверялись тестом без хоста.
+    /// </summary>
+    public static void ConfigureEmbedCookie(
+        Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions options, string basePath)
+    {
+        options.Cookie.Name = EmbedCookie;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.None;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        options.Cookie.IsEssential = true;
+        options.Cookie.Path = basePath.Length > 0 ? basePath : "/";
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+        // формы входа в рамке нет (antiforgery там не работает) — уводим на страницу
+        // «нужно подключить VS Code», а API отвечает кодом
+        options.LoginPath = "/embed/connect";
+        options.AccessDeniedPath = "/embed/connect";
+    }
+
+    /// <summary>Личность встроенного режима по аккаунту и токену устройства.</summary>
+    public static ClaimsPrincipal EmbedPrincipal(Account account, DeviceToken device)
+    {
+        var principal = Principal(account, EmbedScheme);
+        var identity = (ClaimsIdentity)principal.Identity!;
+        identity.AddClaim(new Claim(DeviceClaim, device.Id));
+        identity.AddClaim(new Claim(OrgClaim, device.OrgId));
+        return principal;
+    }
+
+    /// <summary>Организация, которой ограничен вход встроенного режима; null — обычный вход.</summary>
+    public static string? EmbedOrgId(ClaimsPrincipal? user) => user?.FindFirst(OrgClaim)?.Value;
+
     /// <summary>Заголовок внутреннего вызова: UI (Blazor Server) ходит в собственное API
     /// по петле (localhost) своим HttpClient, cookie браузера туда не попадает.</summary>
     public const string InternalTokenHeader = Core.Api.Ai2pHeaders.InternalToken;
@@ -174,6 +237,9 @@ public sealed class CurrentUserAccessor
     /// (список организаций, аккаунты, первый старт).</summary>
     public OrgRegistry Registry => _registry;
 
+    /// <summary>Личность запроса как есть (T-508-S0: отличить встроенный режим).</summary>
+    public ClaimsPrincipal? HttpUser => _http.HttpContext?.User;
+
     /// <summary>Аккаунт вошедшего; null — запрос без аутентификации.
     /// В пределах запроса читается из БД один раз (эндпойнт спрашивает актора несколько раз).</summary>
     public Account? Account
@@ -301,6 +367,19 @@ public sealed class CurrentUserAccessor
         {
             return null;
         }
+        var org = ResolveAny(ctx);
+        // ВСТРОЕННЫЙ РЕЖИМ (T-508-S0) ограничен организацией своего токена: чужой код в адресе,
+        // заголовке или параметре не открывает ничего — даже ту организацию, где человек участник
+        if (Ai2pAuth.InternalAccountId(ctx) is null && Ai2pAuth.EmbedOrgId(ctx.User) is { } embedOrg
+            && org?.Org.Id != embedOrg)
+        {
+            return null;
+        }
+        return org;
+    }
+
+    private OrgContext? ResolveAny(HttpContext ctx)
+    {
         if (ctx.Items.TryGetValue(OrgCodeItem, out var fromPath)
             && _registry.ByCode(fromPath as string) is { } byPath)
         {

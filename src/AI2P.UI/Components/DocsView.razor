@@ -110,7 +110,7 @@
     {
         try
         {
-            _page = await Api.GetDocPageAsync(relPath);
+            _page = await Api.GetDocPageAsync(relPath, L.Lang);
             // страница могла найтись под другим именем (пустой запрос — README.md):
             // «назад» обязано вести именно на неё
             if (_page.RelPath.Length > 0)

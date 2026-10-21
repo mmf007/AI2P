@@ -155,6 +155,13 @@ elif [ "$CLEAN" -eq 1 ]; then
 else
     echo "Каталог не пуст — файлы выкладки будут перезаписаны (--clean для полной замены)."
 fi
+# ПУСТЫЕ ФАЙЛЫ В ВЫКЛАДКЕ (T-332). Однажды оборванная выкладка оставила вместо рантайма
+# файлы нулевой длины с отметкой новее файлов пакета рантайма, и dotnet publish (он
+# копирует только более новое) с тех пор их не перезаписывал: полная выкладка Linux
+# весила 20 МБ, пакет .run — 7 МБ, а программа из него не запускалась. Пустой файл
+# выкладке не нужен никогда — убираем до публикации, publish положит настоящий.
+find "$OUT_DIR" \( -path "$OUT_DIR/data" -o -path "$OUT_DIR/logs" -o -path "$OUT_DIR/secrets" \) -prune \
+    -o -type f -size 0 -print -delete
 
 # 1. публикация сервера (тянет за собой Core/Storage/Connectors/UI и статику RCL)
 #    PublishDir вместо -o: ключ -o задаёт OutputPath и для проектов-ссылок,
@@ -243,6 +250,17 @@ if [ -d "$DOC_SOURCE" ]; then
     echo "Документация скопирована: $DOC_COUNT файлов в $OUT_DIR/doc"
 else
     echo "[WARN] Каталог документации не найден: $DOC_SOURCE"
+fi
+
+# 4a. РАСШИРЕНИЕ VS CODE (T-511-S0): ai2p-<версия>.vsix в корень выкладки — как ai2p.ico.
+#     Пакуется без сети из готового vscode/ai2p/out (vscode/pack-vsix.sh), версия = версия
+#     выкладки; файл прежней версии убирается. Нет собранного кода — предупреждение, не отказ
+rm -f "$OUT_DIR"/ai2p-*.vsix
+VSIX_RC=0
+bash "$SCRIPT_DIR/vscode/pack-vsix.sh" "$VERSION" "$OUT_DIR/ai2p-$VERSION.vsix" || VSIX_RC=$?
+if [ "$VSIX_RC" -eq 1 ]; then
+    echo "[ERROR] Сборка расширения VS Code не удалась."
+    exit 1
 fi
 
 # СКРИПТЫ УСТАНОВКИ КЛАДУТСЯ ТОЛЬКО СВОЕЙ ПЛАТФОРМЫ (T-211): в выкладке для Linux/macOS нечего

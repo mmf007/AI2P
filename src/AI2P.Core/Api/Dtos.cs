@@ -2616,6 +2616,10 @@ public sealed class ImportKeySaveDto
 /// <summary>Создание проекта (гл. 11, форма ввода проекта).</summary>
 public sealed class ProjectCreateDto
 {
+    /// <summary>Флажок формы «Подключить VS Code» (T-510-S0): серверу не нужен, по нему
+    /// форма после создания проекта зовёт подключение.</summary>
+    public bool ConnectVsCode { get; set; }
+
     public string Name { get; set; } = "";
     public string? FolderPath { get; set; }
     public string? DefaultTeamId { get; set; }
@@ -3782,4 +3786,25 @@ public sealed class PushSubscribeDto
     public string P256dh { get; set; } = "";
     public string Auth { get; set; } = "";
     public string UserAgent { get; set; } = "";
+}
+
+// --- токены устройств VS Code (T-508-S0) ---
+
+public sealed class DeviceTokenIssueDto
+{
+    public string ProjectId { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+public sealed class DeviceTokenProjectDto
+{
+    public string ProjectId { get; set; } = "";
+}
+
+public sealed class DeviceTokenIssuedDto
+{
+    /// <summary>Сам токен — показывается один раз, в базе только хэш.</summary>
+    public string Token { get; set; } = "";
+    public AI2P.Core.Entities.DeviceToken Record { get; set; } = new();
+    public string OrgCode { get; set; } = "";
 }

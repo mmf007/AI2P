@@ -26,12 +26,14 @@ fim do navegador) ou direto do diretório `doc/` ao lado do aplicativo instalado
 * [quickstart](quickstart.md) — Início rápido
 * [sample_video1](sample_video1.md) — Vídeo a partir do quadro de referência de um personagem. Exemplo
 * [schedule](schedule.md) — Agenda
+* [SECURITY](SECURITY.md) — Política de segurança do AI2P
 * [servers](servers.md) — Vários servidores
 * [service](service.md) — Executar o AI2P como serviço do sistema operacional
 * [TaskDo](TaskDo.md) — Algoritmo de execução das tarefas
 * [tasks](tasks.md) — Tarefas
 * [teams](teams.md) — Equipes
 * [templates](templates.md) — Modelos de processo
+* [vscode](vscode.md) — AI2P no VS Code
 
 ## O que há dentro
 

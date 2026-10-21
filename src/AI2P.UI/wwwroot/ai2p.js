@@ -835,19 +835,32 @@ window.ai2p = (function () {
     }
 
     // --- копирование в буфер обмена (ссылка на задачу, ТЗ гл. 11) ---
+    // Отказ буфера НЕ бросается в Blazor (иначе «ошибка интерфейса», T-528-S0): в iframe
+    // панели VS Code Clipboard API запрещён — копирует расширение по сообщению ai2p.copy.
+    function copyByTextarea(text) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+        } catch (e) { return false; }
+    }
+
     function copyText(text) {
+        if (embedOn) {
+            embedUp({ type: 'ai2p.copy', text: String(text || '') });
+            return Promise.resolve();
+        }
         if (navigator.clipboard && navigator.clipboard.writeText) {
-            return navigator.clipboard.writeText(text);
+            return navigator.clipboard.writeText(text).catch(function () { copyByTextarea(text); });
         }
         // fallback для http-контекста без Clipboard API
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
+        copyByTextarea(text);
         return Promise.resolve();
     }
 
@@ -910,9 +923,28 @@ window.ai2p = (function () {
     // «ввод постоянно удаляет последний введённый символ» — ровно это.
     // Правило: содержимое ставится ОДИН раз при появлении элемента, дальше — только когда
     // значение изменилось ИЗВНЕ (force: очистка поля чата после отправки, кнопки панели).
+    // ЛИПКАЯ ПАНЕЛЬ ВПЛОТНУЮ К КРАЮ ОКНА ПРОКРУТКИ (T-513-S0). Браузер держит sticky с
+    // top: 0 под ВНУТРЕННИМ отступом прокручиваемого предка (pa-2/pa-4 карточки), и в
+    // этой полосе над панелью виден уезжающий вверх текст. Сдвигаем top на минус отступ —
+    // панель встаёт к самому краю, и весь прокручиваемый текст уходит под неё.
+    function mdStickToolbar(el) {
+        const md = el && el.closest('.ai2p-md');
+        const bar = md && md.querySelector('.ai2p-md-toolbar');
+        if (!bar) return;
+        let p = md.parentElement;
+        while (p && p !== document.body) {
+            const oy = getComputedStyle(p).overflowY;
+            if (oy === 'auto' || oy === 'scroll') break;
+            p = p.parentElement;
+        }
+        const pad = p && p !== document.body ? parseFloat(getComputedStyle(p).paddingTop) || 0 : 0;
+        bar.style.top = (-pad) + 'px';
+    }
+
     function mdSync(textareaId, dotnetRef, text, force) {
         const ta = document.getElementById(textareaId);
         if (!ta) return;
+        mdStickToolbar(ta);
         mdRefs.set(ta, dotnetRef);
         if (ta.dataset.ai2pMd) {
             // своё же значение назад не пишем: набранное за время ответа не должно пропасть
@@ -1084,6 +1116,7 @@ window.ai2p = (function () {
     function wysSync(divId, dotnetRef, html, force) {
         const div = document.getElementById(divId);
         if (!div) return;
+        mdStickToolbar(div);
         if (div.dataset.ai2pWys) {
             const st = wysState[divId];
             if (st) st.ref = dotnetRef;
@@ -1539,7 +1572,80 @@ window.ai2p = (function () {
         });
     }
 
+    // ===== ВСТРОЕННЫЙ РЕЖИМ VS CODE (T-507-S0, плагин 8.2) =====
+    // Страница живёт в iframe панели VS Code. Наверх (window.parent): ai2p.ready — страница
+    // вошла, ai2p.openTask — открыть задачу в ОТДЕЛЬНОЙ панели. Вниз: ai2p.theme — тема
+    // VS Code на лету. Сообщения принимаются только от родительского окна.
+    var embedRef = null;
+    var embedOn = false;
+
+    function embedUp(msg) {
+        if (window.parent && window.parent !== window) {
+            window.parent.postMessage(msg, '*');
+        }
+    }
+
+    // ключ задачи из адреса …/task/<id или код>: код вида T-12 / T-12-S0 уходит полем code
+    function embedTaskMsg(key, code) {
+        var isCode = /^T-\d+(-S\d+)?$/i.test(key || '');
+        return { type: 'ai2p.openTask', id: isCode ? '' : (key || ''), code: code || (isCode ? key : '') };
+    }
+
+    function embedOpenTask(id, code) {
+        embedUp({ type: 'ai2p.openTask', id: id || '', code: code || '' });
+    }
+
+    // Отказ переподключения Blazor («Reload the page»): в панели нет F5, поэтому страница
+    // перезагружается сама — повторяя попытки, пока сервер не ответит
+    function embedWatchReconnect() {
+        var reloading = false;
+        function tryReload() {
+            fetch(location.href, { method: 'GET', cache: 'no-store', credentials: 'include' })
+                .then(function (r) {
+                    if (r.status < 500) { location.reload(); } else { setTimeout(tryReload, 3000); }
+                })
+                .catch(function () { setTimeout(tryReload, 3000); });
+        }
+        setInterval(function () {
+            if (reloading) return;
+            var el = document.getElementById('components-reconnect-modal');
+            var c = el ? (el.className || '') : '';
+            if (c.indexOf('components-reconnect-failed') < 0 && c.indexOf('components-reconnect-rejected') < 0) return;
+            reloading = true;
+            tryReload();
+        }, 2000);
+    }
+
+    function embedInit(ref, user) {
+        embedRef = ref;
+        if (!embedOn) {
+            embedOn = true;
+            window.addEventListener('message', function (e) {
+                if (e.source !== window.parent) return;
+                var m = e.data || {};
+                if (m.type === 'ai2p.theme' && (m.theme === 'dark' || m.theme === 'light') && embedRef) {
+                    embedRef.invokeMethodAsync('OnEmbedTheme', m.theme);
+                }
+            });
+            // ссылки на задачи (Markdown описаний, чата, результатов): карточка на месте
+            // не открывается — фаза перехвата, раньше роутера Blazor
+            document.addEventListener('click', function (e) {
+                var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+                if (!a || a.origin !== location.origin) return;
+                var m = /\/task\/([^\/?#]+)\/?$/.exec(a.pathname || '');
+                if (!m) return;
+                e.preventDefault();
+                e.stopPropagation();
+                embedUp(embedTaskMsg(decodeURIComponent(m[1]), ''));
+            }, true);
+            embedWatchReconnect();
+        }
+        embedUp({ type: 'ai2p.ready', user: user || '' });
+    }
+
     return {
+        embedInit: embedInit,
+        embedOpenTask: embedOpenTask,
         initSplitter: initSplitter,
         initFrameSplitters: initFrameSplitters,
         initTabDnd: initTabDnd,

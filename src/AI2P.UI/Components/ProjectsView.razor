@@ -90,11 +90,32 @@ else
             await State.RefreshReferenceDataAsync();
             await State.SetCurrentProjectAsync(created.Id);
             State.OpenProject(created.Id, created.DisplayId, created.Name, FrameIndex);
+            if (dto.ConnectVsCode)
+            {
+                await ConnectVsCodeAsync(created.Id);
+            }
         }
         catch (ApiException ex)
         {
             Snackbar.Add(ex.Message, Severity.Error);
         }
+    }
+
+    /// <summary>Флажок «Подключить VS Code» формы создания (T-510-S0): тот же диалог выбора
+    /// копии и флажков, что у кнопки в карточке проекта, и то же подключение.</summary>
+    private async Task ConnectVsCodeAsync(string projectId)
+    {
+        var state = await Api.GetProjectVsCodeAsync(projectId);
+        // T-530-S0: сначала плагин «VS Code» — не подключён, запускаем подключение
+        if (state.HasFolder)
+        {
+            state = await ProjectVsCodePanel.EnsurePluginAsync(Api, Snackbar, L, projectId, state) ?? state;
+        }
+        if (!state.Available || await ProjectVsCodePanel.AskAsync(Dialogs, L, state, true) is not { } choice)
+        {
+            return;
+        }
+        ProjectVsCodePanel.Report(Snackbar, L, await Api.ConnectProjectVsCodeAsync(projectId, choice));
     }
 
     /// <summary>

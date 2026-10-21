@@ -99,25 +99,31 @@ public sealed class Todo36_4Tests : IDisposable
     }
 
     [Fact]
-    public void Startup_Enforce_Deactivates_Uninstalled_But_Keeps_User_Choice()
+    public void Startup_Enforce_Keeps_Uninstalled_Active_And_Start_Is_Refused()
     {
         var installs = EnableGuard();
-        // сид создаёт Kandinsky активной, файлов нет — при старте деактивируется
+        // T-560-S0: сид создаёт Kandinsky активной, файлов нет — при старте она НЕ гаснет
+        // (каталог моделей может быть на съёмном диске), а запуск задания отказывает
         Assert.True(_f.Models.Get(KandinskyId)!.IsActive);
         installs.EnforceActivationOnStartup();
-        Assert.False(_f.Models.Get(KandinskyId)!.IsActive);
+        Assert.True(_f.Models.Get(KandinskyId)!.IsActive);
+        Assert.NotNull(installs.StartError(KandinskyId));
 
-        // установленная, но выключенная пользователем НЕ включается при старте
+        // файлы появились — запускать можно, активность не трогалась
         MaterializeInstall(installs);
         installs.EnforceActivationOnStartup();
-        Assert.False(_f.Models.Get(KandinskyId)!.IsActive);
+        Assert.True(_f.Models.Get(KandinskyId)!.IsActive);
+        Assert.Null(installs.StartError(KandinskyId));
     }
 
     [Fact]
     public async Task Finished_Install_Activates_Model_And_Writes_Yaml()
     {
         var installs = EnableGuard();
-        installs.EnforceActivationOnStartup(); // как при старте: модель деактивирована
+        // модель выключена (с T-560-S0 старт сервера её не гасит — выключаем сами)
+        var off = _f.Models.Get(KandinskyId)!;
+        off.IsActive = false;
+        _f.Models.Update(off, null);
         Assert.False(_f.Models.Get(KandinskyId)!.IsActive);
 
         // маленький манифест на локальный HTTP-сервер, категории — как у Kandinsky

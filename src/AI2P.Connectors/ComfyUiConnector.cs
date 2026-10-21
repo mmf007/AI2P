@@ -30,7 +30,9 @@ public sealed class ComfyUiConnector : IAgentConnector
     /// поллинга короткий, ожидание результата ограничено params.timeoutMinutes профайла.</summary>
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
-    private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(3);
+    /// <summary>Шаг опроса очереди ComfyUI. Изменяемый ради тестов (T-554-S0): медиа-проверки
+    /// гоняют задание против поддельного сервера, и три секунды на шаг давали им минуты.</summary>
+    public static TimeSpan PollDelay { get; set; } = TimeSpan.FromSeconds(3);
 
     /// <summary>Как часто вычитывать консоль самого ComfyUI в консоль задания (todo37_3).</summary>
     private static readonly TimeSpan ConsolePollDelay = TimeSpan.FromSeconds(2);

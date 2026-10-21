@@ -172,10 +172,7 @@ public sealed class T6S0Tests
                     "нет исходника выбранного варианта");
         Assert.True(File.Exists(Path.Combine(icons, "ai2p-icon-3-wordmark-small.svg")),
                     "нет упрощённого рисунка для мелких размеров");
-        var maker = Path.Combine(RepoRoot(), "test", "t6s0", "mkappicon.py");
-        Assert.True(File.Exists(maker), "нет сборщика значка");
-        var text = File.ReadAllText(maker);
-        Assert.Contains("ai2p.ico", text);
-        Assert.Contains("favicon.ico", text);
+        // сборщик test/t6s0/mkappicon.py больше не проверяется (T-554-S0): каталоги test/tNNN
+        // — разовая оснастка задач, уборка их удаляет, и тест краснел бы от чистки
     }
 }

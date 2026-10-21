@@ -83,10 +83,15 @@ public sealed class ExperienceBudget
     /// проставляющий новым записям тэги задачи, со временем начал бы отсекать нужное по
     /// формальному несовпадению слова), но совпадение двигает запись вперёд — ПОЛУУРОВНЯ
     /// прицельности: опыт своего узла не по теме всё ещё важнее опыта проекта по теме.</param>
+    /// <param name="closeness">Близость записи к тексту задачи (T-554-S0, больше — ближе):
+    /// внутри одной ступени прицельности решает она, а свежесть — только между равными.
+    /// Раньше свежесть решала всё, и самая новая запись о чужой теме обгоняла старый урок
+    /// ровно про эту работу.</param>
     /// <returns>Что вставляем и сколько записей не поместилось.</returns>
     public (List<ExperienceRecord> Taken, int Skipped) Fit(
         IReadOnlyList<ExperienceRecord> records, Func<ExperienceRecord, string> line,
-        Func<ExperienceRecord, int>? rank = null, Func<ExperienceRecord, bool>? onTopic = null)
+        Func<ExperienceRecord, int>? rank = null, Func<ExperienceRecord, bool>? onTopic = null,
+        Func<ExperienceRecord, double>? closeness = null)
     {
         var taken = new HashSet<string>(StringComparer.Ordinal);
         // прицельность записи с прибавкой за тэги: ранг стоит двух шагов, совпадение тэгов —
@@ -95,6 +100,7 @@ public sealed class ExperienceBudget
             (rank is null ? 0 : rank(r)) * 2 + (onTopic is null || onTopic(r) ? 0 : 1);
         IOrderedEnumerable<ExperienceRecord> Sorted(IEnumerable<ExperienceRecord> src) => src
             .OrderBy(Key)
+            .ThenByDescending(r => closeness is null ? 0 : closeness(r))
             .ThenByDescending(r => r.UpdatedAt)
             .ThenByDescending(r => r.CreatedAt);
         bool Take(ExperienceRecord r)

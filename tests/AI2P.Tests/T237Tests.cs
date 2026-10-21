@@ -132,30 +132,7 @@ public sealed class T237Tests
             File.ReadAllText(Path.Combine(SrcRoot(), "AI2P.Connectors", "ClaudeCliConnector.cs")));
     }
 
-    [Fact]
-    public void Live_Check_Scripts_Do_Not_Use_Detached_Process()
-    {
-        var testDir = Path.Combine(RepoRoot(), "test");
-        if (!Directory.Exists(testDir))
-        {
-            return; // в выкладке скриптов живой проверки нет — проверять нечего
-        }
-        var bad = Directory.GetFiles(testDir, "*.py", SearchOption.AllDirectories)
-            .Where(f => !f.EndsWith("bg.py", StringComparison.OrdinalIgnoreCase))
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}t237{Path.DirectorySeparatorChar}",
-                StringComparison.OrdinalIgnoreCase))
-            // ЧУЖОЙ код внутри стенда сторожит не этот тест (T-4-S0): стенд установки моделей
-            // распаковывает к себе настоящие пакеты, и в стандартной библиотеке Python есть
-            // свой subprocess.py со словом DETACHED_PROCESS. Правило — про НАШИ скрипты
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}packages{Path.DirectorySeparatorChar}",
-                StringComparison.OrdinalIgnoreCase))
-            .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}.venv{Path.DirectorySeparatorChar}",
-                StringComparison.OrdinalIgnoreCase))
-            .Where(f => File.ReadAllText(f).Contains("DETACHED_PROCESS", StringComparison.Ordinal))
-            .Select(f => Path.GetRelativePath(testDir, f))
-            .ToList();
-        Assert.True(bad.Count == 0,
-            "стенд, пущенный DETACHED_PROCESS, выдаёт своим потомкам пустое ВИДИМОЕ окно консоли "
-            + "(T-237); берите CREATE_NO_WINDOW (test/lib/bg.py). Файлы: " + string.Join(", ", bad));
-    }
+    // Сторож Live_Check_Scripts_Do_Not_Use_Detached_Process снят в T-554-S0: он сторожил не
+    // продукт, а разовые скрипты test/**/*.py (их удаляет уборка), обходил всё дерево test/
+    // и был главным источником ложных красных (опыт проекта, четыре случая)
 }

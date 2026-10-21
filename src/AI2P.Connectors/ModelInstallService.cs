@@ -1925,6 +1925,18 @@ public sealed class ModelInstallService
         }
 
         var actual = ArchiveExtractor.Detect(distPath);
+        // macOS, zip (T-547-S0): ZipFile .NET не восстанавливает символьные ссылки, а у
+        // приложений .app (VS Code) на них держатся каркасы Frameworks/*/Versions/Current —
+        // распакованная так программа не запускается. Системный ditto сохраняет и ссылки, и права
+        if (OperatingSystem.IsMacOS() && actual == "zip")
+        {
+            Directory.CreateDirectory(targetDir);
+            if (RunTool("/usr/bin/ditto", $"-x -k \"{distPath}\" \"{targetDir}\""))
+            {
+                Logger.Information("Архив {File} (zip) распакован утилитой ditto", name);
+                return;
+            }
+        }
         if (ArchiveExtractor.TryExtract(distPath, targetDir, out var error))
         {
             Logger.Information("Архив {File} ({Kind}) распакован средствами .NET", name, actual);
@@ -2267,39 +2279,46 @@ public sealed class ModelInstallService
     }
 
     /// <summary>
-    /// Проверка при старте приложения: модель с манифестом, у которой файлы не на месте
-    /// (удалены/не докачаны), не может оставаться активной — деактивируется; попутно
-    /// обновляется файл путей весов ComfyUI. Установленные, но выключенные пользователем
-    /// модели НЕ включаются — ручной сброс активности уважается (автоактивация только
-    /// в момент завершения установки).
+    /// Проверка при старте приложения: модель с манифестом, у которой файлы не на месте,
+    /// только ПИШЕТСЯ В ЖУРНАЛ, а активность не трогается (T-560-S0). Раньше такая модель
+    /// гасла, и это било по каталогу моделей на съёмном диске: забыл вставить диск до старта
+    /// сервера — все локальные модели и их исполнители выключены, включать их приходилось
+    /// руками по одной. Установленность теперь проверяется на запуске задания
+    /// (<see cref="StartError"/>, зовёт JobOrchestrator). Попутно обновляется файл путей
+    /// весов ComfyUI.
     /// </summary>
     public void EnforceActivationOnStartup()
     {
-        // CLI-агент (T-431-S0) сюда не попадает: активность его записи общая на организацию,
-        // и сервер без программы CLI погасил бы её всем остальным
+        // CLI-агент (T-431-S0) сюда не попадает: его ПО ставится на каждом сервере своё
         foreach (var status in StatusAll().Where(s => !s.Cli))
         {
             var model = _models.Get(status.ModelId);
             if (model is { IsActive: true } && !status.Installed)
             {
-                model.IsActive = false;
-                try
-                {
-                    _models.Update(model, actorId: null);
-                    Logger.Information(
-                        "Модель {Name} деактивирована: файлы установки не на месте (репозиторий {Dir})",
-                        model.Name, status.TargetDir);
-                }
-                catch (ArgumentException ex)
-                {
-                    // запись справочника принадлежит другому серверу (ТЗ гл. 6, этап 42):
-                    // активность меняет её владелец, а старт приложения на этом падать не должен
-                    Logger.Debug("Активность модели {Name} здесь не меняется: {Reason}",
-                        model.Name, ex.Message);
-                }
+                Logger.Warning(
+                    "Модель {Name} активна, но файлы установки не на месте (репозиторий {Dir}): "
+                    + "задания с ней не запустятся, пока файлы не появятся (T-560-S0)",
+                    model.Name, status.TargetDir);
             }
         }
         WriteExtraModelPaths();
+    }
+
+    /// <summary>
+    /// Можно ли запускать задание на модели (T-560-S0): у модели с манифестом установки файлы
+    /// обязаны быть на месте НА ЭТОМ СЕРВЕРЕ в момент запуска. null — можно (манифеста нет,
+    /// CLI-агент, всё установлено); иначе текст отказа для человека. Активность модели при
+    /// этом не меняется: появился диск — следующий запуск пройдёт сам.
+    /// </summary>
+    public string? StartError(string modelId)
+    {
+        var status = Status(modelId);
+        if (!status.HasManifest || status.Installed || status.Cli)
+        {
+            return null;
+        }
+        var name = _models.Get(modelId)?.Name ?? modelId;
+        return Loc.T("msg.modelInstall.25", name, status.TargetDir);
     }
 
     /// <summary>Активировать модель после успешной установки (ТЗ v1.41).</summary>

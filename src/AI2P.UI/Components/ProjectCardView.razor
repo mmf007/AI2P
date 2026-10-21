@@ -6,7 +6,8 @@
 @implements IDisposable
 
 @* Закладка «Проект» (ТЗ v1.18, todo21): открывается кликом по проекту в списке.
-   Вкладки: «основное» (форма проекта; переименование переименовывает хранилище, п. 2.7),
+   Вкладки: «настройка» (форма проекта; до T-513-S0 «основное» и первой, теперь между
+   «безопасностью» и «шаблонами»; переименование переименовывает хранилище, п. 2.7),
    «задачи» (список задач проекта; новая задача — с этим проектом и его командой),
    «команда» (участники со статусами + запуск + добавление, ТЗ v1.17). *@
 @if (Project is not { } project)
@@ -30,7 +31,45 @@ else
     <MudTabs Elevation="1" Rounded="true" @key="@project.Id"
              ActivePanelIndex="@_tabState.TabIndex"
              ActivePanelIndexChanged="@(i => _tabState.TabIndex = i)">
-        <MudTabPanel Text="@L["projects.tab.main"]">
+        <MudTabPanel Text="@L["projects.tab.tasks"]">
+            @* высоту держит содержимое вкладки (T-128): доска внутри листается сама *@
+            <div class="pa-2 ai2p-card-tab-fill">
+                @* тот же список задач, но отфильтрован по проекту; новая задача — с этим
+                   проектом и его командой (ТЗ v1.17) *@
+                <TasksView FixedProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        @* ОБЪЕКТЫ ПРОЕКТА (ТЗ пп. 2.5–2.6; T-259): персонажи, локации, реквизит, стиль,
+           эталонные кадры и адаптеры LoRA. Вкладка карточки проекта, а не общий вид
+           экшен-бара: список объектов свой у каждого проекта, общего не существует *@
+        <MudTabPanel Text="@L["projects.tab.objects"]">
+            <div class="pa-2">
+                <ObjectsView ProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.team"]">
+            <div class="pa-2">
+                <ProjectTeamTab Project="project" />
+            </div>
+        </MudTabPanel>
+
+        @* Inbox проекта (T-498-S0): всё как в общем Inbox, но только по этому проекту *@
+        <MudTabPanel Text="@L["inbox.title"]">
+            <div class="pa-2">
+                <InboxView ProjectId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.security"]">
+            <div class="pa-2">
+                @* правила безопасности проекта (ТЗ гл. 12, todo25; переименовано из «процесса») *@
+                <SecurityRulesPanel Scope="@(SecurityScope.Project)" ScopeId="@project.Id" />
+            </div>
+        </MudTabPanel>
+
+        <MudTabPanel Text="@L["projects.tab.settings"]">
             @* форма открывается в режиме чтения; карандаш → редактирование + «сохранить» (todo23) *@
             <MudStack Spacing="3" Class="pa-4" Style="max-width: 560px;">
                 @* карандаш/«сохранить» — в правом верхнем углу формы (гл. 11, эргономика) *@
@@ -68,6 +107,10 @@ else
                         </MudTooltip>
                     }
                 </MudStack>
+                @* подключение проекта к VS Code (T-510-S0): состояние, версия и «Открыть» видны
+                   всегда (T-516-S0), кнопки подключения — вторым рядом и только в режиме правки;
+                   без каталога проекта на этом сервере или без VS Code панель пуста *@
+                <ProjectVsCodePanel ProjectId="@project.Id" FolderPath="@project.FolderPath" Editing="@_editing" />
                 @* папка Common (ТЗ гл. 6, этап 42): её содержимое реплицируется между
                    серверами — быстрый перенос результатов (сама репликация — этап 44) *@
                 @if (State.IsCluster)
@@ -159,44 +202,6 @@ else
                 <MudSwitch T="bool" @bind-Value="_isActive" Label="@L["common.active"]"
                            Color="Color.Primary" Disabled="@(!_editing)" />
             </MudStack>
-        </MudTabPanel>
-
-        <MudTabPanel Text="@L["projects.tab.tasks"]">
-            @* высоту держит содержимое вкладки (T-128): доска внутри листается сама *@
-            <div class="pa-2 ai2p-card-tab-fill">
-                @* тот же список задач, но отфильтрован по проекту; новая задача — с этим
-                   проектом и его командой (ТЗ v1.17) *@
-                <TasksView FixedProjectId="@project.Id" />
-            </div>
-        </MudTabPanel>
-
-        @* ОБЪЕКТЫ ПРОЕКТА (ТЗ пп. 2.5–2.6; T-259): персонажи, локации, реквизит, стиль,
-           эталонные кадры и адаптеры LoRA. Вкладка карточки проекта, а не общий вид
-           экшен-бара: список объектов свой у каждого проекта, общего не существует *@
-        <MudTabPanel Text="@L["projects.tab.objects"]">
-            <div class="pa-2">
-                <ObjectsView ProjectId="@project.Id" />
-            </div>
-        </MudTabPanel>
-
-        <MudTabPanel Text="@L["projects.tab.team"]">
-            <div class="pa-2">
-                <ProjectTeamTab Project="project" />
-            </div>
-        </MudTabPanel>
-
-        @* Inbox проекта (T-498-S0): всё как в общем Inbox, но только по этому проекту *@
-        <MudTabPanel Text="@L["inbox.title"]">
-            <div class="pa-2">
-                <InboxView ProjectId="@project.Id" />
-            </div>
-        </MudTabPanel>
-
-        <MudTabPanel Text="@L["projects.tab.security"]">
-            <div class="pa-2">
-                @* правила безопасности проекта (ТЗ гл. 12, todo25; переименовано из «процесса») *@
-                <SecurityRulesPanel Scope="@(SecurityScope.Project)" ScopeId="@project.Id" />
-            </div>
         </MudTabPanel>
 
         <MudTabPanel Text="@L["projects.tab.templates"]">

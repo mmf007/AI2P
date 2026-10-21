@@ -28,10 +28,12 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [ElevenLabs-Music](ElevenLabs-Music.md) — texto → música y canciones, libres de derechos, habilidades `audio-song` 89, `audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — texto → voz, habilidades `audio-speech` 96
 * [FLUX-3](FLUX-3.md) — texto → imagen, habilidades `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
+* [FLUX-3-Max-Video](FLUX-3-Max-Video.md) — texto → vídeo de 5 a 20 segundos con sonido, habilidades `video-generate` 93
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, a través de una capa compatible con OpenAI
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, a través de una capa compatible con OpenAI
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, a través de una capa compatible con OpenAI
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, a través de una capa compatible con OpenAI
+* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, puntuaciones 91-95
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — texto → vídeo con sonido, 8 segundos, habilidades `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Sber, Rusia; compatible con OpenAI
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, compatible con OpenAI
@@ -65,6 +67,7 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — imagen e indicación → imagen modificada, habilidades `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — texto → imagen de hasta 4K, el mejor texto dentro del cuadro, habilidades `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, a través de la pasarela OpenRouter
+* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, contexto de 262 144 tokens, 0,15 $ / 0,50 $ por 1 M, puntuaciones 77-83
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, compatible con OpenAI
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, compatible con OpenAI
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — imagen → vídeo con sonido, habilidades `video-animate` 95

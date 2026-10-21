@@ -565,6 +565,7 @@ public sealed class JobOrchestrator : IDisposable
         // и ИИ-агенты (create_task + запуск). Поэтому решение спрашивается ЗДЕСЬ, в общем
         // месте запуска, а не в коннекторе: мимо StartTaskAsync задание не заводит никто
         EnsureSoftwareAllowed(task, executor);
+        EnsureModelInstalled(task, executor, actorId);
 
         IAgentConnector connector;
         try
@@ -958,6 +959,29 @@ public sealed class JobOrchestrator : IDisposable
         }
         throw new InvalidOperationException(Loc.T("msg.jobOrchestrator.26",
             executor.Nick, _tasks.Scope.Describe(executor.ServerId)));
+    }
+
+    /// <summary>Отказ запуска на неустановленной модели (T-560-S0): id модели → текст отказа
+    /// или null. Ставит OrgContext (ModelInstallService.StartError); null — проверки нет (тесты).</summary>
+    public Func<string, string?>? ModelStartError { get; set; }
+
+    /// <summary>
+    /// ФАЙЛЫ ЛОКАЛЬНОЙ МОДЕЛИ НА МЕСТЕ (T-560-S0). Проверка перенесена сюда со старта сервера:
+    /// там она гасила модель, если каталог моделей лежит на съёмном диске, который не успели
+    /// вставить, и включать модели приходилось руками. Здесь модель не гаснет — запуск просто
+    /// не идёт: в журнал пишется предупреждение, а человеку, нажавшему «запустить» (actorId
+    /// задан), отказ приходит сообщением.
+    /// </summary>
+    private void EnsureModelInstalled(TaskItem task, Executor executor, string? actorId)
+    {
+        if (executor.Kind != ExecutorKind.Ai || string.IsNullOrEmpty(executor.ModelId)
+            || ModelStartError?.Invoke(executor.ModelId) is not { } error)
+        {
+            return;
+        }
+        Logger.Warning("Задача {Task}: исполнитель «{Nick}» не запущен ({How}) — {Error}",
+            task.DisplayId, executor.Nick, actorId is null ? "автоматически" : "вручную", error);
+        throw new InvalidOperationException(error);
     }
 
     /// <summary>Код действия справочника «запустить задачу „авто ПО“» (T-155-S0): без записи
@@ -1443,7 +1467,8 @@ public sealed class JobOrchestrator : IDisposable
         // тэги перечитываются: сюда задача попадает и от подписчиков событий, а те получают
         // её по одной таблице tasks — без связей (T-272)
         var taskTags = TagsOf(task);
-        sb.Append(ExperienceSection(task, ownedSkills, taskTags, language, usedExperience));
+        sb.Append(ExperienceSection(task, ownedSkills, taskTags, language, usedExperience,
+            topic: task.Title + "\n" + description + "\n" + acceptance));
         if (!string.IsNullOrWhiteSpace(language))
         {
             sb.AppendLine();
@@ -1530,7 +1555,8 @@ public sealed class JobOrchestrator : IDisposable
     /// внутри — свежим. Порядок ПЕЧАТИ при этом прежний: рамка, потом её уточнения.
     /// </summary>
     private string ExperienceSection(TaskItem task, IReadOnlyCollection<string> ownedSkills,
-        IReadOnlyCollection<string> taskTags, string? language, List<string>? usedExperience = null)
+        IReadOnlyCollection<string> taskTags, string? language, List<string>? usedExperience = null,
+        string? topic = null)
     {
         if (_experience is null)
         {
@@ -1540,6 +1566,25 @@ public sealed class JobOrchestrator : IDisposable
         var project = task.ProjectId is null
             ? []
             : _experience.ListForExecutor(task.ProjectId, ownedSkills, taskTags);
+
+        // БЛИЗОСТЬ К ТЕКСТУ ЗАДАЧИ (T-554-S0): опыт проекта и общие правила, у которых с
+        // задачей нет ни редких общих слов, ни общих тэгов, в задание больше не идут — раньше
+        // предел заполнялся просто по свежести, и любая задача получала одни и те же ~80
+        // записей. Пометка «загружать всегда» и опыт узла шаблона (он и так про эту работу)
+        // отсев не проходят. Не попавшее агент достаёт поиском — об этом говорит строка
+        // «ещё N записей не показаны». Слов у задачи нет вовсе — отбирать не по чему, берём всё
+        // Отсев включается, только когда кандидаты НЕ ПОМЕЩАЮТСЯ в половину предела: пока
+        // опыта мало, лишнее слово в задании дешевле потерянного урока
+        var closeness = ExperienceRelevance.Score([.. general, .. project], topic ?? "");
+        var limit = ExperienceLimitOf(task);
+        var crowded = general.Concat(project).Sum(r => ExperienceLine(r).Length) > limit / 2;
+        bool OnTopic(ExperienceRecord r) => !crowded || closeness.Count == 0 || r.AlwaysLoad
+            || ExperienceService.TagsOverlap(r.Tags, taskTags)
+            || (closeness.TryGetValue(r.Id, out var fit) && fit.OnTopic);
+        var generalAll = general.Count;
+        var projectAll = project.Count;
+        general = general.Where(OnTopic).ToList();
+        project = project.Where(OnTopic).ToList();
         var node = task.TemplateId is null
             ? []
             : _experience.ListByTemplateForExecutor(task.TemplateId, ownedSkills, taskTags);
@@ -1561,12 +1606,13 @@ public sealed class JobOrchestrator : IDisposable
             ? (distance.TryGetValue(r.TemplateTaskId, out var d) ? d : chain.Count)
             : r.IsProjectLevel ? chain.Count + 1 : chain.Count + 2;
 
-        var budget = new ExperienceBudget(ExperienceLimitOf(task));
+        var budget = new ExperienceBudget(limit);
         var (taken, _) = budget.Fit([.. general, .. project, .. node],
             r => ExperienceLine(r, withSkill: r.TemplateTaskId.Length == 0), Rank,
             // ТЭГИ — СИГНАЛ, А НЕ ФИЛЬТР (T-267-S0): отбор их больше не проверяет, зато
             // запись по теме задачи идёт вперёд своих ровесников при дележе бюджета
-            r => ExperienceService.TagsOverlap(r.Tags, taskTags));
+            r => ExperienceService.TagsOverlap(r.Tags, taskTags),
+            crowded ? r => closeness.TryGetValue(r.Id, out var fit) ? fit.Score : 0 : null);
         var kept = taken.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
         // ИСПОЛЬЗОВАННЫЙ ОПЫТ (T-266-S0): запоминаем ровно то, что ушло в текст задания —
         // отбор уже сделан бюджетом, второй раз его гонять незачем. Номер задания здесь ещё
@@ -1576,16 +1622,18 @@ public sealed class JobOrchestrator : IDisposable
         usedExperience?.AddRange(kept);
 
         var sb = new StringBuilder();
-        Append(sb, "prompt.job.21", "prompt.job.22", general, withSkill: true);
-        Append(sb, "prompt.job.3", "prompt.job.4", project, withSkill: true);
-        Append(sb, "prompt.job.5", "prompt.job.6", node, withSkill: false);
+        Append(sb, "prompt.job.21", "prompt.job.22", general, generalAll, withSkill: true);
+        Append(sb, "prompt.job.3", "prompt.job.4", project, projectAll, withSkill: true);
+        Append(sb, "prompt.job.5", "prompt.job.6", node, node.Count, withSkill: false);
         return sb.ToString();
 
+        // total — сколько записей было ДО отсева по теме: отсеянные тоже «не показаны»,
+        // и агент должен знать, что их можно найти поиском
         void Append(StringBuilder target, string headKey, string hintKey,
-            List<ExperienceRecord> records, bool withSkill)
+            List<ExperienceRecord> records, int total, bool withSkill)
         {
             var shown = records.Where(r => kept.Contains(r.Id)).ToList();
-            if (shown.Count == 0)
+            if (shown.Count == 0 && total == records.Count)
             {
                 return;
             }
@@ -1596,7 +1644,7 @@ public sealed class JobOrchestrator : IDisposable
             {
                 target.AppendLine(ExperienceLine(record, withSkill));
             }
-            target.Append(SkippedNote(records.Count - shown.Count, language));
+            target.Append(SkippedNote(total - shown.Count, language));
         }
     }
 

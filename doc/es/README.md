@@ -46,6 +46,7 @@ claves están junto al programa.
 * [Cómo se ve en la práctica](#cómo-se-ve-en-la-práctica)
 * [AI2P se construye a sí mismo](#ai2p-se-construye-a-sí-mismo)
 * [Granja de IA: una tarea, muchos ordenadores](#granja-de-ia-una-tarea-muchos-ordenadores)
+* [AI2P en VS Code](#ai2p-en-vs-code)
 * [Qué hace falta](#qué-hace-falta)
 * [Inicio rápido](#inicio-rápido)
 * [Documentación](#documentación)
@@ -142,6 +143,20 @@ encenderse.
 Lo que la granja **no** hace: no es balanceo de carga. Una tarea se ejecuta solo en su
 propietario y, si este está apagado, ningún otro servidor la toma por sí solo; el reparto lo
 decide usted (o el agente) al elegir el ejecutor y el servidor de cada subtarea.
+
+## AI2P en VS Code
+
+AI2P también funciona dentro de VS Code: la ficha del proyecto, el espacio de trabajo, los
+ajustes, la documentación y las fichas de tareas se abren como paneles del editor junto al
+código del proyecto: es la misma interfaz que en el navegador, con el tema de VS Code. La
+extensión **AI2P** viene con el programa (el archivo `ai2p-<versión>.vsix`), su versión es
+la misma que la de AI2P y la instala el propio AI2P: en la pestaña **Configuración** de la
+ficha del proyecto basta con pulsar **Conectar VS Code**. AI2P encuentra su copia de VS Code
+(también Insiders, VSCodium, Cursor y Windsurf), instala la extensión, la vincula al proyecto
+y entrega un token de dispositivo al almacenamiento seguro de VS Code: en los archivos del
+proyecto no hay secretos.
+
+Más detalles en [AI2P en VS Code](man/vscode.md).
 
 ## Qué hace falta
 

@@ -13,6 +13,14 @@ namespace AI2P.Tests;
 internal static class LocInit
 {
     [ModuleInitializer]
-    internal static void Load() =>
+    internal static void Load()
+    {
         Loc.Load(Path.Combine(AppContext.BaseDirectory, "i18n"), LocCatalog.BaseLanguage);
+        // ШАГИ ОПРОСА (T-554-S0): поддельные серверы отвечают сразу, а боевые 3–5 секунд
+        // на шаг превращали каждую медиа-проверку в минуты под нагрузкой полного прогона
+        AI2P.Connectors.ComfyUiConnector.PollDelay = TimeSpan.FromMilliseconds(200);
+        AI2P.Connectors.FalAiConnector.PollDelay = TimeSpan.FromMilliseconds(200);
+        AI2P.Connectors.TaskToolset.WaitPollInterval = TimeSpan.FromMilliseconds(200);
+        AI2P.Connectors.ChatWatch.PollInterval = TimeSpan.FromMilliseconds(500);
+    }
 }

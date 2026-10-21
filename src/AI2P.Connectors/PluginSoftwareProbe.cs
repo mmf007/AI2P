@@ -111,7 +111,8 @@ public static class PluginSoftwareProbe
                 return new Result(PluginSoftwareStatus.Found, manualFile, version);
             }
         }
-        var found = SystemPackageProbe.Find(system, searchPath ?? Path());
+        var found = SystemPackageProbe.Find(system, searchPath ?? Path())
+            ?? (searchPath is null ? KnownVsCode(probe.Commands) : null);   // свой PATH — проверка, машину не трогаем
         return found is null
             ? new Result(NotFound(software))
             : new Result(PluginSoftwareStatus.Found, found, Version(found, system) ?? "");
@@ -156,6 +157,24 @@ public static class PluginSoftwareProbe
             : PluginSoftwareStatus.NeedsManualPath;
 
     private static string Path() => Environment.GetEnvironmentVariable("PATH") ?? "";
+
+    private static readonly VsCodeLocator Locator = new();
+
+    /// <summary>
+    /// VS CODE ВНЕ PATH (T-547-S0). На macOS команда code попадает в PATH, только если человек
+    /// сам выполнил «Shell Command: Install 'code' command in PATH», а сервер, запущенный не из
+    /// терминала, и /usr/local/bin в PATH не видит — VS Code из /Applications оставался «не
+    /// найден». Известные места (/Applications, ~/Applications, snap, flatpak, Program Files,
+    /// реестр) обходит тот же поиск, что и форма выбора копии в проекте.
+    /// </summary>
+    private static string? KnownVsCode(IReadOnlyList<string> commands)
+    {
+        if (!commands.Any(c => c.Equals("code", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+        return Locator.Find().FirstOrDefault(x => x.Kind == "code")?.CodePath;
+    }
 
     private static string Key(PluginSoftware software, string? manualPath, string? searchPath) =>
         string.Join('\u0001',

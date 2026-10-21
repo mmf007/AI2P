@@ -111,6 +111,16 @@ public sealed class Ai2pConfig
         [System.Text.Json.Serialization.JsonIgnore]
         public bool IsHttps =>
             Protocol.Trim().Equals("https", StringComparison.OrdinalIgnoreCase);
+        /// <summary>
+        /// Порт ПЕТЛЕВОГО HTTP для VS Code при работе по HTTPS (T-338). Расширение и его WebView
+        /// ходят на http://localhost — самоподписанный сертификат WebView не примет (T-215), —
+        /// а сервер по HTTPS слушал только HTTPS, и VS Code видел «сервер не отвечает».
+        /// Поэтому при HTTPS сервер дополнительно слушает HTTP на 127.0.0.1 этим портом.
+        /// <c>null</c> — <see cref="Port"/> + 1. По HTTP не значит ничего: петля — основной порт.
+        /// </summary>
+        public int? LoopbackHttpPort { get; set; }
+        /// <summary>Порт, который пишется в link.json VS Code (T-338).</summary>
+        public int EmbedPort() => IsHttps ? LoopbackHttpPort ?? Port + 1 : Port;
         public bool OpenBrowserOnStart { get; set; } = true;
         /// <summary>Вторая строка заголовка закладок «Задача»/«Проект» (ТЗ v1.18, todo21):
         /// "name" — начало названия с «…», "code" — короткий код (display_id).</summary>

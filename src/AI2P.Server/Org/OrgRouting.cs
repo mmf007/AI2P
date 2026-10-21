@@ -24,6 +24,8 @@ public static class OrgRouting
         "api", "_blazor", "_framework", "_content", "login", "logout", "server-admin", "no-org",
         // оповещение на телефон (T-422-S0): ответ на вопрос и календарная лента без входа
         "notify",
+        // встроенный режим VS Code (T-508-S0): страница «нужно подключить» без входа
+        "embed",
     };
 
     /// <summary>ПОСЛЕДНЯЯ ОТКРЫТАЯ ОРГАНИЗАЦИЯ (T-237-S0) — имя cookie. Хранится в браузере,

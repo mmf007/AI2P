@@ -26,12 +26,14 @@
 * [quickstart](quickstart.md) — 快速开始
 * [sample_video1](sample_video1.md) — 按角色参考帧制作视频短片。示例
 * [schedule](schedule.md) — 计划
+* [SECURITY](SECURITY.md) — AI2P 安全策略
 * [servers](servers.md) — 多台服务器
 * [service](service.md) — 以操作系统服务方式运行 AI2P
 * [TaskDo](TaskDo.md) — 任务执行算法
 * [tasks](tasks.md) — 任务
 * [teams](teams.md) — 团队
 * [templates](templates.md) — 模板
+* [vscode](vscode.md) — 在 VS Code 中使用 AI2P
 
 ## 里面有什么
 

@@ -6838,6 +6838,146 @@ public sealed class AiModelService
                            "per_unit": 0.06, "unit": "image" }
             }
             """),
+        // ---------------------------------------------------------------------------------
+        // T-558-S0 (актуализация 20.10.2026): записи …122–…124. Идентификаторы, цены и
+        // модальности сверены запросом к каталогам OpenRouter и fal.ai (без ключа) и схемам
+        // очереди эндпойнтов fal.ai. Суфлёр не нужен ни одной: все записи облачные, а
+        // управляющий json суфлёра читает только ComfyUiConnector.
+        // ---------------------------------------------------------------------------------
+
+        // Gemini-4-Argon (каталог OpenRouter: google/gemini-4-argon, 13.10.2026), $2.0/$10.0 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000122", "Gemini-4-Argon",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gemini-4-argon",
+              "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+              "secretRef": "google.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gemini-4-argon",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 95 },
+                { "name": "code-review",         "score": 94 },
+                { "name": "code-debug",          "score": 94 },
+                { "name": "code-test",           "score": 92 },
+                { "name": "code-refactor",       "score": 93 },
+                { "name": "text-write",          "score": 92 },
+                { "name": "text-docs",           "score": 91 },
+                { "name": "text-edit",           "score": 91 },
+                { "name": "text-translate",      "score": 91 },
+                { "name": "text-summarize",      "score": 93 },
+                { "name": "analyze-requirements", "score": 94 },
+                { "name": "analyze-plan",        "score": 94 },
+                { "name": "analyze-data",        "score": 94 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 2.0, "out_per_1m": 10.0 }
+            }
+            """),
+
+        // Nemotron-3.5-Super-VL (каталог OpenRouter: nvidia/nemotron-3.5-super-vl, 15.10.2026), $0.15/$0.5 за миллион, контекст 262144.
+        ("6f1a45e0-0d31-4c65-9a01-000000000123", "Nemotron-3.5-Super-VL",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "nvidia/nemotron-3.5-super-vl",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "secretRef": "openrouter.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "nvidia/nemotron-3.5-super-vl",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 80 },
+                { "name": "code-review",         "score": 78 },
+                { "name": "code-debug",          "score": 78 },
+                { "name": "code-test",           "score": 77 },
+                { "name": "code-refactor",       "score": 78 },
+                { "name": "text-write",          "score": 80 },
+                { "name": "text-docs",           "score": 80 },
+                { "name": "text-edit",           "score": 80 },
+                { "name": "text-translate",      "score": 80 },
+                { "name": "text-summarize",      "score": 83 },
+                { "name": "analyze-requirements", "score": 79 },
+                { "name": "analyze-plan",        "score": 79 },
+                { "name": "analyze-data",        "score": 82 }
+              ],
+              "limits":  { "context": 262144, "max_output": 235929 },
+              "cost":    { "in_per_1m": 0.15, "out_per_1m": 0.5 }
+            }
+            """),
+
+        // FLUX-3-Max-Video (каталог fal.ai: blackforestlabs/flux-3-max/text-to-video, 16.10.2026), шлюз fal.ai.
+        ("6f1a45e0-0d31-4c65-9a01-000000000124", "FLUX-3-Max-Video",
+            """
+            {
+              "_seed": 22,
+              "provider": "fal-ai",
+              "model": "blackforestlabs/flux-3-max/text-to-video",
+              "baseUrl": "https://queue.fal.run",
+              "secretRef": "fal.apiKey",
+              "params": {
+                "timeoutMinutes": 60
+              },
+              "request": {
+                "prompt": "{prompt}",
+                "duration": 5,
+                "aspect_ratio": "16:9",
+                "resolution": "720p",
+                "generate_audio": true,
+                "seed": "{seed}"
+              },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "blackforestlabs/flux-3-max/text-to-video",
+              "inputs":  ["text/plain"],
+              "outputs": ["video/mp4"],
+              "skills":  [
+                { "name": "video-generate", "score": 93 }
+              ],
+              "limits":  {},
+              "cost":    { "in_per_1m": 0.0, "out_per_1m": 0.0,
+                           "per_unit": 0.17, "unit": "second" }
+            }
+            """),
         .. KandinskyLiteVariants(),
         .. Kandinsky6Variants(),
         .. AceStep15Variants(),
@@ -7524,8 +7664,44 @@ public sealed class AiModelService
     /// </summary>
     private const string PackagesSeedJson = """
         {
-          "_seed": 24,
+          "_seed": 25,
           "packages": [
+            {
+              "id": "vscode",
+              "name": "Visual Studio Code (последняя версия)",
+              "dir": "vscode",
+              "os": "windows",
+              "check": "bin/code.cmd",
+              "system": { "commands": ["code"] },
+              "hint": "Установите VS Code с code.visualstudio.com (winget install Microsoft.VisualStudioCode) — он будет найден в PATH; либо положите VSCode-win32-x64.zip в каталог дистрибутивов.",
+              "files": [
+                { "name": "VSCode-win32-x64.zip", "url": "https://update.code.visualstudio.com/latest/win32-x64-archive/stable", "unpack": "zip" }
+              ]
+            },
+            {
+              "id": "vscode",
+              "name": "Visual Studio Code (последняя версия)",
+              "dir": "vscode",
+              "os": "linux",
+              "check": "bin/code",
+              "system": { "commands": ["code"] },
+              "hint": "Установите VS Code (snap install code --classic, либо пакет с code.visualstudio.com) — он будет найден в PATH; либо положите VSCode-linux-x64.tar.gz в каталог дистрибутивов.",
+              "files": [
+                { "name": "VSCode-linux-x64.tar.gz", "url": "https://update.code.visualstudio.com/latest/linux-x64/stable", "unpack": "tar.gz" }
+              ]
+            },
+            {
+              "id": "vscode",
+              "name": "Visual Studio Code (последняя версия)",
+              "dir": "vscode",
+              "os": "macos",
+              "check": "Visual Studio Code.app/Contents/Resources/app/bin/code",
+              "system": { "commands": ["code"] },
+              "hint": "Установите VS Code (brew install --cask visual-studio-code, либо с code.visualstudio.com) и включите команду code в PATH; либо положите VSCode-darwin-universal.zip в каталог дистрибутивов.",
+              "files": [
+                { "name": "VSCode-darwin-universal.zip", "url": "https://update.code.visualstudio.com/latest/darwin-universal/stable", "unpack": "zip" }
+              ]
+            },
             {
               "id": "nodejs",
               "name": "Node.js 24 LTS (для CLI-агентов)",
@@ -9444,19 +9620,27 @@ public sealed class AiModelService
     private void SeedRecords()
     {
         using var mute = ChangeLog.Mute(_db);
-        foreach (var (id, name, profileJson, scopeJson) in SeedModels)
+        // модель дистрибутива могла раньше ставиться инсталлятором как кастомная
+        // (Qwen3.6-35B-A3B-Local до v1.42) — имя занято, переименовываем старую запись:
+        // ссылки исполнителей на неё сохраняются, пользователь сам решает, что оставить.
+        // Отдельным проходом ДО общей транзакции: переименование открывает своё соединение
+        foreach (var (id, name, _, _) in SeedModels)
         {
-            // модель дистрибутива могла раньше ставиться инсталлятором как кастомная
-            // (Qwen3.6-35B-A3B-Local до v1.42) — имя занято, переименовываем старую запись:
-            // ссылки исполнителей на неё сохраняются, пользователь сам решает, что оставить
             RenameConflictingCustom(id, name);
-            AiModel model;
-            using (var conn = _db.Open())
+        }
+        // ОДНО соединение и ОДНА транзакция на весь справочник (T-554-S0): прежде на каждую
+        // из ~110 записей открывалось своё соединение со своей фиксацией, и сид, который
+        // фикстуры тестов зовут сотни раз, был самой дорогой частью полного прогона
+        var files = new List<(string Profile, string ProfileJson, string Scope, string ScopeJson)>();
+        using (var conn = _db.Open())
+        using (var tx = conn.BeginTransaction())
+        {
+            foreach (var (id, name, profileJson, scopeJson) in SeedModels)
             {
-                var exists = Sql.Scalar<long>(conn, null,
+                var exists = Sql.Scalar<long>(conn, tx,
                     "SELECT COUNT(*) FROM ai_models WHERE id=@id", ("@id", id)) > 0;
                 var now = SeedStamp;
-                model = new AiModel
+                var model = new AiModel
                 {
                     Id = id,
                     Name = name,
@@ -9466,9 +9650,9 @@ public sealed class AiModelService
                     CreatedAt = now,
                     UpdatedAt = now,
                 };
+                files.Add((model.ProfilePath, profileJson, model.CapabilitiesPath, scopeJson));
                 if (!exists)
                 {
-                    using var tx = conn.BeginTransaction();
                     model.DisplayId = Database.NextDisplayId(conn, tx, "M");
                     Sql.Exec(conn, tx, """
                         INSERT INTO ai_models (id, display_id, name, is_active, is_custom,
@@ -9479,14 +9663,12 @@ public sealed class AiModelService
                         ("@active", RetiredSeedModels.Contains(id) || InactiveSeedModels.Contains(id) ? 0 : 1),
                         ("@profile", model.ProfilePath), ("@caps", model.CapabilitiesPath),
                         ("@created", Sql.ToDb(now)), ("@updated", Sql.ToDb(now)));
-                    tx.Commit();
                 }
                 else
                 {
                     // имя модели дистрибутива переименовали в новой версии (ТЗ v1.43, todo36_6:
                     // Claude-Opus-4.8 → Claude-Opus-5.0) — запись существует, имя обновляем;
                     // ссылки исполнителей не рвутся, id остаётся прежним
-                    using var tx = conn.BeginTransaction();
                     var updated = Sql.Exec(conn, tx, """
                         UPDATE ai_models SET name=@name, updated_at=@updated
                         WHERE id=@id AND name<>@name
@@ -9502,11 +9684,14 @@ public sealed class AiModelService
                             PayloadJson = JsonSerializer.Serialize(new { model.Name, seed = SeedFileVersion }),
                         });
                     }
-                    tx.Commit();
                 }
             }
-            WriteSeedFile(model.ProfilePath, profileJson);
-            WriteSeedFile(model.CapabilitiesPath, scopeJson);
+            tx.Commit();
+        }
+        foreach (var (profile, profileJson, scope, scopeJson) in files)
+        {
+            WriteSeedFile(profile, profileJson);
+            WriteSeedFile(scope, scopeJson);
         }
         // workflow-шаблон ComfyUI модели Kandinsky (ТЗ v1.41, todo36_4): тот же механизм
         // _seed-версий — пользовательские правки текущей версии сохраняются

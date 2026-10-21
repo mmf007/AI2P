@@ -718,7 +718,8 @@ public sealed class TaskToolset
     private const int DefaultWaitReplyMinutes = 10;
 
     /// <summary>Как часто заглядывать в чат, ожидая ответа собеседника (wait_task_reply).</summary>
-    private static readonly TimeSpan WaitPollInterval = TimeSpan.FromSeconds(5);
+    /// <summary>Изменяемый ради тестов (T-554-S0): ожидание ответа соседа шагом 5 с.</summary>
+    public static TimeSpan WaitPollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Разговор с агентами РОДСТВЕННЫХ задач (T-185) публикуется, когда известно, от чьего

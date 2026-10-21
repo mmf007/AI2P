@@ -50,6 +50,12 @@ public static class ApiPermissions
         {
             return SystemRole.Reader;
         }
+        // «Открыть проект в VS Code» (T-516-S0) ничего в проекте не меняет — кнопка стоит и
+        // в режиме чтения карточки, поэтому хватает редактора, а не администратора проектов
+        if (section is "projects" && rest.EndsWith("/vscode/open", StringComparison.OrdinalIgnoreCase))
+        {
+            return SystemRole.Editor;
+        }
         return section switch
         {
             // организации создаёт и правит только владелец (ТЗ п. 2.15, этап 40)
@@ -71,7 +77,8 @@ public static class ApiPermissions
             // проекты, команды, расписания и правила безопасности — администратор проектов
             "projects" or "teams" or "schedules" or "security-rules" => SystemRole.ProjectAdmin,
             // своё состояние UI и свой аккаунт правит кто угодно, включая читателя
-            "state" or "account" => SystemRole.Reader,
+            // токены устройств (T-508-S0) — свои у каждого, права токена = права человека
+            "state" or "account" or "device-tokens" => SystemRole.Reader,
             // задачи, чат, задания, файлы, опыт — редактор
             _ => SystemRole.Editor,
         };

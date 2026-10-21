@@ -423,8 +423,11 @@ public sealed class AiModelAndExecutorTests : IDisposable
         //   шлюз fal.ai)
         // + 3 локальные записи Kandinsky 6.0 через ComfyUI (T-469-S0, сверка 14.10.2026:
         //   Lite-distill-5s, Lite-distill-5s-I2V, Pro-distill-5s)
+        // + 3 записи актуализации справочника по рынку (T-558-S0, сверка 20.10.2026:
+        //   Gemini-4-Argon, Nemotron-3.5-Super-VL — текст; FLUX-3-Max-Video — медиа через
+        //   шлюз fal.ai)
         // — точный состав проверяет T214Tests
-        Assert.Equal(110, models.Count);
+        Assert.Equal(113, models.Count);
         Assert.All(models, m => Assert.False(m.IsCustom));           // из дистрибутива
         var claude = models.Single(m => m.Name == "Claude-Fable-5");
         Assert.Equal($"models/profile_{claude.Id}.json", claude.ProfilePath);

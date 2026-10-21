@@ -46,6 +46,7 @@ ao lado do programa.
 * [Como isso se parece na prática](#como-isso-se-parece-na-prática)
 * [O AI2P constrói a si mesmo](#o-ai2p-constrói-a-si-mesmo)
 * [Fazenda de IA: uma tarefa, muitos computadores](#fazenda-de-ia-uma-tarefa-muitos-computadores)
+* [AI2P no VS Code](#ai2p-no-vs-code)
 * [O que é preciso](#o-que-é-preciso)
 * [Início rápido](#início-rápido)
 * [Documentação](#documentação)
@@ -141,6 +142,19 @@ quando for ligado.
 O que a fazenda **não** faz: não é balanceamento de carga. A tarefa roda só no seu dono e, se
 ele estiver desligado, nenhum outro servidor a assume sozinho — a distribuição é decidida por
 você (ou pelo agente) ao escolher o executor e o servidor de cada subtarefa.
+
+## AI2P no VS Code
+
+O AI2P também funciona dentro do VS Code: o cartão do projeto, o ambiente de trabalho, as
+configurações, a documentação e os cartões de tarefas abrem como painéis do editor ao lado
+do código do projeto — a mesma interface do navegador, com o tema do VS Code. A extensão
+**AI2P** acompanha o programa (o arquivo `ai2p-<versão>.vsix`), sua versão é igual à do AI2P
+e o próprio AI2P a instala: na aba **Configuração** do cartão do projeto basta clicar em
+**Conectar o VS Code**. O AI2P encontra sua cópia do VS Code (também Insiders, VSCodium, Cursor
+e Windsurf), instala a extensão, a vincula ao projeto e entrega um token de dispositivo ao
+armazenamento seguro do VS Code — não há segredos nos arquivos do projeto.
+
+Mais detalhes em [AI2P no VS Code](man/vscode.md).
 
 ## O que é preciso
 

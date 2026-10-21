@@ -118,7 +118,7 @@ public sealed class DocStore
     /// на ещё не переведённую страницу приводит не в пустоту, а к оригиналу.
     /// </summary>
     /// <param name="relPath">Путь внутри языкового каталога; разделитель — «/» или «\».</param>
-    public DocPageDto Page(string? relPath)
+    public DocPageDto Page(string? relPath, string? uiLang = null)
     {
         var dto = new DocPageDto();
         var root = Root();
@@ -128,7 +128,7 @@ public sealed class DocStore
             return dto;
         }
         var candidates = PageCandidates(relPath);
-        foreach (var lang in Languages())
+        foreach (var lang in Languages(uiLang))
         {
             foreach (var candidate in candidates)
             {
@@ -404,10 +404,17 @@ public sealed class DocStore
     }
 
     /// <summary>Язык интерфейса первым, дальше — откат; повторов нет.</summary>
-    private IEnumerable<string> Languages()
+    /// <param name="preferred">Язык интерфейса ЧИТАТЕЛЯ (у него может быть свой, не язык
+    /// установки, — панель VS Code, T-528-S0); годен только вид «xx» / «xx-yy», это сегмент пути.</param>
+    private IEnumerable<string> Languages(string? preferred = null)
     {
         var seen = new List<string>();
-        foreach (var lang in new[] { _language().Trim().ToLowerInvariant() }.Concat(Fallback))
+        var first = (preferred ?? "").Trim().ToLowerInvariant();
+        if (!System.Text.RegularExpressions.Regex.IsMatch(first, "^[a-z]{2}(-[a-z]{2})?$"))
+        {
+            first = "";
+        }
+        foreach (var lang in new[] { first, _language().Trim().ToLowerInvariant() }.Concat(Fallback))
         {
             if (lang.Length > 0 && !seen.Contains(lang))
             {

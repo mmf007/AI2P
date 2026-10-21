@@ -29,6 +29,7 @@
 * [Опыт](man/experience.md)
 * [Редактор LoRA](man/LoRAEditor.md) 
 * [Работа со звуковыми моделями](man/audio.md)
+* [AI2P в VS Code](man/vscode.md)
 
 ## Примеры работы
 * [Видео ролик по эталонному кадру персонажа](man/sample_video1.md)

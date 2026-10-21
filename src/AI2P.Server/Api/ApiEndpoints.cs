@@ -2973,8 +2973,9 @@ public static class ApiEndpoints
         // (пусто — README.md), по такому же пути идут внутренние ссылки самих документов.
         // Документация лежит файлами рядом с приложением и организации не касается вовсе,
         // поэтому читается и на сервере, ждущем решения по заявке (см. ApiPermissions)
-        api.MapGet("/doc", (string? path) =>
-            Handle(() => Results.Ok(services.GetRequiredService<DocStore>().Page(path))));
+        // lang — язык интерфейса читателя (T-528-S0): у панели VS Code он свой, не язык установки
+        api.MapGet("/doc", (string? path, string? lang) =>
+            Handle(() => Results.Ok(services.GetRequiredService<DocStore>().Page(path, lang))));
         // КАРТИНКИ ДОКУМЕНТАЦИИ (T-97-S0): документ ссылается на картинку относительным
         // путём («../images/ai2p-logo.png»), а внутри приложения такой путь не ведёт никуда —
         // браузер разворачивает его по адресу страницы приложения. Поэтому адрес картинки
@@ -3567,7 +3568,10 @@ public static class ApiEndpoints
                 return PluginSoftwareProbe.NotNeeded;
             }
             var results = list.Select(s => PluginProbeOne(manifest, code, s)).ToList();
-            return results.FirstOrDefault(r => !r.Ready) ?? results[0];
+            // необязательная программа (Node.js у VS Code, T-533-S0) готовность плагина
+            // не держит: её отсутствие — не причина считать плагин неустановленным
+            return results.Where((r, i) => list[i].Required).FirstOrDefault(r => !r.Ready)
+                ?? results[0];
         }
         PluginListItemDto PluginDto(PluginManifest? manifest, PluginRecord? record, string code,
             string? lang)
@@ -3865,7 +3869,50 @@ public static class ApiEndpoints
         {
             PluginSoftwareProbe.Forget();
             PluginAdoptPackagePaths(PluginManifestOf(code), code);
+            PluginAutoEnable(PluginManifestOf(code), code, lang);
             return PluginRow(code, lang);
+        }));
+        // ПЛАГИН «VS CODE» ВКЛЮЧАЕТСЯ САМ (T-530-S0): установка прошла полностью (найдены ВСЕ
+        // обязательные программы — сейчас это один VS Code, Node.js убран T-533-S0) — запись заводится и инициализируется без отдельной
+        // кнопки. Только у плагина VS Code и только из ещё не принятого решения: выключенный
+        // человеком плагин сам не включается
+        void PluginAutoEnable(PluginManifest? manifest, string code, string? lang)
+        {
+            if (manifest is null || !string.Equals(code, PluginSeed.VsCodeCode, StringComparison.OrdinalIgnoreCase)
+                || !PluginProbe(manifest, code).Ready)
+            {
+                return;
+            }
+            var existing = PluginRecordOf(code);
+            if (existing is not null && existing.State is not (PluginStates.Declared or PluginStates.Removed))
+            {
+                return;
+            }
+            var record = Plugins().Declare(manifest, Actor(), lang);
+            PluginSetup().InitializePlugin(record, manifest, null, Actor(), lang, null);
+        }
+        // «ПОДКЛЮЧИТЬ ПЛАГИН» ИЗ ДРУГОЙ ФОРМЫ (T-530-S0, карточка проекта → VS Code): найти уже
+        // поставленное, поставить недостающее нашими пакетами (в фоне) и включить плагин, если всё
+        // на месте. Ответ — состояние окна установки: по нему видно, что ещё ставится
+        api.MapPost("/plugins/{code}/ensure", (string code, string? lang) => Handle(() =>
+        {
+            var manifest = PluginManifestOf(code)
+                ?? throw new InvalidOperationException(Loc.T("msg.plugin.8", code));
+            PluginSoftwareProbe.Forget();
+            PluginAdoptPackagePaths(manifest, code);
+            foreach (var soft in manifest.SoftwareList)
+            {
+                var pkg = soft.Package.Trim();
+                // необязательное (Node.js, T-533-S0) сами не ставим — только по кнопке в строке
+                if (soft.Required && pkg.Length > 0 && !PluginProbeOne(manifest, code, soft).Ready
+                    && !ModelInstalls().PackageRunState(pkg).Running)
+                {
+                    ModelInstalls().StartPackageInstall(pkg);
+                }
+            }
+            PluginSoftwareProbe.Forget();
+            PluginAutoEnable(manifest, code, lang);
+            return PluginInstall(code, lang);
         }));
         // ОКНО УСТАНОВКИ И НАСТРОЙКИ ПЛАГИНА (T-136-S0) — то же, что у модели: состояние
         // спрашивается опросом, установка идёт В ФОНЕ, а не в теле запроса. Прежний вариант
@@ -4701,9 +4748,11 @@ public static class ApiEndpoints
         path = AI2P.Core.PathHome.Expand(path);
         if (string.IsNullOrWhiteSpace(path))
         {
+            // на macOS второй диск живёт в /Volumes, а сам /Volumes помечен скрытым (T-548-S0) —
+            // подключённые тома показываем сразу в корнях, рядом с «/»
             var roots = OperatingSystem.IsWindows()
                 ? DriveInfo.GetDrives().Where(d => d.IsReady).Select(d => d.Name)
-                : new[] { "/" }.AsEnumerable();
+                : new[] { "/" }.Concat(MacVolumes());
             return new DirListDto
             {
                 Path = "",
@@ -4736,7 +4785,7 @@ public static class ApiEndpoints
         try
         {
             dirs = new DirectoryInfo(full).EnumerateDirectories()
-                .Where(d => (d.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0)
+                .Where(d => !IsHiddenEntry(d))
                 .OrderBy(d => d.Name, StringComparer.CurrentCultureIgnoreCase)
                 .Select(d => new DirEntryDto { Name = d.Name, Path = d.FullName })
                 .ToList();
@@ -4745,7 +4794,7 @@ public static class ApiEndpoints
                 // предел тот же, что у списка файлов папки проекта: список рисуется целиком,
                 // а в каталоге бывают десятки тысяч записей
                 foreach (var file in new DirectoryInfo(full).EnumerateFiles()
-                             .Where(f => (f.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0)
+                             .Where(f => !IsHiddenEntry(f))
                              .OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase))
                 {
                     if (files.Count >= AI2P.Core.ProjectFiles.Limit)
@@ -4775,6 +4824,35 @@ public static class ApiEndpoints
             Files = files,
             Truncated = truncated,
         };
+    }
+
+    /// <summary>
+    /// Скрытая запись для диалога выбора (T-548-S0). На Windows — атрибуты Hidden/System;
+    /// на Linux/macOS скрытым считается только имя с точкой: флаг UF_HIDDEN macOS .NET
+    /// отдаёт как Hidden, а им помечены /Volumes и прочие системные каталоги корня.
+    /// </summary>
+    private static bool IsHiddenEntry(FileSystemInfo info) => OperatingSystem.IsWindows()
+        ? (info.Attributes & (FileAttributes.Hidden | FileAttributes.System)) != 0
+        : info.Name.StartsWith('.');
+
+    /// <summary>Подключённые тома macOS (/Volumes/*) для списка корней; на прочих системах пусто.</summary>
+    private static IEnumerable<string> MacVolumes()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            return [];
+        }
+        try
+        {
+            return Directory.EnumerateDirectories("/Volumes")
+                .Where(d => !Path.GetFileName(d).StartsWith('.'))
+                .OrderBy(d => d, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            return [];
+        }
     }
 
     /// <summary>

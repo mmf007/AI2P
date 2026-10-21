@@ -51,7 +51,7 @@ public static class AuthPages
         var registry = services.GetRequiredService<OrgRegistry>();
         var accounts = registry.Accounts;
         var secrets = services.GetRequiredService<SecretStore>();
-        var i18n = services.GetRequiredService<I18nService>();
+        var i18n = services.GetRequiredService<I18nRoot>().Value;
         var antiforgery = services.GetRequiredService<IAntiforgery>();
         var configHolder = services.GetRequiredService<ConfigHolder>();
         var basePath = configHolder.Config.Ui.NormalizedBasePath();

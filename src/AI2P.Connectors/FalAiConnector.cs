@@ -43,7 +43,8 @@ public sealed class FalAiConnector : IAgentConnector
     /// держится поллингом, а не открытым соединением (общий ограничитель — params.timeoutMinutes).</summary>
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
-    private static readonly TimeSpan PollDelay = TimeSpan.FromSeconds(3);
+    /// <summary>Шаг опроса очереди шлюза. Изменяемый ради тестов (T-554-S0), как у ComfyUI.</summary>
+    public static TimeSpan PollDelay { get; set; } = TimeSpan.FromSeconds(3);
 
     private static readonly JsonSerializerOptions DumpOptions = new()
     {

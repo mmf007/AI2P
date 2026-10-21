@@ -959,6 +959,33 @@ public sealed class Database
           UNIQUE (node_id, seq)
         );
 
+        -- токены устройств (T-508-S0): вход расширения VS Code без формы. Свойство МАШИНЫ —
+        -- в ChangeLog.ServerTables таблицы нет, наружу она не уезжает. Хранится только хэш.
+        -- Таблица новая и создаётся самой схемой, поэтому номер схемы не поднимается
+        CREATE TABLE IF NOT EXISTS device_tokens (
+          id           TEXT PRIMARY KEY,
+          account_id   TEXT NOT NULL,
+          org_id       TEXT NOT NULL,
+          project_id   TEXT NOT NULL,
+          name         TEXT NOT NULL DEFAULT '',
+          token_hash   TEXT NOT NULL UNIQUE,
+          created_at   TEXT NOT NULL,
+          last_used_at TEXT,
+          revoked_at   TEXT
+        );
+
+        -- выбор копии VS Code для проекта (T-510-S0): ЛОКАЛЬНАЯ часть проекта на этом
+        -- сервере — путь к code свой у каждой машины, и разные проекты могут работать с
+        -- разными копиями. В ChangeLog.ServerTables таблицы нет — не реплицируется.
+        -- Таблица новая и создаётся самой схемой, номер схемы не поднимается
+        CREATE TABLE IF NOT EXISTS project_vscode (
+          org_id       TEXT NOT NULL,
+          project_id   TEXT NOT NULL,
+          code_path    TEXT NOT NULL DEFAULT '',
+          updated_at   TEXT NOT NULL,
+          PRIMARY KEY (org_id, project_id)
+        );
+
         """;
 
     /// <summary>
@@ -974,6 +1001,7 @@ public sealed class Database
         CREATE INDEX IF NOT EXISTS ix_org_servers_s  ON org_servers(server_id);
         CREATE INDEX IF NOT EXISTS ix_servers_token  ON servers(token);
         CREATE INDEX IF NOT EXISTS ix_sevents_ts     ON events(ts);
+        CREATE INDEX IF NOT EXISTS ix_device_tokens  ON device_tokens(account_id, org_id);
         """;
 
     /// <summary>

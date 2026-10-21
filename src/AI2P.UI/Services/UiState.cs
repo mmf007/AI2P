@@ -835,7 +835,9 @@ public sealed class UiState
         Skills = await _api.GetSkillsAsync();
         IoFormats = await _api.GetIoFormatsAsync();
         Models = await _api.GetModelsAsync();
-        TaskStatuses = await _api.GetTaskStatusesAsync(lang: null, includeInactive: true);
+        // встроенный режим говорит на языке VS Code, а не установки (T-541-S0): без языка
+        // в запросе сервер отдавал названия состояний на языке установки
+        TaskStatuses = await _api.GetTaskStatusesAsync(lang: Embed?.Lang, includeInactive: true);
         // серверы организации (ТЗ гл. 6, этап 42): фильтры по серверам, колонка владельца
         // и выбор в кнопке «сменить сервер». Список короткий и меняется редко
         try
@@ -851,7 +853,7 @@ public sealed class UiState
     /// <summary>Перечитать справочник состояний (после правок в настройках/смены языка, ТЗ v1.37).</summary>
     public async Task RefreshTaskStatusesAsync(string? lang = null)
     {
-        TaskStatuses = await _api.GetTaskStatusesAsync(lang, includeInactive: true);
+        TaskStatuses = await _api.GetTaskStatusesAsync(lang ?? Embed?.Lang, includeInactive: true);
         NotifyChanged();
     }
 
@@ -894,8 +896,45 @@ public sealed class UiState
     }
 
     /// <summary>Закладка «Задача»: открывается в фрейме, где кликнули по элементу списка (todo22).</summary>
-    public void OpenTask(string taskId, string code, string title, int frameIndex = 0) =>
+    public void OpenTask(string taskId, string code, string title, int frameIndex = 0)
+    {
+        // ВСТРОЕННЫЙ РЕЖИМ (T-507-S0): карточка на месте не открывается — задача уходит в
+        // отдельную панель VS Code. Все места, откуда открывается карточка (дерево, доска,
+        // таблица, диаграмма, Inbox, связи задачи), приходят сюда, поэтому перехват один
+        if (Embedded)
+        {
+            EmbedOpenTaskRequested?.Invoke(taskId, code);
+            return;
+        }
         OpenEntityTab(ViewTask, taskId, code, title, frameIndex);
+    }
+
+    /// <summary>Признак встроенного режима (iframe панели VS Code, T-507-S0). Ставится один
+    /// раз по параметру embed адреса первой страницы и живёт всё время circuit'а: при
+    /// навигации внутри Blazor параметры адреса теряются, а признак — нет.</summary>
+    public bool Embedded => Embed is not null;
+
+    /// <summary>Параметры встроенного режима (вид, тема, язык, проект); null — обычный UI.</summary>
+    public EmbedParams? Embed { get; private set; }
+
+    /// <summary>Во встроенном режиме попросили открыть задачу (id, код) — её показывает
+    /// отдельная панель VS Code; подписчик — EmbedLayout, он шлёт сообщение наверх.</summary>
+    public event Action<string, string>? EmbedOpenTaskRequested;
+
+    /// <summary>Включить встроенный режим. Повторный вызов ничего не меняет: признак ставит
+    /// ПЕРВАЯ страница circuit'а.</summary>
+    public void EnterEmbed(EmbedParams embed) => Embed ??= embed;
+
+    /// <summary>Тема от VS Code (параметр theme и сообщение ai2p.theme). В лейаут НЕ
+    /// пишется: иначе обычный браузер перекрашивался бы вслед за VS Code.</summary>
+    public void SetEmbedTheme(bool dark)
+    {
+        if (DarkMode != dark)
+        {
+            DarkMode = dark;
+            NotifyChanged();
+        }
+    }
 
     /// <summary>Закладка «Проект» (ТЗ v1.18, todo21): открывается кликом по проекту в списке.</summary>
     public void OpenProject(string projectId, string code, string name, int frameIndex = 0) =>
@@ -1067,8 +1106,10 @@ public sealed class UiState
     /// <summary>Сохранить лейаут фоном; ошибка сети не мешает работе UI.</summary>
     private void SaveLayout()
     {
-        if (!Initialized || NoOrg)
+        if (!Initialized || NoOrg || Embedded)
         {
+            // встроенный режим (T-507-S0) лейаут не пишет вовсе: его закладки и тема — чужие
+            // для обычного браузера того же человека.
             // восстановление ещё идёт — не перезаписываем сохранённое; без организации
             // хранить лейаут негде: он лежит в её базе (T-148)
             return;

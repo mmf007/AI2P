@@ -24,8 +24,9 @@ namespace AI2P.Connectors;
 /// </summary>
 public sealed class ChatWatch
 {
-    /// <summary>Как часто заглядывать в чат, пока агент работает.</summary>
-    public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    /// <summary>Как часто заглядывать в чат, пока агент работает. Изменяемый ради тестов
+    /// (T-554-S0): проверки перебивки ждали реплику шагом в 5 секунд.</summary>
+    public static TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Сколько от начала хода агента работу НЕ прерывают (CLI-коннектор): сессия Claude Code

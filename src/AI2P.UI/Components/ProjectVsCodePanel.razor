@@ -1,0 +1,218 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* VS Code на вкладке настройки проекта (T-510-S0, T-516-S0). Первый ряд виден всегда:
+   подключён ли, версия копии и «Открыть проект в VS Code». Второй ряд — «Подключить /
+   Отключить / Выбрать копию» — только в режиме правки. Нет каталога проекта на этом
+   сервере или не найден VS Code — панели нет *@
+@if (_state is { HasFolder: true } view)
+{
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" data-vscode-status="1">
+        @if (!view.Available)
+        {
+            @* T-530-S0: VS Code на этом сервере не найден — «Подключить» запустит плагин «VS Code» *@
+            <MudChip T="string" Size="Size.Small" Color="Color.Default" data-vscode-missing="1">@L["vscode.notFound"]</MudChip>
+        }
+        else if (view.Connected)
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Success">@L["vscode.connected"]</MudChip>
+            @if (view.ConnectedInstall is { } install)
+            {
+                <MudText Typo="Typo.body2" data-vscode-version="1">
+                    @install.Name@(install.Version.Length > 0 ? " " + install.Version : "")
+                </MudText>
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" data-vscode-open="1"
+                           StartIcon="@Icons.Material.Filled.OpenInNew"
+                           Disabled="@_busy" OnClick="OpenAsync">@L["vscode.open"]</MudButton>
+            }
+        }
+        else
+        {
+            <MudChip T="string" Size="Size.Small" Color="Color.Default">@L["vscode.notConnected"]</MudChip>
+        }
+    </MudStack>
+}
+@if (Editing && _state is { HasFolder: true } state)
+{
+    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" data-vscode-panel="1">
+        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" data-vscode-connect="1"
+                   Disabled="@_busy" OnClick="ConnectAsync">@L["vscode.connect"]</MudButton>
+        @if (state.Connected)
+        {
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" Size="Size.Small" data-vscode-disconnect="1"
+                       Disabled="@_busy" OnClick="DisconnectAsync">@L["vscode.disconnect"]</MudButton>
+        }
+        @if (state.Installs.Count > 1)
+        {
+            <MudButton Variant="Variant.Text" Size="Size.Small" data-vscode-choose="1"
+                       Disabled="@_busy" OnClick="ChooseAsync">
+                @L["vscode.choose"]: @(state.Installs.FirstOrDefault(i => i.CodePath == state.Selected)?.Name ?? "—")
+            </MudButton>
+        }
+    </MudStack>
+}
+
+@code {
+    [Parameter, EditorRequired] public string ProjectId { get; set; } = "";
+
+    /// <summary>Режим правки карточки: показывать второй ряд — подключить/отключить/выбрать.</summary>
+    [Parameter] public bool Editing { get; set; }
+
+    /// <summary>Сохранённый каталог проекта на этом сервере. Нужен только как повод перечитать
+    /// состояние (T-341): каталог задали и сохранили — без этого панель так и оставалась пустой.</summary>
+    [Parameter] public string FolderPath { get; set; } = "";
+
+    private ProjectVsCodeDto? _state;
+    private bool _busy;
+    private string? _loadedFor;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var key = ProjectId + "\n" + FolderPath;
+        if (_loadedFor == key)
+        {
+            return;
+        }
+        _loadedFor = key;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _state = await Api.GetProjectVsCodeAsync(ProjectId);
+        }
+        catch (ApiException)
+        {
+            _state = null; // не смогли спросить — кнопок просто нет
+        }
+    }
+
+    /// <summary>Диалог выбора копии и флажков подключения; null — отмена.</summary>
+    public static async Task<ProjectVsCodeConnectDto?> AskAsync(IDialogService dialogs, I18nService l,
+        ProjectVsCodeDto state, bool connect)
+    {
+        var parameters = new DialogParameters<VsCodePickDialog>
+        {
+            { d => d.Installs, state.Installs },
+            { d => d.Selected, state.Selected },
+            { d => d.Connect, connect },
+            { d => d.GitIgnoreHas, state.GitIgnoreHas },
+        };
+        var dialog = await dialogs.ShowAsync<VsCodePickDialog>(l["vscode.pickTitle"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        return result is { Canceled: false, Data: ProjectVsCodeConnectDto dto } ? dto : null;
+    }
+
+    private async Task ChooseAsync()
+    {
+        if (_state is null || await AskAsync(Dialogs, L, _state, false) is not { CodePath: { } path })
+        {
+            return;
+        }
+        await RunAsync(async () => _state = await Api.SelectProjectVsCodeAsync(ProjectId, path));
+    }
+
+    /// <summary>
+    /// ПЛАГИН «VS CODE» ПЕРЕД ПОДКЛЮЧЕНИЕМ ПРОЕКТА (T-530-S0): связь с VS Code требует его
+    /// программ (сам VS Code; Node.js из плагина убран, T-533-S0). Не подключён — запускаем подключение: найденное берётся, недостающее
+    /// ставится в фоне, всё на месте — плагин включается сам. Ответ — свежее состояние проекта;
+    /// null — подключать проект пока нечем (VS Code ещё ставится или не найден).
+    /// </summary>
+    public static async Task<ProjectVsCodeDto?> EnsurePluginAsync(ApiClient api, ISnackbar snackbar, I18nService l,
+        string projectId, ProjectVsCodeDto state)
+    {
+        if (state.PluginReady)
+        {
+            return state;
+        }
+        PluginInstallDto ensured;
+        try
+        {
+            ensured = await api.EnsurePluginAsync("editor.vscode", l.Lang);
+        }
+        catch (ApiException ex)
+        {
+            snackbar.Add(l["vscode.pluginNeeded"] + " " + ex.Message, Severity.Warning);
+            return state.Available ? state : null;
+        }
+        var fresh = await api.GetProjectVsCodeAsync(projectId, true);
+        if (!fresh.PluginReady)
+        {
+            snackbar.Add(ensured.Running ? l["vscode.pluginInstalling"] : l["vscode.pluginNeeded"],
+                ensured.Running ? Severity.Info : Severity.Warning);
+        }
+        return fresh.Available ? fresh : null;
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (_state is null)
+        {
+            return;
+        }
+        _busy = true;
+        try
+        {
+            _state = await EnsurePluginAsync(Api, Snackbar, L, ProjectId, _state) ?? _state;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+        if (_state is not { Available: true } || await AskAsync(Dialogs, L, _state, true) is not { } dto)
+        {
+            return;
+        }
+        await RunAsync(async () =>
+        {
+            var result = await Api.ConnectProjectVsCodeAsync(ProjectId, dto);
+            Report(Snackbar, L, result);
+            await LoadAsync();
+        });
+    }
+
+    /// <summary>Итог подключения человеку: успех и предупреждения по шагам.</summary>
+    public static void Report(ISnackbar snackbar, I18nService l, ProjectVsCodeConnectResultDto result)
+    {
+        snackbar.Add(l["vscode.connectedOk"], result.Warnings.Count == 0 ? Severity.Success : Severity.Info);
+        foreach (var warning in result.Warnings)
+        {
+            snackbar.Add(warning, Severity.Warning);
+        }
+    }
+
+    private async Task OpenAsync() => await RunAsync(() => Api.OpenProjectVsCodeAsync(ProjectId));
+
+    private async Task DisconnectAsync() => await RunAsync(async () =>
+    {
+        await Api.DisconnectProjectVsCodeAsync(ProjectId);
+        Snackbar.Add(L["vscode.disconnectedOk"], Severity.Success);
+        await LoadAsync();
+    });
+
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

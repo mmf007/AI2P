@@ -222,6 +222,18 @@ else {
     Write-Host "[WARN] Каталог документации не найден: $docSource" -ForegroundColor Yellow
 }
 
+# 4a. РАСШИРЕНИЕ VS CODE (T-511-S0): ai2p-<версия>.vsix в корень выкладки — как ai2p.ico.
+#     Пакуется без сети из готового vscode/ai2p/out (vscode/pack-vsix.ps1), версия = версия
+#     выкладки. Файл прежней версии убирается: сервер ищет только файл СВОЕЙ версии, а
+#     чужой лишь раздувал бы установщик. Нет собранного кода — предупреждение, не отказ
+Get-ChildItem -Path $outDir -Filter "ai2p-*.vsix" -File -ErrorAction SilentlyContinue | Remove-Item -Force
+$vsixOut = Join-Path $outDir ("ai2p-" + $version + ".vsix")
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "vscode/pack-vsix.ps1") -Version $version -Out $vsixOut
+if ($LASTEXITCODE -eq 1) {
+    Write-Host "[ERROR] Сборка расширения VS Code не удалась." -ForegroundColor Red
+    exit 1
+}
+
 # СКРИПТЫ УСТАНОВКИ КЛАДУТСЯ ТОЛЬКО СВОЕЙ ПЛАТФОРМЫ (T-211): в выкладке для Windows нечего
 # делать install.sh, в выкладке для Linux/macOS — install.ps1 и install.cmd. Платформа —
 # та же самая, по которой выбран каталог ОС ($targetOs, T-243): рантайм (-Runtime) у полной

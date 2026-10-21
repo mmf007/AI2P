@@ -29,6 +29,7 @@
 * [Experiencia](man/experience.md)
 * [Editor de LoRA](man/LoRAEditor.md)
 * [Trabajo con modelos de audio](man/audio.md)
+* [AI2P en VS Code](man/vscode.md)
 
 ## Ejemplos de trabajo
 * [Vídeo a partir del fotograma de referencia de un personaje](man/sample_video1.md)

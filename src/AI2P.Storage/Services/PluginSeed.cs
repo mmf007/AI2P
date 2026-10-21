@@ -56,7 +56,71 @@ public static class PluginSeed
 
     /// <summary>Встроенные манифесты. Порядок безразличен — файлы независимы.</summary>
     public static IReadOnlyList<string> All =>
-        [ShotcutJson, FfmpegJson, ResolveJson, BlenderJson, OpenShotJson, TrainerMusubiJson];
+        [ShotcutJson, FfmpegJson, ResolveJson, BlenderJson, OpenShotJson, TrainerMusubiJson, VsCodeJson];
+
+    /// <summary>Код плагина «VS Code» (T-530-S0): сам редактор.</summary>
+    public const string VsCodeCode = "editor.vscode";
+
+    /// <summary>
+    /// ПЛАГИН «VS CODE» (T-530-S0). Действий агенту у него нет: он отвечает за то, чтобы на
+    /// этом сервере стоял VS Code для связи проекта (карточка проекта → «Подключить VS Code»).
+    /// Node.js из плагина УБРАН (T-533-S0, версия 3; в версии 2 был необязательным): плагин
+    /// AI2P в VS Code работает на Node.js самого VS Code, Claude Code — родная программа, а
+    /// npm-агенты (Codex, Qwen Code…) ставят пакет nodejs сами по своему "requires"
+    /// (ModelInstallService.NodeDir: PATH, иначе каталог пакетов).
+    ///
+    /// <para>СНАЧАЛА ИЩЕМ, ПОТОМ СТАВИМ. Найден VS Code в PATH (или копия указана руками) —
+    /// считаем его установленным; не найден — «Установить» качает ПОСЛЕДНЮЮ версию стабильной
+    /// ветки (пакет vscode, ссылка update.code.visualstudio.com/latest/…) портативным архивом.
+    /// Копий несколько — нужную человек указывает путём в строке VS Code этого окна; она и
+    /// становится «внутренней»: форма выбора копии в проекте берёт её по умолчанию.</para>
+    ///
+    /// <para>VS Code найден или установлен — плагин включается сам
+    /// (ApiEndpoints.PluginAutoEnable).</para>
+    /// </summary>
+    public const string VsCodeJson = """
+        {
+          "code": "editor.vscode",
+          "kind": "gateway",
+          "version": 3,
+          "name": "VS Code",
+          "description": {
+            "ru": "Связь проектов с VS Code: поиск установленного VS Code или установка последней версии. VS Code найден или установлен — плагин включается сам.",
+            "en": "Links projects with VS Code: finds an installed VS Code or installs the latest version. Once VS Code is found or installed the plugin turns itself on.",
+            "es": "Vincula proyectos con VS Code: busca un VS Code instalado o instala la ultima version. Con VS Code encontrado o instalado el plugin se activa solo.",
+            "pt": "Liga projetos ao VS Code: procura um VS Code instalado ou instala a versao mais recente. Com o VS Code encontrado ou instalado o plugin se ativa sozinho.",
+            "zh-cn": "将项目与 VS Code 关联：查找已安装的 VS Code 或安装最新版本。找到或安装 VS Code 后插件自动启用。"
+          },
+
+          "software": [
+            {
+              "id": "vscode",
+              "name": { "ru": "Visual Studio Code", "en": "Visual Studio Code", "es": "Visual Studio Code", "pt": "Visual Studio Code", "zh-cn": "Visual Studio Code" },
+              "package": "vscode",
+              "required": true,
+              "pathKey": "vscodePath",
+              "system": { "commands": ["code"], "versionArgs": "", "minVersion": "", "maxVersion": "" },
+              "hint": {
+                "ru": "Сначала ищется уже установленный VS Code (команда code в PATH). Не найден — «Установить» скачает последнюю версию. Если копий VS Code несколько, укажите здесь путь к той, что подключать к проектам (Windows: <каталог VS Code>\\bin\\code.cmd): она станет внутренней и будет выбираться по умолчанию.",
+                "en": "An installed VS Code is looked up first (the code command in PATH). Not found — Install downloads the latest version. If there are several VS Code copies, point here at the one to link projects with (Windows: <VS Code folder>\\bin\\code.cmd): it becomes the internal copy and is picked by default.",
+                "es": "Primero se busca un VS Code instalado (comando code en PATH). Si no hay, Instalar descarga la ultima version. Si hay varias copias, indique aqui la que se vincula a los proyectos: sera la interna y se elegira por defecto.",
+                "pt": "Primeiro procura-se um VS Code instalado (comando code no PATH). Se nao houver, Instalar baixa a versao mais recente. Se houver varias copias, informe aqui a que sera ligada aos projetos: ela sera a interna e escolhida por padrao.",
+                "zh-cn": "先查找已安装的 VS Code（PATH 中的 code 命令）。未找到时点击「安装」下载最新版本。若有多个 VS Code，请在此指定用于关联项目的那一个：它将成为内部副本并被默认选中。"
+              }
+            }
+          ],
+
+          "actions": [],
+
+          "doc": {
+            "ru": "plugins/editor.vscode.md",
+            "en": "plugins/editor.vscode.md",
+            "es": "plugins/editor.vscode.md",
+            "pt": "plugins/editor.vscode.md",
+            "zh-cn": "plugins/editor.vscode.md"
+          }
+        }
+        """;
 
     /// <summary>Код плагина-шлюза в Shotcut / Kdenlive.</summary>
     public const string ShotcutCode = "editor.shotcut";

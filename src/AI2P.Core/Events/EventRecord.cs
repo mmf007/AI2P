@@ -147,6 +147,10 @@ public static class EventTypes
     public const string AccountLogout = "account.logout";
     /// <summary>Неудачная попытка входа (диагностика подбора пароля, п. 6.3).</summary>
     public const string AccountLoginFailed = "account.login_failed";
+    // токен устройства и вход встроенного режима VS Code (T-508-S0) — серверный журнал
+    public const string DeviceTokenIssued = "device_token.issued";
+    public const string DeviceTokenRevoked = "device_token.revoked";
+    public const string AccountEmbedLogin = "account.embed_login";
     // организации и их серверы (ТЗ п. 2.15, этап 40) — события СЕРВЕРНОГО журнала
     public const string OrgCreated = "org.created";
     public const string OrgUpdated = "org.updated";

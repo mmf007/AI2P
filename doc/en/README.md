@@ -45,6 +45,7 @@ The data goes nowhere: the database, the project files and the keys lie next to 
 * [What it looks like in work](#what-it-looks-like-in-work)
 * [AI2P builds itself](#ai2p-builds-itself)
 * [AI farm: one task, many computers](#ai-farm-one-task-many-computers)
+* [AI2P in VS Code](#ai2p-in-vs-code)
 * [What is needed](#what-is-needed)
 * [Quick start](#quick-start)
 * [Documentation](#documentation)
@@ -139,6 +140,19 @@ is switched on.
 What the farm does **not** do: it is not load balancing. A task runs only on its owner, and if
 the owner is off, no other server picks it up by itself — you (or the agent) decide the
 distribution by choosing the executor and the server of each subtask.
+
+## AI2P in VS Code
+
+AI2P also works inside VS Code: the project card, the workspace, settings, documentation and
+task cards open as editor panels next to the project code — the same interface as in the
+browser, with the theme taken from VS Code. The **AI2P** extension ships with the program
+(the `ai2p-<version>.vsix` file), its version equals the AI2P version, and AI2P installs it
+itself: on the **Settings** tab of the project card just press **Connect VS Code**. AI2P finds
+your copy of VS Code (Insiders, VSCodium, Cursor and Windsurf too), installs the extension,
+links it to the project and hands a device token to VS Code's secure storage — no secrets
+are kept in the project files.
+
+See [AI2P in VS Code](man/vscode.md) for details.
 
 ## What is needed
 

@@ -1,0 +1,85 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+
+@* МОИ УСТРОЙСТВА (T-508-S0): токены, которыми расширение VS Code входит в AI2P от моего
+   имени. Выпускает их кнопка «Подключить VS Code» (этап 8.5); здесь — список и отзыв.
+   У служебного состояния должна быть кнопка, которая его убирает: забытый токен иначе
+   жил бы вечно. Токены — свойство ЭТОГО сервера, на других серверах кластера их нет. *@
+<MudPaper Outlined="true" Class="pa-4 mb-4" Style="max-width: 1100px;" data-mydevices="1">
+    <MudText Typo="Typo.h6" Class="mb-1">@L["mydevices.title"]</MudText>
+    <MudText Typo="Typo.caption" Class="d-block mb-3" Style="opacity: .75;">@L["mydevices.hint"]</MudText>
+    @if (_tokens is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_tokens.Count == 0)
+    {
+        <MudText Typo="Typo.body2" data-mydevices-empty="1">@L["mydevices.empty"]</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Hover="true">
+            <thead>
+            <tr>
+                <th>@L["mydevices.name"]</th>
+                <th>@L["mydevices.project"]</th>
+                <th>@L["mydevices.created"]</th>
+                <th>@L["mydevices.used"]</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var token in _tokens)
+            {
+                <tr data-mydevices-row="@token.Id">
+                    <td>@token.Name</td>
+                    <td>@ProjectName(token.ProjectId)</td>
+                    <td>@token.CreatedAt.ToLocalTime().ToString("g")</td>
+                    <td>@(token.LastUsedAt?.ToLocalTime().ToString("g") ?? "—")</td>
+                    <td>
+                        <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                   OnClick="@(() => RevokeAsync(token))"
+                                   data-mydevices-revoke="@token.Id">@L["mydevices.revoke"]</MudButton>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    private List<DeviceToken>? _tokens;
+    private Dictionary<string, string> _projects = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _projects = (await Api.GetProjectsAsync()).ToDictionary(p => p.Id, p => p.Name);
+            _tokens = await Api.GetDeviceTokensAsync();
+        }
+        catch (ApiException ex)
+        {
+            _tokens = new();
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    private string ProjectName(string id) => _projects.TryGetValue(id, out var name) ? name : id;
+
+    private async Task RevokeAsync(DeviceToken token)
+    {
+        try
+        {
+            await Api.RevokeDeviceTokenAsync(token.Id);
+            _tokens = await Api.GetDeviceTokensAsync();
+            Snackbar.Add(L["mydevices.revoked"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+}

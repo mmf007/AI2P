@@ -212,6 +212,19 @@ try
         Args = hostArgs,
         ContentRootPath = AppContext.BaseDirectory
     });
+    // ПЕТЛЕВОЙ HTTP ДЛЯ VS CODE (T-338): по HTTPS расширение иначе не достучится до сервера
+    if (config.Ui.IsHttps)
+    {
+        var embedPort = config.Ui.EmbedPort();
+        if (IsPortBusy(IPAddress.Loopback, embedPort))
+        {
+            Console.Error.WriteLine($"AI2P: port {embedPort} (loopback HTTP for VS Code) is busy, VS Code will not connect");
+        }
+        else
+        {
+            listenUrl += $";http://127.0.0.1:{embedPort}";
+        }
+    }
     builder.WebHost.UseUrls(listenUrl);
     builder.Host.UseSerilog();
 
@@ -422,7 +435,51 @@ try
     // логин admin'а сервера (настройки самого сервера правит только хозяин компьютера)
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<CurrentUserAccessor>();
-    builder.Services.AddAuthentication(Ai2pAuth.Scheme)
+    // ВСТРОЕННЫЙ РЕЖИМ VS Code (T-508-S0): третья cookie, своя схема. Схема по умолчанию —
+    // выбор между обычным входом и встроенным по пришедшей cookie (Ai2pAuth.SelectScheme):
+    // Blazor, SignalR и API принимают любую из двух, а вход формой по-прежнему пишет Lax
+    builder.Services.AddAuthentication(Ai2pAuth.AnyScheme)
+        .AddPolicyScheme(Ai2pAuth.AnyScheme, Ai2pAuth.AnyScheme,
+            options => options.ForwardDefaultSelector = Ai2pAuth.SelectScheme)
+        .AddCookie(Ai2pAuth.EmbedScheme, options =>
+        {
+            Ai2pAuth.ConfigureEmbedCookie(options, basePath);
+            options.Events.OnRedirectToLogin = ctx =>
+            {
+                if (ctx.Request.Path.StartsWithSegments("/api"))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return Task.CompletedTask;
+                }
+                ctx.Response.Redirect(ctx.RedirectUri);
+                return Task.CompletedTask;
+            };
+            options.Events.OnRedirectToAccessDenied = options.Events.OnRedirectToLogin;
+            // на каждый запрос: аккаунт жив, токен устройства не отозван («Отключить VS Code»
+            // действует сразу), организация запроса — организация токена
+            options.Events.OnValidatePrincipal = async ctx =>
+            {
+                var registry = ctx.HttpContext.RequestServices.GetRequiredService<OrgRegistry>();
+                var principal = ctx.Principal;
+                var id = principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                var device = principal?.FindFirst(Ai2pAuth.DeviceClaim)?.Value;
+                var valid = id is { Length: > 0 } && device is { Length: > 0 }
+                            && registry.Accounts.Get(id) is { IsActive: true, DeletedAt: null }
+                            && registry.DeviceTokens.IsActive(device);
+                if (!valid)
+                {
+                    ctx.RejectPrincipal();
+                    await ctx.HttpContext.SignOutAsync(Ai2pAuth.EmbedScheme);
+                    return;
+                }
+                if (ctx.HttpContext.Items.TryGetValue(CurrentUserAccessor.OrgCodeItem, out var code)
+                    && registry.ByCode(code as string) is { } org
+                    && org.Org.Id != Ai2pAuth.EmbedOrgId(principal))
+                {
+                    ctx.RejectPrincipal(); // чужая организация: cookie не трогаем, она годна для своей
+                }
+            };
+        })
         .AddCookie(Ai2pAuth.Scheme, options =>
         {
             options.Cookie.Name = "ai2p.auth";
@@ -442,6 +499,12 @@ try
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     return Task.CompletedTask;
+                }
+                // встроенный режим VS Code (T-507-S0): форма /login в iframe не работает —
+                // заглушка «нужно подключить VS Code» вместо перехода на неё
+                if (EmbedMode.IsEmbedRequest(ctx.Request))
+                {
+                    return EmbedMode.WriteNeedAuthAsync(ctx.HttpContext);
                 }
                 ctx.Response.Redirect(ctx.RedirectUri);
                 return Task.CompletedTask;
@@ -479,7 +542,10 @@ try
     builder.Services.AddCascadingAuthenticationState();
 
     // мультиязычность (ТЗ гл. 9): JSON-словари i18n/, язык из config.json
-    builder.Services.AddSingleton(new I18nService(Path.Combine(AppContext.BaseDirectory, "i18n"), config.Language));
+    // язык установки — общий экземпляр; у каждого circuit'а свой, повторяющий общий, пока
+    // встроенный режим VS Code (T-507-S0) не попросит свой язык параметром lang
+    builder.Services.AddSingleton(new I18nRoot(new I18nService(Path.Combine(AppContext.BaseDirectory, "i18n"), config.Language)));
+    builder.Services.AddScoped(sp => sp.GetRequiredService<I18nRoot>().Value.ForCircuit());
 
     // HTTP API: camelCase + snake_case-enum'ы (общие настройки в Ai2pJson)
     builder.Services.ConfigureHttpJsonOptions(options =>
@@ -571,6 +637,9 @@ try
                 ctx.Request.Method, ctx.Request.Path.Value ?? "", elapsed);
         }
     });
+    // заголовки встраивания (T-507-S0): только встроенный режим VS Code снимает
+    // X-Frame-Options и разрешает рамку WebView; у обычных страниц защита прежняя
+    app.UseAi2pEmbedHeaders();
     app.UseStaticFiles();
     // UseRouting вызывается явно: иначе WebApplication поставит её в самое начало конвейера,
     // и правка пути выше уже не повлияла бы на выбор эндпойнта
@@ -616,6 +685,12 @@ try
     // оповещение на телефон (T-422-S0): страница быстрого ответа и календарная лента —
     // открываются без входа, личность даёт подпись ссылки или секрет ленты
     app.MapAi2pNotify();
+    // токен устройства и вход встроенного режима VS Code (T-508-S0)
+    app.MapAi2pEmbed(basePath);
+    // подключение проекта к VS Code (T-510-S0): адрес link.json — localhost по HTTP
+    app.MapAi2pVsCode(config.Ui.EmbedPort(), basePath);
+    // копии VS Code, запомненные проектами, — им T-511-S0 обновляет расширение при старте
+    AI2P.Core.VsCodeExtension.RememberedCopies = () => orgs.ProjectVsCode.AllPaths();
     app.MapAi2pApi();
     // до входа UI не отдаётся: неаутентифицированный запрос уводится на страницу входа
     app.MapRazorComponents<AI2P.Server.Components.App>()
@@ -662,6 +737,10 @@ try
             app.Logger.LogInformation("AI2P: проверка обновлений — {Summary}", summary);
         }));
     }
+
+    // РАСШИРЕНИЕ VS CODE (T-511-S0): запомненные копии VS Code с отставшим расширением
+    // получают ai2p-<версия>.vsix из выкладки — фоном, старт сервера code не ждёт
+    VsCodeExtensionUpdater.StartInBackground(app.Lifetime, app.Logger);
 
     // при остановке приложения выгрузить запущенные нами локальные серверы моделей
     app.Lifetime.ApplicationStopping.Register(localModels.StopAll);

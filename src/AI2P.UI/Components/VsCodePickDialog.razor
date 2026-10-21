@@ -1,0 +1,70 @@
+@inject I18nService L
+
+@* Выбор копии VS Code (T-510-S0): копий несколько — человек выбирает, выбор запоминается
+   на этом сервере. Там же — флажки подключения: .gitignore и «открыть проект» *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" data-vscode-pick="1">
+            @if (Installs.Count > 1)
+            {
+                <MudRadioGroup T="string" @bind-Value="_selected">
+                    @foreach (var install in Installs)
+                    {
+                        <MudRadio T="string" Value="@install.CodePath" data-vscode-copy="@install.Kind">
+                            @install.Name @(install.Version.Length > 0 ? install.Version : "")
+                            @if (install.Internal)
+                            {
+                                @* T-530-S0: копия плагина «VS Code» — она же выбор по умолчанию *@
+                                <MudChip T="string" Size="Size.Small" Color="Color.Info" data-vscode-internal="1">@L["vscode.internal"]</MudChip>
+                            }
+                            <MudText Typo="Typo.caption" Style="opacity:.7;">@install.CodePath</MudText>
+                        </MudRadio>
+                    }
+                </MudRadioGroup>
+            }
+            @if (Connect)
+            {
+                @if (!GitIgnoreHas)
+                {
+                    <MudCheckBox T="bool" @bind-Value="_gitignore" data-vscode-gitignore="1"
+                                 Label="@L["vscode.gitignore"]" Color="Color.Primary" />
+                }
+                <MudCheckBox T="bool" @bind-Value="_open" data-vscode-open="1"
+                             Label="@L["vscode.open"]" Color="Color.Primary" />
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" data-vscode-pick-ok="1"
+                   Disabled="@(string.IsNullOrEmpty(_selected))" OnClick="Ok">
+            @(Connect ? L["vscode.connect"] : L["common.save"])
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public List<VsCodeInstall> Installs { get; set; } = [];
+    [Parameter] public string? Selected { get; set; }
+    /// <summary>Диалог перед подключением (с флажками), а не простой выбор копии.</summary>
+    [Parameter] public bool Connect { get; set; }
+    [Parameter] public bool GitIgnoreHas { get; set; }
+
+    private string? _selected;
+    private bool _gitignore = true;
+    private bool _open = true;
+
+    protected override void OnParametersSet() =>
+        _selected = Installs.Any(i => i.CodePath == Selected) ? Selected
+            : Installs.FirstOrDefault(i => i.Internal)?.CodePath
+              ?? (Installs.Count == 1 ? Installs[0].CodePath : null);
+
+    private void Ok() => Dialog.Close(DialogResult.Ok(new ProjectVsCodeConnectDto
+    {
+        CodePath = _selected,
+        AddToGitIgnore = Connect && !GitIgnoreHas && _gitignore,
+        Open = Connect && _open,
+    }));
+}

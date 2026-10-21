@@ -695,6 +695,27 @@ public sealed class Account : Entity
     public SystemRole Role { get; set; } = SystemRole.Reader;
 }
 
+/// <summary>
+/// ТОКЕН УСТРОЙСТВА (T-508-S0): долгоживущий ключ, которым расширение VS Code входит в AI2P
+/// от имени человека без формы входа. Привязан к аккаунту, организации и проекту; в базе
+/// лежит только хэш, сам токен показывается один раз при выпуске. Свойство МАШИНЫ: живёт
+/// в серверной базе и не реплицируется.
+/// </summary>
+public sealed class DeviceToken
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string AccountId { get; set; } = "";
+    public string OrgId { get; set; } = "";
+    public string ProjectId { get; set; } = "";
+    /// <summary>Подпись для человека: «VS Code, имя машины».</summary>
+    public string Name { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public DateTime? LastUsedAt { get; set; }
+    /// <summary>Отозван; null — действует.</summary>
+    public DateTime? RevokedAt { get; set; }
+    public bool IsActive => RevokedAt is null;
+}
+
 /// <summary>Исполнитель — человек, ИИ или «авто ПО» (ТЗ п. 2.2; третий тип — T-153-S0).</summary>
 public sealed class Executor : Entity
 {

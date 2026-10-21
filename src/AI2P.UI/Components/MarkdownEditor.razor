@@ -17,7 +17,9 @@
 <div class="ai2p-md">
     <style>
         /* панель липкая (T-492-S0): при прокрутке длинного текста вниз она остаётся
-           у верхнего края окна прокрутки, а не уезжает вместе с текстом */
+           у верхнего края окна прокрутки, а не уезжает вместе с текстом; top
+           подгоняет JS (ai2p.mdStickToolbar, T-513-S0) на минус отступ окна прокрутки,
+           иначе в полосе отступа над панелью виден прокручиваемый текст */
         .ai2p-md .ai2p-md-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; border-bottom: 1px solid var(--mud-palette-lines-default); padding: 2px 4px; position: sticky; top: 0; z-index: 3; background: var(--mud-palette-surface); }
         .ai2p-md textarea.ai2p-md-input { width: 100%; border: 0; outline: none; resize: vertical; background: transparent; color: var(--mud-palette-text-primary); font: inherit; font-size: 0.9rem; padding: 8px; }
         /* оформление самого Markdown (код, цитаты, таблицы, картинки) — общее, в

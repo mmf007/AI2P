@@ -310,6 +310,9 @@ public sealed class OrgContext : IDisposable
         LoraTrain.ModelPaths = (model, value) => ModelInstalls.ExpandPaths(model.Id, value);
         // пакеты обучения ставит установка модели (T-4-S0), обучение их только проверяет
         LoraTrain.MissingPackages = ids => ModelInstalls.MissingPackages(ids);
+        // установленность локальной модели проверяется на запуске задания, а не на старте
+        // сервера (T-560-S0): каталог моделей может лежать на съёмном диске
+        Orchestrator.ModelStartError = ModelInstalls.StartError;
         // активность модели = установленность (v1.41) + наличие ключа API (v1.42)
         Models.ActivationGuard = model =>
             ModelInstalls.ActivationError(model.Id) ?? ModelKeys.ActivationError(model.Id);
@@ -678,10 +681,9 @@ public sealed class OrgContext : IDisposable
         RefDataService.MigrateSkillCodes(Files);
         // модели, подготовленные инсталляторами (install_local_model)
         Models.ImportPending(sharedModelsImportDir);
-        // модель, чьих файлов нет на месте / облачная без ключа API, не может быть активной.
-        // У ЛОКАЛЬНОЙ модели это считается ПО ЭТОМУ СЕРВЕРУ (T-8-S1): файлы у каждого свои,
-        // и там, где модель не установлена, она гаснет сама — а раньше не гасла вовсе, потому
-        // что запись принадлежала другому серверу и правке здесь не поддавалась
+        // облачная модель без ключа API не может быть активной (ниже). ЛОКАЛЬНАЯ модель без
+        // файлов с T-560-S0 при старте НЕ гаснет — только запись в журнал: каталог моделей
+        // может лежать на съёмном диске, а установленность проверяется на запуске задания
         ModelInstalls.EnforceActivationOnStartup();
         Models.SyncLocalFlags();
         // модель, СТАВШАЯ локальной (профайл правили мимо формы), получает свою пер-серверную

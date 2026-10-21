@@ -118,6 +118,13 @@
             <MudSwitch T="bool" @bind-Value="_isActive"
                        Label="@(State.IsCluster ? L["projects.activeHere"] : L["common.active"])"
                        Color="Color.Primary" />
+            @* «Подключить VS Code» при создании (T-510-S0): только если VS Code найден на этом
+               сервере и каталог проекта задан. Само подключение — после создания проекта *@
+            @if (Source is null && _vsCodeFound && _folder.Trim().Length > 0)
+            {
+                <MudCheckBox T="bool" @bind-Value="_connectVsCode" data-project-vscode="1"
+                             Label="@L["vscode.connect"]" Color="Color.Primary" />
+            }
             @* каталоги проекта на ОСТАЛЬНЫХ серверах — только для чтения: видно, где проект
                уже развёрнут (ТЗ гл. 6, этап 42) *@
             @if (State.IsCluster && _otherServers.Count > 0)
@@ -179,6 +186,10 @@
 
     private string? _teamId;
     private bool _isActive = true;
+
+    /// <summary>VS Code найден на этом сервере (T-510-S0) — флажок «Подключить VS Code».</summary>
+    private bool _vsCodeFound;
+    private bool _connectVsCode;
     private double _qualityBias = 0.5;
 
     /// <summary>Форма ссылки на объект, которую ставит кнопка редактора (T-267).</summary>
@@ -246,6 +257,17 @@
         if (Source is null)
         {
             _teamId = State.CurrentTeamId;
+            try
+            {
+                _vsCodeFound = (await Api.GetVsCodeInstallsAsync()).Count > 0;
+                // T-335: VS Code на сервере есть — новый проект подключается к нему сам
+                // (расширение, link.json, токен); флажок можно снять
+                _connectVsCode = _vsCodeFound;
+            }
+            catch (ApiException)
+            {
+                _vsCodeFound = false; // не смогли спросить — флажка просто нет
+            }
             return;
         }
         _name = Source.Name;
@@ -310,6 +332,7 @@
         {
             Dialog.Close(DialogResult.Ok<object>(new ProjectCreateDto
             {
+                ConnectVsCode = _vsCodeFound && folder is not null && _connectVsCode,
                 Name = _name,
                 FolderPath = folder,
                 DefaultTeamId = _teamId,

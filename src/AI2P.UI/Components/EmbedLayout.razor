@@ -1,0 +1,175 @@
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IJSRuntime Js
+@implements IDisposable
+
+@* ЛЁГКАЯ ОБОЛОЧКА ВСТРОЕННОГО РЕЖИМА (T-507-S0, плагин VS Code 8.2). Страница в iframe
+   панели VS Code: ни полосы меню, ни закладок, ни левого тулбара, ни навигатора — только
+   один вид (параметр view) либо одна карточка задачи (/task/{id}?embed=vscode).
+   Большой Home.razor условиями не размечается: он только отдаёт сюда управление.
+   Мост с VS Code — ai2p.embedInit в ai2p.js: тема сверху, ai2p.openTask/ready наверх,
+   перехват ссылок на задачи и автоперезагрузка после отказа переподключения Blazor. *@
+<div class="ai2p-embed" data-embed-view="@(_cardMode ? "task" : State.Embed?.View)"
+     style="height: 100vh; overflow: auto; padding: 12px; box-sizing: border-box;">
+    <CascadingValue Value="0" Name="FrameIndex">
+        @if (_cardMode)
+        {
+            if (_taskId is { } taskId)
+            {
+                <div style="height: 100%;"><TaskCardView TaskId="@taskId" /></div>
+            }
+            else if (_notFound)
+            {
+                <MudAlert Severity="Severity.Warning" data-embed-notfound="1">@L["embed.taskNotFound", TaskKey ?? ""]</MudAlert>
+            }
+            else
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+        }
+        else
+        {
+            switch (State.Embed?.View)
+            {
+                case EmbedParams.ViewSettings:
+                    <SettingsView />
+                    break;
+                case EmbedParams.ViewDocs:
+                    <DocsView />
+                    break;
+                case EmbedParams.ViewEnv:
+                    @* переключатель сред: рабочая и архивы (T-45-S0) *@
+                    <MudText Typo="Typo.h6" Class="mb-2">@L["appbar.env"]</MudText>
+                    @if (State.Archives.Count == 0)
+                    {
+                        <MudText data-embed-noarchives="1">@L["embed.noArchives"]</MudText>
+                    }
+                    else
+                    {
+                        <MudList T="string" Dense="true">
+                            <MudListItem T="string" data-embed-env=""
+                                         Icon="@(State.InArchive ? Icons.Material.Outlined.Circle : Icons.Material.Filled.CheckCircle)"
+                                         OnClick="@(() => State.SwitchEnvAsync(null))">@L["appbar.env.work"]</MudListItem>
+                            @foreach (var archive in State.Archives)
+                            {
+                                var id = archive.Id;
+                                <MudListItem T="string" data-embed-env="@archive.Code"
+                                             Icon="@(State.SelectedArchive?.Id == id ? Icons.Material.Filled.CheckCircle : Icons.Material.Outlined.Circle)"
+                                             OnClick="@(() => State.SwitchEnvAsync(id))">@archive.Name</MudListItem>
+                            }
+                        </MudList>
+                    }
+                    break;
+                default:
+                    if (ProjectId is { } projectId)
+                    {
+                        <div style="height: 100%;"><ProjectCardView ProjectId="@projectId" /></div>
+                    }
+                    else
+                    {
+                        <MudText data-embed-noproject="1">@L["embed.noProject"]</MudText>
+                    }
+                    break;
+            }
+        }
+    </CascadingValue>
+</div>
+
+@code {
+    /// <summary>Задача из адреса /task/{id или код}; задана — страница «одна карточка».</summary>
+    [Parameter] public string? TaskKey { get; set; }
+
+    /// <summary>Страница документации из адреса /doc/{путь} (вид docs).</summary>
+    [Parameter] public string? DocPath { get; set; }
+
+    private DotNetObjectReference<EmbedLayout>? _selfRef;
+
+    /// <summary>Страница «одна карточка» — решается по ПЕРВОМУ адресу и больше не меняется:
+    /// задачу, на которую перешли позже, открывает отдельная панель VS Code.</summary>
+    private bool _cardMode;
+    private string? _cardKey;
+    private string? _taskId;
+    private bool _notFound;
+    private string? _openedDoc;
+
+    /// <summary>Проект вида project: параметр project адреса, иначе текущий проект человека.</summary>
+    private string? ProjectId => State.Embed?.ProjectId ?? State.CurrentProjectId;
+
+    protected override void OnInitialized()
+    {
+        State.EmbedOpenTaskRequested += OnOpenTaskRequested;
+        _cardMode = !string.IsNullOrEmpty(TaskKey);
+        _cardKey = TaskKey;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!string.IsNullOrEmpty(DocPath) && DocPath != _openedDoc)
+        {
+            _openedDoc = DocPath;
+            State.DocOpen(DocPath);
+        }
+        if (_cardMode && _taskId is null && !_notFound)
+        {
+            try
+            {
+                // ссылка бывает и по коду (T-12), и по id — карточке нужен id
+                var details = await Api.GetTaskAsync(_cardKey!);
+                _taskId = details.Task.Id;
+            }
+            catch (ApiException)
+            {
+                _notFound = true;
+            }
+        }
+        else if (!string.IsNullOrEmpty(TaskKey) && TaskKey != _cardKey)
+        {
+            // переход по адресу задачи, мимо перехваченных ссылок (NavigateTo из кода)
+            _cardKey = TaskKey;
+            OnOpenTaskRequested(TaskKey.StartsWith("T-", StringComparison.OrdinalIgnoreCase) ? "" : TaskKey,
+                TaskKey.StartsWith("T-", StringComparison.OrdinalIgnoreCase) ? TaskKey : "");
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+        _selfRef = DotNetObjectReference.Create(this);
+        try
+        {
+            await Js.InvokeVoidAsync("ai2p.embedInit", _selfRef, State.Account.Email);
+        }
+        catch (JSException)
+        {
+            // страница уже закрыта — мост не нужен
+        }
+    }
+
+    /// <summary>Сообщение ai2p.theme от VS Code — смена темы на лету, без записи в лейаут.</summary>
+    [JSInvokable]
+    public Task OnEmbedTheme(string theme) =>
+        InvokeAsync(() => State.SetEmbedTheme(theme == "dark"));
+
+    private void OnOpenTaskRequested(string taskId, string code) =>
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Js.InvokeVoidAsync("ai2p.embedOpenTask", taskId, code);
+            }
+            catch (JSException)
+            {
+                // страница закрыта — открывать уже некуда
+            }
+        });
+
+    public void Dispose()
+    {
+        State.EmbedOpenTaskRequested -= OnOpenTaskRequested;
+        _selfRef?.Dispose();
+    }
+}

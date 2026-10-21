@@ -104,14 +104,8 @@ public sealed class Todo46Tests : IDisposable
 
     // --- номер версии ---
 
-    [Fact]
-    public void Version_Is_One_Dot_Build()
-    {
-        // формат задан заданием: 1.<номер билда>, номер билда = xx из todoxx.md
-        Assert.Equal(AppInfo.Version, $"1.{AppInfo.Build}");
-        Assert.True(AppInfo.Build >= 46, "номер билда не может быть меньше задания, в котором он введён");
-        // правило todo46: номер поднимается с КАЖДЫМ новым заданием (doc/AI2P_release.md)
-    }
+    // Version_Is_One_Dot_Build снят в T-554-S0: то же равенство Version == 1.<Build>
+    // проверяет Todo60Tests.App_Version_Equals_Tz_Version
 
     [Fact]
     public void Build_Is_Parsed_Back_From_The_Version()
