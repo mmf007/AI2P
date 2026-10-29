@@ -480,12 +480,50 @@ public sealed class OrgContext : IDisposable
         anthropic.McpTools = LiveMcpTools;
         text.McpTools = LiveMcpTools;
         claudeCli.McpTools = LiveMcpTools;
+        // САЙТЫ В SaaS-РЕДАКТОРАХ (T-567-S0): универсальные действия site_*
+        anthropic.Saas = LiveSaas;
+        text.Saas = LiveSaas;
+        claudeCli.Saas = LiveSaas;
         _pluginPath = deps.PluginPath;
         _pluginTools = deps.PluginTools;
+        _pluginSites = deps.PluginSites;
+        _pluginSecret = deps.PluginSecret;
     }
 
     private readonly Func<string, string>? _pluginPath;
     private readonly Func<string, IReadOnlyList<string>>? _pluginTools;
+    private readonly Func<string, IReadOnlyList<AI2P.Core.SaasSite>>? _pluginSites;
+    private readonly Func<string, string?>? _pluginSecret;
+
+    /// <summary>
+    /// ЖИВЫЕ ПЛАГИНЫ SaaS-РЕДАКТОРОВ САЙТОВ ЭТОГО СЕРВЕРА (T-567-S0): манифест вида mcp с
+    /// блоком <c>saas</c>, инициализированная запись организации и хотя бы один сайт в
+    /// config.json этого сервера.
+    /// </summary>
+    public IReadOnlyList<SaasPlugin> LiveSaas()
+    {
+        var live = new List<SaasPlugin>();
+        if (_pluginSites is null || _pluginSecret is null)
+        {
+            return live;
+        }
+        var records = Plugins.List().ToDictionary(r => r.Code, StringComparer.OrdinalIgnoreCase);
+        foreach (var manifest in AI2P.Core.PluginManifest.ReadAll(Files.DataDir))
+        {
+            if (manifest.Kind != PluginKinds.Mcp || manifest.Saas is null
+                || !records.TryGetValue(manifest.Code, out var record)
+                || !AI2P.Core.PluginLifecycle.Publishes(record.State, AI2P.Core.PluginSoftwareStatus.NotNeeded))
+            {
+                continue;
+            }
+            var sites = _pluginSites(manifest.Code);
+            if (sites.Count > 0)
+            {
+                live.Add(new SaasPlugin(manifest, sites, _pluginSecret));
+            }
+        }
+        return live;
+    }
 
     /// <summary>
     /// ЖИВЫЕ ШЛЮЗЫ ЭТОГО СЕРВЕРА: манифест на диске + запись организации в состоянии, при
@@ -613,6 +651,28 @@ public sealed class OrgContext : IDisposable
         {
             RefData.Seed();
             TaskStatuses.Seed();
+        }
+        // ДИРИЖЁР ПОСЛЕ СМЕНЫ ДИРИЖЁРА (T-570-S0): он подключался заявкой и помечен репликой
+        // навсегда, поэтому замок выше не пускал к сиду справочников НИКОГО — новые навыки
+        // версии (site-edit в 1.189) не появлялись ни на одном сервере. Дирижёру-реплике сид
+        // разрешён, когда справочник уже приехал: строки ищутся по коду, а новые получают
+        // постоянный id (RefDataService.SeedRowId), так что второго комплекта не будет
+        else if (isReplica && IsConductor && RefData.Skills().Count > 0)
+        {
+            RefData.Seed();
+        }
+        // РЯДОВОЙ СЕРВЕР (T-627-S0): маркетинговые навыки 1.194 появились у дирижёра, а сюда
+        // репликацией так и не доехали. Новые встроенные строки у всех серверов с одним
+        // постоянным id (SeedRowId), поэтому завести НЕДОСТАЮЩИЕ может и рядовой — это та же
+        // строка, что у дирижёра. Только когда справочник уже приехал, тексты не трогаются
+        else if (!IsConductor && RefData.Skills().Count > 0)
+        {
+            var missing = RefData.SeedMissing();
+            if (missing > 0)
+            {
+                Log.Information("AI2P: недостающих навыков и форматов заведено: {Count} ({Org})",
+                    missing, Org.Code);
+            }
         }
         // СПРАВОЧНИК ДЕЙСТВИЙ СЕЮТ ВСЕ СЕРВЕРЫ (T-280-S0) — в отличие от навыков, форматов
         // и состояний выше. Причина та же, по которой это делают общие правила работы
@@ -769,6 +829,10 @@ public sealed record OrgDeps(
     Func<string, string>? PluginPath = null,
     // кэш имён инструментов сервера MCP (T-119-S0): тоже пер-серверный, лежит в config.json
     Func<string, IReadOnlyList<string>>? PluginTools = null,
+    /// <summary>Сайты плагина SaaS-редактора по коду плагина (T-567-S0): config.json этого сервера.</summary>
+    Func<string, IReadOnlyList<AI2P.Core.SaasSite>>? PluginSites = null,
+    /// <summary>Чтение секрета по ссылке (T-567-S0): ключи сайтов SaaS лежат в secrets/ сервера.</summary>
+    Func<string, string?>? PluginSecret = null,
     /// <summary>ЗАПОМНИТЬ ПУТЬ К ПРОГРАММЕ ПЛАГИНА (T-156-S0): код плагина, имя записи софта
     /// (пусто — ГЛАВНАЯ программа) и найденный путь. Нужен установке модели: она ставит пакеты
     /// обучения, а поиск программы плагина в каталог пакетов не заглядывает — только PATH и

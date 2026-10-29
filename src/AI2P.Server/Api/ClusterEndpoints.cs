@@ -698,6 +698,37 @@ public static class ClusterEndpoints
                 : Results.NotFound();
         }));
 
+        // --- МГНОВЕННОЕ СООБЩЕНИЕ ЧАТА (T-590-S0) ---
+        // Сосед везёт одну запись журнала о сообщении чата, не дожидаясь сеанса. Применяется
+        // она тем же путём, что пачка сеанса (стражи, очередь повтора), поэтому, приехав
+        // позже ещё раз сеансом, она окажется «не новее» и сообщение не задвоится. Курсоры
+        // пары НЕ двигаются: это строка вне очереди, а не часть журнала по порядку. Замок
+        // сеанса не продлевается (FilePair) — сеанса нет. Везти так можно ТОЛЬКО чат:
+        // открытый путь для любых строк был бы обходом сеанса репликации целиком
+        cluster.MapPost("/chat/push", (HttpContext ctx, ReplApplyDto dto) => ApiEndpoints.Handle(() =>
+        {
+            var (organization, peer) = FilePair(ctx, dto.OrgCode);
+            if (dto.Scope != ReplScopes.Org || dto.Items.Count == 0
+                || dto.Items.Any(i => i.Table != "chat_messages" || i.Op != ChangeOps.Upsert))
+            {
+                throw new ArgumentException(Loc.T("msg.clusterEndpoints.16"));
+            }
+            var context = registry.Context(organization);
+            var result = repl.ApplyFrom(context.Db, ReplScopes.Org, organization, peer, dto.Items);
+            // ответ на вопрос нашего агента мог приехать именно так — продолжаем его сразу;
+            // перебивку работающего агента подхватит его наблюдатель чата сам (T-161)
+            Org.ReplicationService.AfterReplication(context);
+            return Results.Ok(new ReplApplyResultDto
+            {
+                Applied = result.Applied,
+                Skipped = result.Skipped,
+                Conflicts = result.Conflicts,
+                LastConflict = result.LastConflict,
+                Failed = result.Failed.Count,
+                LastFailed = result.Failed.Count > 0 ? result.Failed[^1].Text : "",
+            });
+        }));
+
         // токен для ОБРАТНОГО направления: подключившийся сервер выдаёт его дирижёру,
         // иначе дирижёр не смог бы сам начать сеанс репликации (ТЗ гл. 12)
         cluster.MapPost("/repl/peer-token", (HttpContext ctx, ClusterPeerTokenDto dto) =>

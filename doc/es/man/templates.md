@@ -116,7 +116,11 @@ copia de la plantilla por sí solo, según el calendario (véase [Programación]
 El agente de IA tiene las acciones `list_templates`, `create_template` y `update_template` sobre
 los nodos de plantilla **de su proyecto**: ver la lista, crear un nodo nuevo (título,
 descripción, criterios, habilidades, padre), corregir uno existente por su código (un campo que
-no se pase no cambia).
+no se pase no cambia). Al nodo se le pueden asignar de inmediato **nodos bloqueantes** (`blockers`:
+códigos de nodos de la misma plantilla; un nodo de otra plantilla se rechaza), **ejecutor** y
+**responsable** (`executor`, `responsible`: apodos; solo una persona puede ser responsable) y, al
+editar, también **habilidades** (`skills`). Una cadena o lista vacía borra el valor. Las tareas
+creadas a partir de esa plantilla quedan bloqueadas igual que los nodos.
 
 Dos reglas que conviene conocer:
 

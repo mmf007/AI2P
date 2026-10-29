@@ -1,0 +1,303 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject ISnackbar Snackbar
+@inject UiState State
+@implements IDisposable
+
+@* ОКНО «ОБНОВИТЬ УСТАНОВЛЕННОЕ ПО» (T-652-S0). Всё ПО моделей, плагинов и серверов MCP
+   ставится пакетами справочника, поэтому список — это пакеты, стоящие на ЭТОМ компьютере.
+   Вид — как у окон установки модели и плагина: таблица, размер, прогресс, кнопки значками
+   в строке. Проверка ходит в сеть и ничего не качает; обновление ставит свежий дистрибутив
+   начисто и при неудаче возвращает прежний каталог. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" Style="min-width: 760px;" data-software-form="1">
+            <MudCheckBox T="bool" @bind-Value="_deleteOld" Dense="true" Color="Color.Primary"
+                         Disabled="@(!CanEdit)" data-software-deleteold="1"
+                         Label="@L["software.deleteOld"]" />
+            @if (_items is null)
+            {
+                <MudProgressLinear Indeterminate="true" />
+            }
+            else if (_items.Count == 0)
+            {
+                <MudText Typo="Typo.body2" data-software-empty="1">@L["software.empty"]</MudText>
+            }
+            else
+            {
+                <MudSimpleTable Dense="true">
+                    <thead>
+                        <tr>
+                            <th>@L["software.name"]</th>
+                            <th>@L["software.current"]</th>
+                            <th>@L["software.latest"]</th>
+                            <th>@L["install.state"]</th>
+                            <th style="width:1%;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _items)
+                        {
+                            <tr data-software-row="@item.Id" data-software-state="@item.State">
+                                <td>
+                                    @item.Name
+                                    @if (item.Running)
+                                    {
+                                        <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                             Class="ml-2" Style="vertical-align: middle;" />
+                                    }
+                                    @if (item.UsedBy.Length > 0)
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block" Style="opacity:.7;">
+                                            @L["software.usedBy"]: @item.UsedBy
+                                        </MudText>
+                                    }
+                                    <MudText Typo="Typo.caption" Class="d-block"
+                                             Style="opacity:.6; word-break: break-all;">@item.Dir</MudText>
+                                </td>
+                                <td style="white-space:nowrap;" title="@item.CurrentDist"
+                                    data-software-current="@item.Id">
+                                    @(item.CurrentVersion.Length > 0 ? item.CurrentVersion : L["software.unknown"])
+                                </td>
+                                <td style="white-space:nowrap;" title="@item.LatestDist"
+                                    data-software-latest="@item.Id">
+                                    @(item.LatestVersion.Length > 0 ? item.LatestVersion : "—")
+                                </td>
+                                <td>
+                                    <MudText Typo="Typo.body2" Color="@StateColor(item.State)">
+                                        @L["software.state." + item.State]
+                                    </MudText>
+                                    @if (item.Running && item.Size > 0)
+                                    {
+                                        <MudProgressLinear Size="Size.Small" Rounded="true" Color="Color.Primary"
+                                                           Value="@(Math.Clamp(100.0 * item.Downloaded / item.Size, 0, 100))" />
+                                    }
+                                    @if (item.Running && item.CurrentFile.Length > 0)
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block" Style="word-break: break-all;">
+                                            @item.CurrentFile
+                                        </MudText>
+                                    }
+                                    @if (item.Error.Length > 0 && !item.Running)
+                                    {
+                                        <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block"
+                                                 data-software-error="@item.Id">@item.Error</MudText>
+                                    }
+                                    @if (item.Note.Length > 0 && !item.Running)
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block" Style="opacity:.75;">@item.Note</MudText>
+                                    }
+                                </td>
+                                <td style="text-align:right; white-space:nowrap;">
+                                    <MudTooltip Text="@L["software.check"]">
+                                        <MudIconButton Icon="@Icons.Material.Filled.Search" Size="Size.Small"
+                                                       Disabled="@(!item.Updatable || item.Running || _checking.Contains(item.Id))"
+                                                       data-software-check="@item.Id"
+                                                       OnClick="@(() => CheckAsync(item.Id))" />
+                                    </MudTooltip>
+                                    @if (item.Running)
+                                    {
+                                        <MudTooltip Text="@L["install.cancel"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Close" Size="Size.Small"
+                                                           Color="Color.Error" Disabled="@(!CanEdit)"
+                                                           data-software-cancel="@item.Id"
+                                                           OnClick="@(() => CancelAsync(item.Id))" />
+                                        </MudTooltip>
+                                    }
+                                    else
+                                    {
+                                        <MudTooltip Text="@L["software.update"]">
+                                            <MudIconButton Icon="@Icons.Material.Filled.Upgrade" Size="Size.Small"
+                                                           Color="Color.Primary"
+                                                           Disabled="@(!CanEdit || !item.Updatable || item.State == "current")"
+                                                           data-software-update="@item.Id"
+                                                           OnClick="@(() => UpdateAsync(item.Id))" />
+                                        </MudTooltip>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+                <MudText Typo="Typo.caption" Style="opacity:.75;">@L["software.hint"]</MudText>
+            }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Search"
+                   Disabled="@(_items is null || _checking.Count > 0)" data-software-checkall="1"
+                   OnClick="CheckAllAsync">@L["software.checkAll"]</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Upgrade"
+                   Disabled="@(_items is null || !CanEdit || _checking.Count > 0)" data-software-updateall="1"
+                   OnClick="UpdateAllAsync">@L["software.updateAll"]</MudButton>
+        <MudSpacer />
+        <MudButton data-software-close="1" OnClick="@(() => Dialog.Close())">@L["common.close"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    private List<InstalledPackageDto>? _items;
+    private readonly HashSet<string> _checking = [];
+    private bool _deleteOld = true;
+    private bool _disposed;
+    private bool _polling;
+
+    /// <summary>Установка ПО — дело администратора ЭТОГО компьютера (b26391b3).</summary>
+    private bool CanEdit => State.CanAdmin;
+
+    public void Dispose() => _disposed = true;
+
+    private Task RedrawAsync() => _disposed ? Task.CompletedTask : InvokeAsync(StateHasChanged);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = PollAsync(); // обновление могло уже идти (окно открыто повторно)
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            var fresh = await Api.GetInstalledSoftwareAsync();
+            // ответ проверки живёт на сервере, а строку, проверяемую прямо сейчас, не трогаем
+            _items = fresh;
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _items ??= [];
+        }
+    }
+
+    private void Put(InstalledPackageDto dto)
+    {
+        if (_items is null)
+        {
+            return;
+        }
+        var i = _items.FindIndex(x => x.Id == dto.Id);
+        if (i >= 0)
+        {
+            _items[i] = dto;
+        }
+    }
+
+    /// <summary>Пока что-то обновляется — состояние раз в секунду.</summary>
+    private async Task PollAsync()
+    {
+        if (_polling)
+        {
+            return;
+        }
+        _polling = true;
+        try
+        {
+            while (!_disposed && _items is not null && _items.Any(i => i.Running))
+            {
+                await Task.Delay(1000);
+                if (_disposed)
+                {
+                    return;
+                }
+                await LoadAsync();
+                await RedrawAsync();
+            }
+        }
+        finally
+        {
+            _polling = false;
+        }
+    }
+
+    private async Task CheckAsync(string id)
+    {
+        _checking.Add(id);
+        await RedrawAsync();
+        try
+        {
+            Put(await Api.CheckSoftwareAsync(id));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _checking.Remove(id);
+        }
+        await RedrawAsync();
+    }
+
+    /// <summary>Проверить всё — по очереди, чтобы не бить в сервер раздачи разом
+    /// (у GitHub предел запросов без ключа — 60 в час).</summary>
+    private async Task CheckAllAsync()
+    {
+        foreach (var item in (_items ?? []).Where(i => i.Updatable && !i.Running).ToList())
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            await CheckAsync(item.Id);
+        }
+    }
+
+    private async Task UpdateAsync(string id)
+    {
+        try
+        {
+            Put(await Api.UpdateSoftwareAsync(id, _deleteOld));
+            _ = PollAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await RedrawAsync();
+    }
+
+    /// <summary>Обновить всё: непроверенное сначала проверяется, обновляется только то,
+    /// у чего есть новая версия (или текущая неизвестна).</summary>
+    private async Task UpdateAllAsync()
+    {
+        foreach (var item in (_items ?? []).Where(i => i.Updatable && !i.Running && i.State == "unchecked").ToList())
+        {
+            await CheckAsync(item.Id);
+        }
+        var available = (_items ?? []).Where(i => i.Updatable && !i.Running && i.State == "available").ToList();
+        if (available.Count == 0)
+        {
+            Snackbar.Add(L["software.nothing"], Severity.Info);
+            return;
+        }
+        foreach (var item in available)
+        {
+            await UpdateAsync(item.Id);
+        }
+    }
+
+    private async Task CancelAsync(string id)
+    {
+        try
+        {
+            Put(await Api.CancelSoftwareAsync(id));
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await RedrawAsync();
+    }
+
+    private static Color StateColor(string state) => state switch
+    {
+        "available" => Color.Primary,
+        "current" => Color.Success,
+        "error" => Color.Error,
+        "running" => Color.Info,
+        _ => Color.Default,
+    };
+}

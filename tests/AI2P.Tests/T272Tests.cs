@@ -321,7 +321,7 @@ public sealed class T272Tests : IDisposable
         {
             Assert.Contains(table, tables);
         }
-        Assert.Equal("49", _f.Db.Meta("schema_version"));
+        Assert.Equal("50", _f.Db.Meta("schema_version"));
     }
 
     /// <summary>

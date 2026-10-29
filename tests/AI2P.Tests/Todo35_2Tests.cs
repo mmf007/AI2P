@@ -42,7 +42,7 @@ public sealed class Todo35_2Tests : IDisposable
         _f.RefData.Seed(); // повторный прогон (фикстура уже сидила) — без дублей
 
         var skills = _f.RefData.Skills();
-        Assert.Equal(94, skills.Count); // 5 code × (1 + 12 языков) + 29 остальных (T-257: +5 режимов)
+        Assert.Equal(101, skills.Count); // 5 code × (1 + 12 языков) + 36 остальных (T-257: +5 режимов, T-570-S0: site-edit, T-627-S0: +6 marketing-*)
         // базовые, языковые варианты и новые 3d-навыки задания todo35_2
         foreach (var name in new[]
                  {
@@ -77,7 +77,7 @@ public sealed class Todo35_2Tests : IDisposable
         Assert.Equal(skill.Id, renamed.Id); // id сохранён — ссылка задачи жива
         Assert.Equal([skill.Id], _f.Tasks.Get(task.Id)!.SkillIds.ToArray());
         Assert.DoesNotContain(_f.RefData.Skills(), s => s.Name == "write-code");
-        Assert.Equal(94, _f.RefData.Skills().Count);
+        Assert.Equal(101, _f.RefData.Skills().Count);
     }
 
     [Fact]

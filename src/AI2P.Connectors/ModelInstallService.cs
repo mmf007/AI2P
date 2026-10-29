@@ -273,6 +273,12 @@ public sealed class ModelInstallService
         public volatile bool Finished;
         /// <summary>Программу CLI ставить общей установкой (T-431-S0).</summary>
         public volatile bool Global;
+        /// <summary>ОБНОВЛЕНИЕ (T-652-S0): свежий дистрибутив спрашивается у сервера раздачи,
+        /// а лежащий в каталоге дистрибутивов прежний не берётся — иначе «обновление»
+        /// поставило бы ту же версию заново.</summary>
+        public volatile bool Remote;
+        /// <summary>Имена дистрибутивов, которыми ставится пакет: пишутся в отметку версии.</summary>
+        public List<string> Dists = [];
     }
 
     /// <param name="repoDir">Репозиторий моделей (config.storage.modelsRepo).</param>
@@ -1290,6 +1296,359 @@ public sealed class ModelInstallService
         return PackageStatus(packageId);
     }
 
+    // --- ОБНОВЛЕНИЕ УСТАНОВЛЕННОГО ПО (T-652-S0) ---
+    // Всё ПО, которое ставит AI2P, — модели, программы плагинов и серверы MCP, — ставится
+    // ПАКЕТАМИ справочника models/packages.json. Поэтому «всё установленное» — это пакеты,
+    // стоящие на этом компьютере, и обновлять их можно одним механизмом.
+
+    /// <summary>Файл-отметка в каталоге пакета: какими дистрибутивами он поставлен.</summary>
+    public const string StampFile = "ai2p-package.json";
+
+    /// <summary>Ответ последней проверки пакета: имена свежих дистрибутивов (у npm — версия).</summary>
+    private sealed record UpdateCheck(List<string> Latest, string Error, DateTime When);
+
+    private readonly ConcurrentDictionary<string, UpdateCheck> _updateChecks = new();
+
+    /// <summary>Итог последнего обновления пакета для строки окна: какие дистрибутивы удалены.</summary>
+    private readonly ConcurrentDictionary<string, string> _updateResults = new();
+
+    /// <summary>Установленные на этом компьютере пакеты справочника.</summary>
+    public List<InstalledPackageDto> InstalledPackages() =>
+        Packages().Packages
+            .Where(p => p.MatchesOs() && (IsPackageInstalled(p) || IsUpdating(p.Id)))
+            .Select(InstalledDto)
+            .ToList();
+
+    public InstalledPackageDto InstalledPackage(string packageId)
+    {
+        var package = Packages().Find(packageId.Trim())
+            ?? throw new InvalidOperationException(
+                Loc.T("msg.modelInstall.4", packageId, AiModelService.PackagesPath));
+        return InstalledDto(package);
+    }
+
+    private bool IsUpdating(string id) =>
+        _runs.TryGetValue(PackageRunKey(id), out var run) && !run.Finished && run.Remote;
+
+    /// <summary>Пакет поставлен НАМИ (а не найден в системе) — только такой и обновляем:
+    /// чужую установку Python или Blender человек ведёт сам.</summary>
+    private bool OwnInstall(ModelPackage package) =>
+        package.Npm.Length > 0
+            ? File.Exists(UserCliBin(package))
+            : package.Files.Count > 0 && FindInPackage(package, package.Check) is not null;
+
+    private InstalledPackageDto InstalledDto(ModelPackage package)
+    {
+        _runs.TryGetValue(PackageRunKey(package.Id), out var run);
+        var running = run is { Finished: false };
+        var own = OwnInstall(package);
+        var current = own ? CurrentDists(package) : [];
+        _updateChecks.TryGetValue(package.Id, out var check);
+        var latest = check?.Latest ?? [];
+        var state = running ? "running"
+            : !own ? "system"
+            : check is null ? "unchecked"
+            : check.Error.Length > 0 ? "error"
+            : current.Count == 0 || !SameNames(current, latest) ? "available"
+            : "current";
+        var (size, downloaded) = package.Npm.Length > 0 ? (0L, 0L) : DistProgress(package);
+        _updateResults.TryGetValue(package.Id, out var note);
+        return new InstalledPackageDto
+        {
+            Id = package.Id,
+            Name = package.Name.Length > 0 ? package.Name : package.Id,
+            Dir = own ? PackageDir(package) : SystemFile(package) ?? "",
+            Kind = package.Npm.Length > 0 ? "npm" : "dist",
+            CurrentDist = string.Join(", ", current),
+            CurrentVersion = string.Join(", ", current.Select(VersionOf)),
+            LatestDist = string.Join(", ", latest),
+            LatestVersion = string.Join(", ", latest.Select(VersionOf)),
+            State = state,
+            Updatable = own,
+            Running = running,
+            CurrentFile = running ? run!.CurrentFile : "",
+            Size = size,
+            Downloaded = downloaded,
+            Error = check?.Error is { Length: > 0 } e ? e : run?.Error ?? "",
+            Note = note ?? "",
+        };
+    }
+
+    private static bool SameNames(List<string> a, List<string> b) =>
+        b.Count > 0 && a.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            .SetEquals(b.ToHashSet(StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>Номер версии из имени дистрибутива: «llama-b11407-bin-win-cpu-x64.zip» → b11407,
+    /// «ComfyUI_windows_portable_v0.33.1.7z» → v0.33.1; не нашёлся — имя целиком.</summary>
+    public static string VersionOf(string name)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(ArchiveStem(name),
+            @"(?<![A-Za-z0-9])(v?\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.]+)?|b\d{3,})(?![0-9])");
+        return match.Success ? match.Groups[1].Value : name;
+    }
+
+    /// <summary>
+    /// Какими дистрибутивами пакет поставлен: отметка <see cref="StampFile"/> (её пишет
+    /// установка с 1.197), а у пакета, поставленного раньше, — догадка по каталогу
+    /// дистрибутивов (самый свежий файл под маску). У npm — версия из package.json.
+    /// Пустой список — версия неизвестна.
+    /// </summary>
+    private List<string> CurrentDists(ModelPackage package)
+    {
+        if (package.Npm.Length > 0)
+        {
+            var json = Path.Combine(PackageDir(package), "node_modules",
+                package.Npm.Replace('/', Path.DirectorySeparatorChar), "package.json");
+            try
+            {
+                if (File.Exists(json))
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(json));
+                    if (doc.RootElement.TryGetProperty("version", out var v) && v.ValueKind == JsonValueKind.String)
+                    {
+                        return [v.GetString()!];
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+            }
+            return [];
+        }
+        var stamp = Path.Combine(PackageDir(package), StampFile);
+        try
+        {
+            if (File.Exists(stamp))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(stamp));
+                if (doc.RootElement.TryGetProperty("dists", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    return arr.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String)
+                        .Select(x => x.GetString()!).ToList();
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+        var flavor = BuildFlavor();
+        var names = new List<string>();
+        foreach (var file in package.Files.Where(f => f.MatchesFlavor(flavor)))
+        {
+            var name = file.Name.Length > 0 ? file.Name
+                : file.Url.Length > 0 ? Path.GetFileName(new Uri(file.Url).LocalPath)
+                : file.AssetPattern.Replace("{flavor}", flavor);
+            if (FindLocalDist(DistRoot(), name) is not { } local)
+            {
+                return []; // хоть один неизвестен — версия неизвестна
+            }
+            names.Add(local.Name);
+        }
+        return names;
+    }
+
+    private void WriteStamp(ModelPackage package, List<string> dists)
+    {
+        try
+        {
+            File.WriteAllText(Path.Combine(PackageDir(package), StampFile),
+                JsonSerializer.Serialize(new { dists, installed = DateTime.UtcNow.ToString("O") }));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warning(ex, "Не удалось записать отметку версии пакета {Package}", package.Id);
+        }
+    }
+
+    /// <summary>ПРОВЕРИТЬ ОБНОВЛЕНИЕ: спросить у сервера раздачи свежий дистрибутив (у npm —
+    /// версию из реестра). Ничего не качает; ответ живёт до следующей проверки.</summary>
+    public async Task<InstalledPackageDto> CheckPackageUpdateAsync(string packageId,
+        CancellationToken ct = default)
+    {
+        var package = Packages().Find(packageId.Trim())
+            ?? throw new InvalidOperationException(
+                Loc.T("msg.modelInstall.4", packageId, AiModelService.PackagesPath));
+        if (!OwnInstall(package))
+        {
+            return InstalledDto(package);
+        }
+        try
+        {
+            var latest = new List<string>();
+            if (package.Npm.Length > 0)
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get,
+                    $"https://registry.npmjs.org/{package.Npm}/latest");
+                request.Headers.UserAgent.ParseAdd("AI2P");
+                using var response = await Http.SendAsync(request, ct);
+                response.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+                latest.Add(JsonRead.Str(doc.RootElement, "version"));
+            }
+            else
+            {
+                var flavor = BuildFlavor();
+                foreach (var file in package.Files.Where(f => f.MatchesFlavor(flavor)))
+                {
+                    var (_, name, _) = await ResolveDistAsync(file, flavor, ct, remote: true);
+                    latest.Add(name);
+                }
+            }
+            _updateChecks[package.Id] = new UpdateCheck(latest, "", DateTime.UtcNow);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException
+                                       or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            _updateChecks[package.Id] = new UpdateCheck([], ex.Message, DateTime.UtcNow);
+        }
+        return InstalledDto(package);
+    }
+
+    /// <summary>
+    /// ОБНОВИТЬ ПАКЕТ В ФОНЕ. Прежний каталог пакета откладывается в сторону, свежий
+    /// дистрибутив ставится начисто; удалось — отложенный каталог удаляется, нет — возвращается
+    /// на место (пакет остаётся рабочим). <paramref name="deleteOldDists"/> — после удачной
+    /// установки удалить прежний дистрибутив из каталога дистрибутивов, если новый был
+    /// СКАЧАН (его там не было до обновления).
+    /// </summary>
+    public InstalledPackageDto StartPackageUpdate(string packageId, bool deleteOldDists)
+    {
+        var package = Packages().Find(packageId.Trim())
+            ?? throw new InvalidOperationException(
+                Loc.T("msg.modelInstall.4", packageId, AiModelService.PackagesPath));
+        if (!OwnInstall(package))
+        {
+            throw new InvalidOperationException(Loc.T("msg.modelInstall.26", package.Name));
+        }
+        // обновление без проверки («Обновить» сразу): что ставится, узнаётся по ходу
+        var run = new InstallRun { Remote = true };
+        var current = _runs.AddOrUpdate(PackageRunKey(package.Id), run,
+            (_, existing) => existing.Finished ? run : existing);
+        if (current == run)
+        {
+            _updateResults.TryRemove(package.Id, out _);
+            _ = Task.Run(() => UpdateOnePackageAsync(package, run, deleteOldDists));
+        }
+        return InstalledDto(package);
+    }
+
+    private async Task UpdateOnePackageAsync(ModelPackage package, InstallRun run, bool deleteOldDists)
+    {
+        var gate = PackageLocks.GetOrAdd(package.Id, _ => new SemaphoreSlim(1, 1));
+        var target = PackageDir(package);
+        string? backup = null;
+        var entered = false;
+        try
+        {
+            run.CurrentPackage = package.Id;
+            await gate.WaitAsync(run.Cts.Token);
+            entered = true;
+            if (package.Npm.Length > 0)
+            {
+                await InstallNpmAsync(package, run); // npm install …@latest поверх и есть обновление
+            }
+            else
+            {
+                var oldDists = CurrentDists(package);
+                var distDir = DistRoot();
+                var before = Directory.Exists(distDir)
+                    ? Directory.EnumerateFileSystemEntries(distDir).Select(p => Path.GetFileName(p)).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (Directory.Exists(target))
+                {
+                    backup = target.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                             + ".ai2p-old";
+                    if (Directory.Exists(backup))
+                    {
+                        Directory.Delete(backup, true);
+                    }
+                    // занятый файл (программа пакета запущена) не даст отложить каталог —
+                    // это и есть честный отказ: обновлять работающую программу нельзя
+                    Directory.Move(target, backup);
+                }
+                await InstallPackageAsync(package, run);
+                if (backup is not null)
+                {
+                    TryDeleteDir(backup);
+                    backup = null;
+                }
+                var fresh = run.Dists;
+                _updateChecks[package.Id] = new UpdateCheck(fresh, "", DateTime.UtcNow);
+                var deleted = new List<string>();
+                if (deleteOldDists && fresh.Any(n => !before.Contains(n)))
+                {
+                    foreach (var old in oldDists.Where(o => !fresh.Contains(o, StringComparer.OrdinalIgnoreCase)))
+                    {
+                        var path = Path.Combine(distDir, old);
+                        if (File.Exists(path))
+                        {
+                            TryDelete(path);
+                            deleted.Add(old);
+                        }
+                        else if (Directory.Exists(path))
+                        {
+                            TryDeleteDir(path);
+                            deleted.Add(old);
+                        }
+                    }
+                }
+                if (deleted.Count > 0)
+                {
+                    _updateResults[package.Id] = Loc.T("msg.modelInstall.27", string.Join(", ", deleted));
+                }
+            }
+            // ответ проверки оставляем: поставлено то, что сервер раздачи назвал последним,
+            // и строка сразу показывает «актуальна»
+            Logger.Information("Пакет {Package} обновлён", package.Id);
+        }
+        catch (OperationCanceledException)
+        {
+            run.Error = "";
+        }
+        catch (Exception ex)
+        {
+            run.Error = ex.Message;
+            Logger.Warning(ex, "Ошибка обновления пакета {Package}", package.Id);
+        }
+        finally
+        {
+            // не удалось — прежний каталог возвращается на место, пакет остаётся рабочим
+            if (backup is not null && Directory.Exists(backup))
+            {
+                try
+                {
+                    if (Directory.Exists(target))
+                    {
+                        Directory.Delete(target, true);
+                    }
+                    Directory.Move(backup, target);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Logger.Warning(ex, "Не удалось вернуть прежний каталог пакета {Package}", package.Id);
+                }
+            }
+            if (entered)
+            {
+                gate.Release();
+            }
+            run.CurrentPackage = "";
+            run.Finished = true;
+        }
+    }
+
+    private static void TryDeleteDir(string path)
+    {
+        try
+        {
+            Directory.Delete(path, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warning(ex, "Не удалось удалить каталог {Dir}", path);
+        }
+    }
+
     /// <summary>Выяснить размер дистрибутива пакета запросом к серверу раздачи (ТЗ v1.43):
     /// без него окно показывает «—» вместо размера. Ошибка сети установке не мешает.</summary>
     public async Task<ModelPackageStatusDto> ResolvePackageSizeAsync(string packageId,
@@ -1415,7 +1774,7 @@ public sealed class ModelInstallService
         var dists = new List<ResolvedDist>();
         foreach (var file in package.Files.Where(f => f.MatchesFlavor(flavor)))
         {
-            var (url, name, size) = await ResolveDistAsync(file, flavor, run.Cts.Token);
+            var (url, name, size) = await ResolveDistAsync(file, flavor, run.Cts.Token, run.Remote);
             if (size <= 0)
             {
                 size = await RemoteLengthAsync(url, run.Cts.Token);
@@ -1423,6 +1782,7 @@ public sealed class ModelInstallService
             dists.Add(new ResolvedDist(name, url, size));
         }
         _distCache[DistCacheKey(package)] = dists;
+        run.Dists = dists.Select(d => d.Name).ToList();
 
         foreach (var (file, dist) in package.Files.Where(f => f.MatchesFlavor(flavor)).Zip(dists))
         {
@@ -1466,6 +1826,7 @@ public sealed class ModelInstallService
                 Loc.T("msg.modelInstall.6", package.Name, targetDir, package.Check, package.Hint));
         }
         await RunSetupAsync(package, run);
+        WriteStamp(package, run.Dists);
         Logger.Information("Пакет {Package} установлен: {Dir}", package.Id, targetDir);
     }
 
@@ -1740,7 +2101,7 @@ public sealed class ModelInstallService
     /// (в маске {flavor} — сборка под железо). Возвращает URL, имя файла и размер (0 — неизвестен).
     /// </summary>
     private async Task<(string Url, string Name, long Size)> ResolveDistAsync(
-        ModelPackage.PackageFile file, string flavor, CancellationToken ct)
+        ModelPackage.PackageFile file, string flavor, CancellationToken ct, bool remote = false)
     {
         if (file.Url.Length > 0)
         {
@@ -1754,7 +2115,7 @@ public sealed class ModelInstallService
         var pattern = file.AssetPattern.Replace("{flavor}", flavor);
         // ДИСТРИБУТИВ УЖЕ ЛЕЖИТ (T-417-S0): архив под маску или распакованный архив в каталоге
         // дистрибутивов берётся как есть — без сети и без перекачки ради новой сборки
-        if (FindLocalDist(DistRoot(), pattern) is { } local)
+        if (!remote && FindLocalDist(DistRoot(), pattern) is { } local)
         {
             return ($"https://github.com/{file.GitHubRepo}/releases", local.Name, local.Size);
         }

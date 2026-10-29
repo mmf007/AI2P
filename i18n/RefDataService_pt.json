@@ -1,5 +1,5 @@
 {
-  "seedVersion": 2,
+  "seedVersion": 4,
   "roles": [
     {
       "id": "rd710000-0000-4000-9000-000000000001",
@@ -164,6 +164,34 @@
     {
       "name": "3d-environment",
       "description": "criação de ambiente 3D (cenário)"
+    },
+    {
+      "name": "site-edit",
+      "description": "edição de sites (Wix e outros construtores SaaS)"
+    },
+    {
+      "name": "marketing-strategy",
+      "description": "estratégia de marketing e plano de campanha (posicionamento, mensagens-chave)"
+    },
+    {
+      "name": "marketing-copy",
+      "description": "textos publicitários e de vendas, publicações adaptadas a cada plataforma"
+    },
+    {
+      "name": "marketing-smm",
+      "description": "redes sociais e comunidades (posts, respostas em discussões, regras das plataformas)"
+    },
+    {
+      "name": "marketing-seo",
+      "description": "SEO e busca por IA (palavras-chave, metadados, diretórios, listas awesome)"
+    },
+    {
+      "name": "marketing-pr",
+      "description": "PR: artigos, comunicados de imprensa, lançamentos (Show HN, Product Hunt)"
+    },
+    {
+      "name": "marketing-analytics",
+      "description": "análise de marketing (métricas de campanha, UTM, relatórios por canal)"
     }
   ],
   "ioFormats": [

@@ -50,6 +50,23 @@ public sealed class AgentToolset
 
     private GatewayToolset? _gateways;
 
+    /// <summary>Универсальные действия над сайтами в SaaS-редакторах (T-567-S0): site_list,
+    /// site_tools, site_call. null — на этом сервере нет живого плагина вида <c>saas</c>.</summary>
+    public SiteToolset? Sites
+    {
+        get => _sites;
+        set
+        {
+            _sites = value;
+            if (value is not null)
+            {
+                value.Language = _language;
+            }
+        }
+    }
+
+    private SiteToolset? _sites;
+
     private readonly Func<FileToolset.ToolSpec, FileToolset.ToolSpec> _resolve;
     private readonly SecurityEvaluator? _security;
     private readonly Func<string, string?> _actionCodeByTool;
@@ -140,6 +157,10 @@ public sealed class AgentToolset
             {
                 Gateways.Language = value;
             }
+            if (Sites is not null)
+            {
+                Sites.Language = value;
+            }
         }
     }
 
@@ -221,6 +242,17 @@ public sealed class AgentToolset
             }
         }
 
+        // САЙТЫ В SaaS (T-567-S0): правило на «плагин:сайт:операцию» и регистрация самого
+        // инструмента SaaS — поверх правила на действие site_*
+        string? siteInfo = null;
+        if (Sites is not null && Sites.Handles(toolName)
+            && Sites.Check(toolName, args) is { } site && Rank(site.Decision) > Rank(decision))
+        {
+            (decision, rule) = (site.Decision, site.Rule);
+            siteInfo = site.Info.Length > 0 ? site.Info : null;
+            pluginWithoutAction = false;
+        }
+
         // файловые инструменты: правило доступа к каталогу по пути из аргументов
         if (Files is not null && FileOps.TryGetValue(toolName, out var op))
         {
@@ -240,7 +272,9 @@ public sealed class AgentToolset
         {
             return SecurityCheck.Allowed;
         }
-        var ruleInfo = pluginWithoutAction
+        var ruleInfo = siteInfo is not null
+            ? siteInfo
+            : pluginWithoutAction
             ? Loc.In(Language, "prompt.tools.6")
             : rule is null
                 ? Loc.In(Language, "prompt.tools.1")
@@ -520,7 +554,11 @@ public sealed class AgentToolset
             "import_task_from_url" => Tasks.CanImport,
             "fetch_file" => Tasks.CanFetch, // внешние файлы задания (T-255)
             "send_chat_message" => Tasks.CanChat,
-            "send_task_message" or "wait_task_reply" => Tasks.CanTalk, // разговор агентов (T-185)
+            "send_chat_to_server" => Tasks.CanPushChat, // мгновенно на сервер (T-590-S0)
+            "send_task_message" => Tasks.CanTalk, // разговор агентов (T-185)
+            // ждать ответа есть кого и у пары агентов на разных серверах (T-590-S0),
+            // даже если их задачи не родственные: партнёр пишет send_chat_to_server
+            "wait_task_reply" => Tasks.CanTalk || Tasks.CanPushChat,
             "get_child_tasks" => Tasks.CanChildren, // подзадачи (T-34-S0)
             "set_task_status" => Tasks.CanSetStatus, // состояние чужой задачи (T-34-S0)
             "update_task" => Tasks.CanUpdate, // поля чужой задачи (T-160-S0)
@@ -539,12 +577,14 @@ public sealed class AgentToolset
         // шлюзы в видеоредакторы (T-115-S0): состав приходит МАНИФЕСТАМИ живых плагинов,
         // поэтому список инструментов у каждого сервера свой — как и найденный на нём софт
         .Concat(Gateways?.Specs ?? [])
+        // сайты в SaaS-редакторах (T-567-S0): есть только при живом плагине вида saas
+        .Concat(Sites?.Specs ?? [])
         .Select(_resolve);
 
     /// <summary>Суммарный лог вызовов для журнала работ (agent.tool_calls).</summary>
     public List<string> CallLog =>
         [.. Files?.CallLog ?? [], .. Tasks.CallLog, .. Media?.CallLog ?? [],
-            .. Gateways?.CallLog ?? []];
+            .. Gateways?.CallLog ?? [], .. Sites?.CallLog ?? []];
 
     /// <summary>Выполнить вызов инструмента; результат (или текст ошибки) возвращается агенту.</summary>
     public async Task<string> ExecuteAsync(string name, JsonElement args, CancellationToken ct)
@@ -556,6 +596,8 @@ public sealed class AgentToolset
                 ? Media.Execute(name, args)
                 : Gateways is not null && Gateways.Handles(name)
                 ? await Gateways.ExecuteAsync(name, args, ct)
+                : Sites is not null && Sites.Handles(name)
+                ? await Sites.ExecuteAsync(name, args, ct)
                 : Files is not null
                     ? await Files.ExecuteAsync(name, args, ct)
                     : Loc.In(Language, "prompt.tools.5", name);

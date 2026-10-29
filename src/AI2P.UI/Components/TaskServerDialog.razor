@@ -17,6 +17,11 @@
            всем поддеревом узлов, а заданий у него нет вовсе *@
         @* и ОБЪЕКТУ ПРОЕКТА (T-102-S0): у него тоже есть сервер-владелец, и он тоже уезжает
            всем своим поддеревом — датасеты и кадры это его содержимое *@
+        @if (Count > 0)
+        {
+            @* множественный выбор (T-651-S0): сервер ставится всем выбранным задачам *@
+            <MudText Typo="Typo.body2" Class="mb-2" data-multi-count="@Count">@L["tasks.multi.count", Count]</MudText>
+        }
         <MudText Typo="Typo.body2" Class="mb-3">
             @L[IsObject ? "objects.server.dialogHint"
                         : IsTemplate ? "task.server.dialogHint.template" : "task.server.dialogHint"]
@@ -41,7 +46,7 @@
         @* сервер обязателен (T-1-S0): у задачи прежних версий его может не быть вовсе —
            тогда поле пустое, и сохранять нечего, пока сервер не выбран *@
         <MudButton Color="Color.Primary" Variant="Variant.Filled"
-                   Disabled="@(_serverId.Length == 0)"
+                   Disabled="@(_serverId.Length == 0 || _serverId == Mixed)"
                    OnClick="@(() => Dialog.Close(DialogResult.Ok(_serverId)))">@L["common.save"]</MudButton>
     </DialogActions>
 </MudDialog>
@@ -57,6 +62,12 @@
 
     /// <summary>Передаётся ОБЪЕКТ ПРОЕКТА (T-102-S0): меняются только пояснения.</summary>
     [Parameter] public bool IsObject { get; set; }
+
+    /// <summary>Число выбранных задач (T-651-S0); 0 — диалог одной задачи.</summary>
+    [Parameter] public int Count { get; set; }
+
+    /// <summary>Значение поля, когда у выбранных задач серверы разные (T-651-S0).</summary>
+    public const string Mixed = "###";
 
     private string _serverId = "";
 

@@ -426,8 +426,10 @@ public sealed class AiModelAndExecutorTests : IDisposable
         // + 3 записи актуализации справочника по рынку (T-558-S0, сверка 20.10.2026:
         //   Gemini-4-Argon, Nemotron-3.5-Super-VL — текст; FLUX-3-Max-Video — медиа через
         //   шлюз fal.ai)
+        // + 3 записи актуализации справочника по рынку (T-653-S0, сверка 29.10.2026:
+        //   GPT-6.1-Terra, Kimi-K3.1-Pro, MiniMax-M3.1-Flash — текст)
         // — точный состав проверяет T214Tests
-        Assert.Equal(113, models.Count);
+        Assert.Equal(116, models.Count);
         Assert.All(models, m => Assert.False(m.IsCustom));           // из дистрибутива
         var claude = models.Single(m => m.Name == "Claude-Fable-5");
         Assert.Equal($"models/profile_{claude.Id}.json", claude.ProfilePath);

@@ -23,6 +23,7 @@
    поэтому снятия одного лишь draggable (первая редакция T-193) не хватало. Карточки
    рисуются обычным списком, состояние задачи меняется в её карточке. Перенос колонок —
    остался: он идёт только за зону заголовка. *@
+<CascadingValue Value="_sel" IsFixed="true">
 <div class="ai2p-board-frame" id="@_boardId">
     <div class="d-flex flex-row gap-2"
          style="align-items: stretch; height: 100%; width: max-content; min-width: 100%;">
@@ -51,9 +52,11 @@
                        перетаскиваемой карточка НЕ является: ни draggable, ни обработчиков *@
                     @foreach (var task in Cards(status.Id))
                     {
-                        <MudCard @key="task.Id" Elevation="3" Class="mb-2" Style="cursor: pointer;"
-                                 data-board-task="@task.Id"
-                                 @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
+                        @* щелчок — выбор, двойной щелчок — открыть (T-651-S0) *@
+                        <MudCard @key="task.Id" Elevation="3" Class="@("mb-2 " + _sel.Css(task.Id))" Style="cursor: pointer;"
+                                 data-board-task="@task.Id" data-task-sel="@task.Id"
+                                 @onclick="@(e => _sel.Click(task, Shown(), e.ShiftKey, e.CtrlKey || e.MetaKey))"
+                                 @ondblclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
                             <MudCardContent Class="pa-2">
                                 @* меню «…» в правом верхнем углу карточки (T-492-S0) *@
                                 <div class="d-flex align-start">
@@ -109,6 +112,7 @@
         }
     </div>
 </div>
+</CascadingValue>
 
 @code {
     /// <summary>Фрейм, в котором живёт это представление (todo22): новые закладки
@@ -161,9 +165,17 @@
     /// <summary>Задачи, у которых в списке есть потомки, — пункт меню «запустить иерархию» (T-492-S0).</summary>
     private HashSet<string> _parentIds = [];
 
+    /// <summary>Выбор строк (T-651-S0): щелчок выделяет, Ctrl/Shift — как в проводнике,
+    /// задача открывается двойным щелчком; меню «…» получает выбор каскадом.</summary>
+    private readonly TaskSelection _sel = new();
+
+    /// <summary>Карточки в порядке показа: колонка за колонкой (для Shift-диапазона).</summary>
+    private IEnumerable<TaskItem> Shown() => Statuses.SelectMany(s => Cards(s.Id));
+
     protected override void OnParametersSet()
     {
         _parentIds = Tasks.Where(t => t.ParentId is not null).Select(t => t.ParentId!).ToHashSet();
+        _sel.Refresh(Tasks);
         // порядок колонок — на аккаунт+проект (T-128); смена проекта в фильтре меняет ключ.
         // Флаг нужен отдельно от сравнения: доска без фильтра по проекту (ProjectId = null)
         // иначе не подхватила бы сохранённый порядок ни разу

@@ -1,5 +1,5 @@
 {
-  "seedVersion": 2,
+  "seedVersion": 4,
   "roles": [
     {
       "id": "rd710000-0000-4000-9000-000000000001",
@@ -164,6 +164,34 @@
     {
       "name": "3d-environment",
       "description": "制作 3D 场景（地形）"
+    },
+    {
+      "name": "site-edit",
+      "description": "编辑网站（Wix 等 SaaS 建站平台）"
+    },
+    {
+      "name": "marketing-strategy",
+      "description": "营销策略与推广计划（定位、核心信息）"
+    },
+    {
+      "name": "marketing-copy",
+      "description": "广告与销售文案、按平台撰写的发布内容"
+    },
+    {
+      "name": "marketing-smm",
+      "description": "社交媒体与社区（帖子、讨论回复、平台规则）"
+    },
+    {
+      "name": "marketing-seo",
+      "description": "SEO 与 AI 搜索（关键词、元数据、目录、awesome 列表）"
+    },
+    {
+      "name": "marketing-pr",
+      "description": "公关：文章、新闻稿、产品发布（Show HN、Product Hunt）"
+    },
+    {
+      "name": "marketing-analytics",
+      "description": "营销分析（推广指标、UTM、分渠道报告）"
     }
   ],
   "ioFormats": [

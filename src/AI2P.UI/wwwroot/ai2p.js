@@ -1769,3 +1769,12 @@ window.ai2pPush = (function () {
 
     return { supported: supported, state: state, subscribe: subscribe, unsubscribe: unsubscribe, copy: copy };
 })();
+
+// Множественный выбор в списках задач (T-651-S0): Shift/Ctrl+щелчок по строке выбирает
+// строки, а браузер в это время выделял бы текст между щелчками — отменяем это у строк
+// с data-task-sel. Сам щелчок (click) при этом приходит как обычно.
+document.addEventListener('mousedown', function (e) {
+    if ((e.shiftKey || e.ctrlKey || e.metaKey) && e.target.closest && e.target.closest('[data-task-sel]')) {
+        e.preventDefault();
+    }
+}, true);

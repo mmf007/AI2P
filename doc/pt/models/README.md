@@ -27,13 +27,13 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — texto → música e canções, com direitos limpos, habilidades `audio-song` 92, `audio-music` 92
 * [ElevenLabs-Music](ElevenLabs-Music.md) — texto → música e canções, com direitos limpos, habilidades `audio-song` 89, `audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — texto → fala, habilidades `audio-speech` 96
-* [FLUX-3](FLUX-3.md) — texto → imagem, habilidades `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [FLUX-3-Max-Video](FLUX-3-Max-Video.md) — texto → vídeo de 5 a 20 segundos com som, habilidades `video-generate` 93
+* [FLUX-3](FLUX-3.md) — texto → imagem, habilidades `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, por uma camada compatível com OpenAI
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, por uma camada compatível com OpenAI
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, por uma camada compatível com OpenAI
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, por uma camada compatível com OpenAI
-* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, pontuações 91-95
+* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, por uma camada compatível com OpenAI
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — texto → vídeo com som, 8 segundos, habilidades `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Sber, Rússia; compatível com OpenAI
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, compatível com OpenAI
@@ -44,6 +44,7 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [GPT-6-Luna](GPT-6-Luna.md) — API da OpenAI, compatível com OpenAI
 * [GPT-6-Sol](GPT-6-Sol.md) — API da OpenAI, compatível com OpenAI
 * [GPT-6.1-Sol](GPT-6.1-Sol.md) — API da OpenAI, compatível com OpenAI
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI, contexto de 1 050 000 tokens, 1,00 $ / 5,00 $ por 1 M, pontuações 89-93
 * [GPT-Image-2.5](GPT-Image-2.5.md) — texto → imagem, cobrança por tokens, habilidades `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — texto → imagem, cobrança por tokens, habilidades `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — API da xAI, compatível com OpenAI
@@ -52,12 +53,14 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, por meio do gateway OpenRouter
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — texto → vídeo de 5 segundos com som, habilidades `video-generate` 90
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, compatível com OpenAI
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, pontuações 87-92
 * [Kling-3.0](Kling-3.0.md) — imagem → vídeo com som, até 15 segundos, habilidades `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, por meio do gateway OpenRouter
 * [Meshy-7.1](Meshy-7.1.md) — texto → modelo 3D pronto para jogo, habilidades `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — texto → modelo 3D pronto para jogo, habilidades `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — texto → vídeo de até 15 segundos, habilidades `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, compatível com OpenAI
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, contexto de 1 048 576 tokens, 0,15 $ / 0,60 $ por 1 M, pontuações 80-84
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, França; compatível com OpenAI
 * [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, França; compatível com OpenAI
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, por meio do gateway OpenRouter
@@ -67,7 +70,7 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — imagem e indicação → imagem alterada, habilidades `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — texto → imagem até 4K, o melhor texto dentro do quadro, habilidades `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, por meio do gateway OpenRouter
-* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, contexto de 262 144 tokens, 0,15 $ / 0,50 $ por 1 M, pontuações 77-83
+* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, por meio do gateway OpenRouter
 * [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — trabalho leve com texto e análise de dados, pontuações 62-74
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, compatível com OpenAI
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, compatível com OpenAI

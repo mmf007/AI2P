@@ -6978,6 +6978,147 @@ public sealed class AiModelService
                            "per_unit": 0.17, "unit": "second" }
             }
             """),
+        // ---------------------------------------------------------------------------------
+        // T-653-S0 (актуализация 29.10.2026): записи …125–…127. Идентификаторы, цены и
+        // модальности сверены запросом к каталогу OpenRouter (без ключа), лицензия весов MiniMax —
+        // карточке HuggingFace (minimax-community). Суфлёр не нужен ни одной: все записи облачные, а
+        // управляющий json суфлёра читает только ComfyUiConnector.
+        // ---------------------------------------------------------------------------------
+
+        // GPT-6.1-Terra (каталог OpenRouter: openai/gpt-6.1-terra, 26.10.2026), $1.0/$5.0 за миллион, контекст 1050000.
+        ("6f1a45e0-0d31-4c65-9a01-000000000125", "GPT-6.1-Terra",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gpt-6.1-terra",
+              "baseUrl": "https://api.openai.com/v1",
+              "secretRef": "openai.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gpt-6.1-terra",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 93 },
+                { "name": "code-review",         "score": 92 },
+                { "name": "code-debug",          "score": 92 },
+                { "name": "code-test",           "score": 90 },
+                { "name": "code-refactor",       "score": 91 },
+                { "name": "text-write",          "score": 91 },
+                { "name": "text-docs",           "score": 90 },
+                { "name": "text-edit",           "score": 90 },
+                { "name": "text-translate",      "score": 89 },
+                { "name": "text-summarize",      "score": 92 },
+                { "name": "analyze-requirements", "score": 92 },
+                { "name": "analyze-plan",        "score": 91 },
+                { "name": "analyze-data",        "score": 91 }
+              ],
+              "limits":  { "context": 1050000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 1.0, "out_per_1m": 5.0 }
+            }
+            """),
+
+        // Kimi-K3.1-Pro (каталог OpenRouter: moonshotai/kimi-k3.1-pro, 23.10.2026), $2.0/$10.0 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000126", "Kimi-K3.1-Pro",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "kimi-k3.1-pro",
+              "baseUrl": "https://api.moonshot.ai/v1",
+              "secretRef": "moonshot.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "kimi-k3.1-pro",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 92 },
+                { "name": "code-review",         "score": 90 },
+                { "name": "code-debug",          "score": 90 },
+                { "name": "code-test",           "score": 88 },
+                { "name": "code-refactor",       "score": 90 },
+                { "name": "text-write",          "score": 88 },
+                { "name": "text-docs",           "score": 88 },
+                { "name": "text-edit",           "score": 87 },
+                { "name": "text-translate",      "score": 88 },
+                { "name": "text-summarize",      "score": 91 },
+                { "name": "analyze-requirements", "score": 90 },
+                { "name": "analyze-plan",        "score": 90 },
+                { "name": "analyze-data",        "score": 89 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 2.0, "out_per_1m": 10.0 }
+            }
+            """),
+
+        // MiniMax-M3.1-Flash (каталог OpenRouter: minimax/minimax-m3.1-flash, 19.10.2026), $0.15/$0.6 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000127", "MiniMax-M3.1-Flash",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "minimax-m3.1-flash",
+              "baseUrl": "https://api.minimax.io/v1",
+              "secretRef": "minimax.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "minimax-m3.1-flash",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 84 },
+                { "name": "code-review",         "score": 82 },
+                { "name": "code-debug",          "score": 82 },
+                { "name": "code-test",           "score": 80 },
+                { "name": "code-refactor",       "score": 82 },
+                { "name": "text-write",          "score": 81 },
+                { "name": "text-docs",           "score": 81 },
+                { "name": "text-edit",           "score": 80 },
+                { "name": "text-translate",      "score": 82 },
+                { "name": "text-summarize",      "score": 84 },
+                { "name": "analyze-requirements", "score": 81 },
+                { "name": "analyze-plan",        "score": 80 },
+                { "name": "analyze-data",        "score": 81 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 524288 },
+              "cost":    { "in_per_1m": 0.15, "out_per_1m": 0.6 }
+            }
+            """),
         .. KandinskyLiteVariants(),
         .. Kandinsky6Variants(),
         .. AceStep15Variants(),

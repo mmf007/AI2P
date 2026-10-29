@@ -1,5 +1,5 @@
 {
-  "seedVersion": 26,
+  "seedVersion": 30,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -364,7 +364,47 @@
       "tool": "create_tasks_from_template",
       "title": "从模板节点创建分支任务",
       "hint": "智能体将项目模板节点实例化为其任务（或其子树中某个任务）的子任务 —— 与卡片中的“从模板”按钮相同（T-300-S0）。用于没有任务、但勾选了“创建任务”的条件分支：分支的常规工作更适合保存为模板。执行者按“先 AI”自动挑选。智能体不能以此扩展他人的任务树。CLI 智能体使用命令“ai2p from-template <节点代码>”和标记 AI2P_FROM_TEMPLATE。",
-      "prompt": "从项目的模板节点创建任务：参数 template —— 节点代码（T-5）或其标题；parent —— 你子树中父任务的代码（默认为当前任务）。节点连同全部后代一起实例化，执行者自动挑选。当条件分支要求“创建任务”且有合适的模板时使用；否则使用 create_task。"
+      "prompt": "从项目的模板节点创建任务：参数 template —— 节点代码（T-5）或其标题；parent —— 你子树中父任务的代码（默认为当前任务）。节点连同全部后代一起实例化，执行者自动挑选。当条件分支要求“创建任务”且有合适的模板时使用；否则使用 create_task。 参数 macros 是“键 → 值”对象，用于替换节点标题、描述和验收标准中的 ${key} 宏（类似对模板执行 sed）；空值不替换。"
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000047",
+      "code": "AI2P.Site.List",
+      "tool": "site_list",
+      "title": "Sites in SaaS editors",
+      "hint": "Sites connected by SaaS editor plugins (Wix etc.) on this server: SaaS, short site name, URL, whether a key is set and whether rules deny it (T-567-S0).",
+      "prompt": "List of sites in SaaS editors (Wix etc.) available to you: saas, site (short name), url, siteId, hasKey, deniedByRules, plus the operations used by security rules. Parameter saas (optional) filters by SaaS. Call it first before working with a site."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000048",
+      "code": "AI2P.Site.Tools",
+      "tool": "site_tools",
+      "title": "SaaS editor tools",
+      "hint": "Tools of the SaaS editor (MCP server) for the chosen site with argument schemas; rule operation is read (T-567-S0).",
+      "prompt": "SaaS editor tools for a site: name, description, argument schema (inputSchema), registered — whether AI2P allows it. Parameters: saas (wix; may be omitted if the site name is unique), site — short site name from site_list, filter — substring to match name or description."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000049",
+      "code": "AI2P.Site.Call",
+      "tool": "site_call",
+      "title": "Call a SaaS editor tool",
+      "hint": "Call a SaaS editor (Wix MCP) tool for the chosen site: pages, design, files, SEO, publishing. Security rules use the mask plugin:site:operation, e.g. saas.wix:ai2p:publish (T-567-S0).",
+      "prompt": "Call a SaaS editor tool for a site. Parameters: saas (wix), site — short site name from site_list, tool — tool name from site_tools, arguments — object per its inputSchema. The site id (siteId) is filled in automatically; a different siteId is refused. The call maps to an operation (read, pages, design, media, seo, publish, api) that security rules may deny. Returns the SaaS answer text."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000050",
+      "code": "AI2P.Site.Upload",
+      "tool": "site_upload",
+      "title": "Upload site files",
+      "hint": "Uploads a project folder to a files-only site of a SaaS editor (for Wix — a site at *.wix-site-host.com) in one request: all files of the folder replace the whole file set of the site and are published at once. Key and site come from the plugin form. Rule operation — publish, e.g. saas.wix:ai2p:publish (T-582-S0).",
+      "prompt": "Upload site files from a project folder. Parameters: saas (wix), site — short site name from site_list, dir — folder relative to the project root (e.g. site/wix). WARNING: the upload REPLACES ALL site files and publishes at once — the folder must hold the complete set with the home page (index.html); files missing from it disappear from the site. Call only when the task explicitly says to deploy or publish the site. Answer — HTTP status and the SaaS answer (for Wix — uploadId and siteUrl)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000051",
+      "code": "AI2P.Chat.Push",
+      "tool": "send_chat_to_server",
+      "title": "即时消息发往另一台服务器",
+      "hint": "智能体在任务聊天（自己的任务或按代码指定的任务）中写消息，并立即送达指定的集群服务器，无需等待复制会话（T-590-S0）。适用于在不同服务器上结对工作的智能体。在接收服务器上，消息以插话方式送达正在运行的智能体；之后的常规复制不会产生重复。服务器无法连通时，消息保留并随复制送达。对该代码的 deny/confirm 安全规则会关闭即时发送。CLI 智能体对应命令为 «ai2p push»。",
+      "prompt": "在聊天中写消息并立即送达集群中的另一台服务器，无需等待复制。参数：server — 组织内的服务器代码（S0、S1…）或其名称；text — 消息文本；code — 要写入其聊天的任务代码（为空 — 当前任务）。当你与另一台服务器上的智能体结对工作且对方需要立刻知道时使用。若即时送达失败，消息仍会随常规复制送达，回复中给出原因。"
     }
   ]
 }

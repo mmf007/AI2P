@@ -43,8 +43,11 @@ public sealed class ActionCatalogTests : IDisposable
         // + ВЕТВЛЕНИЕ И ЦИКЛ (v25, T-300-S0) — set_condition_result, set_loop_result,
         //   create_tasks_from_template, stop_hierarchy: решение условия, исход проверки
         //   цикла, задачи ветви из узла шаблона, остановка иерархии агентом
-        Assert.Equal(46, ru.Count);
-        Assert.Equal(46, en.Count);
+        // + T-567-S0 (v27): site_list, site_tools, site_call — сайты в SaaS-редакторах
+        // + T-582-S0 (v28): site_upload — выкладка файлов сайта из папки проекта
+        // + T-590-S0 (v29): send_chat_to_server — мгновенное сообщение на другой сервер
+        Assert.Equal(51, ru.Count);
+        Assert.Equal(51, en.Count);
         Assert.Null(ru.Single(a => a.Code == "AI2P.Archives.AutoRun").ToolName);
         // действие заданий-соседей есть на обоих языках и привязано к инструменту
         Assert.Equal("get_sibling_tasks", ru.Single(a => a.Code == "AI2P.Tasks.GetSiblings").ToolName);
@@ -151,7 +154,7 @@ public sealed class ActionCatalogTests : IDisposable
         actions.Seed();
 
         var de = actions.List("de");
-        Assert.Equal(46, de.Count); // все действия видны и на новом языке
+        Assert.Equal(51, de.Count); // все действия видны и на новом языке
         Assert.Equal("Projektdatei lesen", de.Single(a => a.Code == "AI2P.Files.Read").Title);
         // непереведённые — фолбэк на en
         Assert.Contains("List files", de.Single(a => a.Code == "AI2P.Files.List").Prompt);

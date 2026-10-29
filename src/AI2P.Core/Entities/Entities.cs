@@ -846,6 +846,30 @@ public sealed class Team : Entity
     /// <summary>Неактивная команда не подставляется в новые проекты и задачи (ТЗ п. 2.8).</summary>
     public bool IsActive { get; set; } = true;
     public List<TeamMember> Members { get; set; } = [];
+    /// <summary>Оргединицы команды (T-628-S0): подразделения и должности. Подчинение участников
+    /// (<see cref="TeamMember.ParentExecutorId"/>) выводится из них при сохранении.</summary>
+    public List<TeamUnit> Units { get; set; } = [];
+}
+
+/// <summary>
+/// Организационная единица команды (T-628-S0): подразделение или должность. Единицы образуют
+/// иерархию; у должности исполнитель может быть пуст (вакансия), у подразделения исполнитель —
+/// его руководитель. Навыки единицы добавляются к навыкам занявшего её исполнителя в этой команде.
+/// </summary>
+public sealed class TeamUnit
+{
+    public const string Department = "department";
+    public const string Position = "position";
+
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string? ParentUnitId { get; set; }
+    /// <summary><see cref="Department"/> или <see cref="Position"/>.</summary>
+    public string Kind { get; set; } = Position;
+    public string Name { get; set; } = "";
+    public string? ExecutorId { get; set; }
+    public int Sort { get; set; }
+    public bool IsActive { get; set; } = true;
+    public List<string> SkillIds { get; set; } = [];
 }
 
 /// <summary>Запись состава команды: исполнитель + профессиональная роль + иерархия (ТЗ v1.17).</summary>

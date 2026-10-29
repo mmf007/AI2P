@@ -1534,6 +1534,17 @@ public static class ApiEndpoints
             team.Id = id;
             return Handle(() => Results.Ok(Teams().Update(team, Actor())));
         });
+        // правка ОДНОЙ оргединицы (T-629-S0): форма участника, меню «…», перенос в иерархии —
+        // меняют одну единицу, а не перезаписывают команду целиком
+        api.MapPost("/teams/{id}/units", (string id, TeamUnitEditDto dto) =>
+            Handle(() => Results.Ok(Teams().SaveUnit(id, dto, Actor()))));
+        api.MapDelete("/teams/{id}/units/{unitId}", (string id, string unitId) =>
+            Handle(() => Results.Ok(Teams().DeleteUnit(id, unitId, Actor()))));
+        api.MapPost("/teams/{id}/units/{unitId}/active", (string id, string unitId, TeamUnitActiveDto dto) =>
+            Handle(() => Results.Ok(Teams().SetUnitActive(id, unitId, dto.IsActive, Actor()))));
+        api.MapPost("/teams/{id}/units/{unitId}/parent", (string id, string unitId, TeamUnitParentDto dto) =>
+            Handle(() => Results.Ok(Teams().MoveUnit(id, unitId,
+                string.IsNullOrEmpty(dto.ParentUnitId) ? null : dto.ParentUnitId, Actor()))));
 
         // --- запуск/остановка работы команды и статусы работы участников (ТЗ v1.14) ---
         api.MapPost("/teams/{id}/work/start", (string id) =>
@@ -2161,7 +2172,7 @@ public static class ApiEndpoints
                 };
                 // parentId (T-201): создание подзадачей из карточки задачи
                 return Results.Ok(Tasks().InstantiateTemplate(id, dto.BaseDate, Actor(), pick, Picker(),
-                    dto.ParentId));
+                    dto.ParentId, dto.Macros));
             }));
         // --- расписания запуска задач (ТЗ п. 2.12, todo34) ---
         api.MapGet("/schedules", () => Results.Ok(Schedules().List()));
@@ -2867,6 +2878,39 @@ public static class ApiEndpoints
                 var task = Tasks().Get(id) ?? throw new ArgumentException(Loc.T("msg.apiEndpoints.15", id));
                 return Results.Ok(Chat().Add(task.Id, Actor(), dto.ToExecutorId, dto.Text));
             }));
+
+        // МГНОВЕННОЕ СООБЩЕНИЕ НА ДРУГОЙ СЕРВЕР (T-590-S0): то же сообщение чата, но соседу
+        // оно уезжает сразу, а не ближайшим сеансом репликации. Нужно там, где два агента
+        // на разных серверах проверяют одно и то же вживую (сеть игры): ждать сеанса минуты
+        // им некогда. Не дозвонились — сообщение остаётся и уедет репликацией (Delivered=false)
+        api.MapPost("/tasks/{id}/chat/push", async (string id, ChatPostDto dto, CancellationToken ct) =>
+        {
+            try
+            {
+                var task = Tasks().Get(id) ?? throw new ArgumentException(Loc.T("msg.apiEndpoints.15", id));
+                if (dto.Server.Trim().Length == 0)
+                {
+                    throw new ArgumentException(Loc.T("msg.chat.9"));
+                }
+                var (message, delivered, note) = await Chat().AddAndPushAsync(task.Id, Actor(),
+                    dto.ToExecutorId, dto.Text, dto.Server, ct);
+                return Results.Ok(new ChatPushResultDto { Message = message, Delivered = delivered, Note = note });
+            }
+            catch (Exception ex) when (ex is ArgumentException or (InvalidOperationException and not ObjectDisposedException))
+            {
+                return Results.Problem(ex.Message, statusCode: 400);
+            }
+        });
+
+        // куда можно мгновенно отправить сообщение (T-590-S0): вторая кнопка чата спрашивает
+        // сервер из этого списка; пустой список — кластера нет, и кнопку не показывают
+        api.MapGet("/chat/servers", () => Handle(() =>
+        {
+            var replication = app.Services.GetRequiredService<Org.ReplicationService>();
+            return Results.Ok(replication.ChatTargets(Ctx().Org.Id)
+                .Select(l => new ChatServerDto { Code = l.Code, Name = l.ServerName, IsConductor = l.IsConductor })
+                .ToList());
+        }));
 
         // заявки на запуск задачи, поданные с других серверов (T-196): карточка показывает
         // ими, что запуск уже передан владельцу и ждать надо его, а не жать кнопку снова
@@ -3616,7 +3660,36 @@ public static class ApiEndpoints
             }
             var secret = secrets.Read(
                 PluginCodes.SecretRef(code, manifest.Connection.SecretRef));
+            if (manifest.Saas is not null)
+            {
+                // РЕДАКТОР САЙТОВ (T-567-S0): заголовки и ключ у каждого сайта свои, поэтому
+                // список инструментов снимается через первый сайт, у которого есть ключ
+                var plugin = new SaasPlugin(manifest, PluginSites(code), secrets.Read);
+                var site = plugin.Sites.FirstOrDefault(s => plugin.KeyOf(s) is { Length: > 0 })
+                    ?? throw new InvalidOperationException(Loc.T("msg.saas.1", code));
+                return await McpClient.ListToolsAsync(manifest.Connection, plugin.KeyOf(site), ct,
+                    plugin.HeadersOf(site));
+            }
             return await McpClient.ListToolsAsync(manifest.Connection, secret, ct);
+        }
+        List<SaasSite> PluginSites(string code) =>
+            configHolder.Config.Plugins.TryGetValue(code, out var cfg) ? cfg.Sites : [];
+        SaasSiteDto SiteDto(string code, SaasSite site)
+        {
+            var own = secrets.Has(SaasSite.SecretRef(code, site.Code));
+            var manifest = PluginManifestOf(code);
+            return new SaasSiteDto
+            {
+                Code = site.Code,
+                Name = site.Name,
+                Url = site.Url,
+                SiteId = site.SiteId,
+                AccountId = site.AccountId,
+                Note = site.Note,
+                OwnKey = own,
+                HasKey = own || secrets.Has(PluginCodes.SecretRef(code, manifest?.Connection?.SecretRef)),
+                KeyFile = secrets.LocationOf(SaasSite.SecretRef(code, site.Code)),
+            };
         }
         // кэш списка — пер-серверный, поэтому он в config.json, а не в базе организации
         void SavePluginTools(string code, List<string> tools)
@@ -3680,6 +3753,8 @@ public static class ApiEndpoints
                     ? pluginCfg.ToolsAt
                     : null,
                 Plugin = PluginDto(manifest, record, code, lang),
+                Saas = manifest?.Saas?.Code ?? "",
+                Sites = manifest?.Saas is null ? [] : [.. PluginSites(code).Select(s => SiteDto(code, s))],
                 Package = manifest?.Software?.Package ?? "",
                 SoftwareRequired = manifest?.Software?.Required ?? false,
                 SoftwareHint = manifest?.Software?.Hint.Text(lang) ?? "",
@@ -3799,6 +3874,68 @@ public static class ApiEndpoints
                     (dto.Value ?? "").Trim());
                 return PluginRow(code, lang);
             }));
+        // САЙТЫ ПЛАГИНА SaaS-РЕДАКТОРА (T-567-S0): список — в config.json ЭТОГО сервера, ключ
+        // сайта — в secrets/ (наружу не отдаётся никогда; пустое поле ключа — «не менять»).
+        // Запись с тем же кодом правит сайт, новая — заводит
+        api.MapPut("/plugins/{code}/sites/{site}", (string code, string site, SaasSiteDto dto) =>
+            Handle(() =>
+            {
+                var manifest = PluginManifestOf(code)
+                    ?? throw new InvalidOperationException(Loc.T("msg.plugin.8", code));
+                if (manifest.Saas is null)
+                {
+                    throw new InvalidOperationException(Loc.T("msg.saas.2", code));
+                }
+                site = site.Trim();
+                if (!SaasSite.IsValidCode(site))
+                {
+                    throw new ArgumentException(Loc.T("msg.saas.3", site));
+                }
+                var config = configHolder.Config;
+                if (!config.Plugins.TryGetValue(code, out var settings))
+                {
+                    settings = new Ai2pConfig.PluginSettings();
+                    config.Plugins[code] = settings;
+                }
+                var row = settings.Sites.FirstOrDefault(s =>
+                    string.Equals(s.Code, site, StringComparison.OrdinalIgnoreCase));
+                if (row is null)
+                {
+                    row = new SaasSite { Code = site };
+                    settings.Sites.Add(row);
+                }
+                row.Name = (dto.Name ?? "").Trim();
+                row.Url = (dto.Url ?? "").Trim();
+                row.SiteId = (dto.SiteId ?? "").Trim();
+                row.AccountId = (dto.AccountId ?? "").Trim();
+                row.Note = (dto.Note ?? "").Trim();
+                if ((dto.Key ?? "").Trim().Length > 0)
+                {
+                    secrets.Write(SaasSite.SecretRef(code, row.Code), dto.Key!.Trim());
+                }
+                config.Save(configHolder.Path);
+                return Results.Ok(SiteDto(code, row));
+            }));
+        api.MapDelete("/plugins/{code}/sites/{site}", (string code, string site) => Handle(() =>
+        {
+            var config = configHolder.Config;
+            if (config.Plugins.TryGetValue(code, out var settings))
+            {
+                var removed = settings.Sites.RemoveAll(s =>
+                    string.Equals(s.Code, site.Trim(), StringComparison.OrdinalIgnoreCase));
+                if (removed > 0)
+                {
+                    // ключ уходит вместе с сайтом: забытый ключ — это доступ, о котором никто
+                    // не помнит (9d3a337a)
+                    if (secrets.Has(SaasSite.SecretRef(code, site)))
+                    {
+                        secrets.Write(SaasSite.SecretRef(code, site), "");
+                    }
+                    config.Save(configHolder.Path);
+                }
+            }
+            return Results.Ok();
+        }));
         // мягкий выключатель: записи остаются, действия агенту не публикуются
         api.MapPost("/plugins/{code}/disable", (string code, string? lang) => Handle(() =>
         {
@@ -4024,6 +4161,74 @@ public static class ApiEndpoints
             var status = package.Length > 0 ? ModelInstalls().CancelPackageInstall(package) : null;
             PluginSoftwareProbe.Forget();
             return PluginInstall(code, lang, status, soft);
+        }));
+
+        // --- ОБНОВЛЕНИЕ УСТАНОВЛЕННОГО ПО (T-652-S0) ---
+        // Всё ПО моделей, плагинов и серверов MCP ставится пакетами справочника, поэтому
+        // окно «Обновить установленное ПО» работает с пакетами, а «кому нужен» дописывается
+        // здесь — по манифестам моделей и плагинов. Правка — дело админа ЭТОГО компьютера
+        InstalledPackageDto WithUsers(InstalledPackageDto dto, Dictionary<string, List<string>> users)
+        {
+            dto.UsedBy = users.TryGetValue(dto.Id, out var list) ? string.Join(", ", list.Distinct()) : "";
+            return dto;
+        }
+        Dictionary<string, List<string>> PackageUsers()
+        {
+            var users = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            void Add(string package, string who)
+            {
+                if (package.Trim().Length == 0)
+                {
+                    return;
+                }
+                if (!users.TryGetValue(package.Trim(), out var list))
+                {
+                    users[package.Trim()] = list = [];
+                }
+                list.Add(who);
+            }
+            foreach (var model in Models().List())
+            {
+                foreach (var package in ModelInstalls().Manifest(model.Id)?.AllPackages ?? [])
+                {
+                    Add(package, model.Name);
+                }
+            }
+            foreach (var manifest in PluginManifest.ReadAll(Files().DataDir))
+            {
+                foreach (var soft in manifest.SoftwareList)
+                {
+                    Add(soft.Package, manifest.Code);
+                }
+            }
+            return users;
+        }
+        void EnsureSoftwareAdmin()
+        {
+            if (!current.IsServerAdmin)
+            {
+                throw new ArgumentException(Loc.T("msg.modelInstall.28"));
+            }
+        }
+        api.MapGet("/software/installed", () => Handle(() =>
+        {
+            var users = PackageUsers();
+            return Results.Ok(ModelInstalls().InstalledPackages().Select(p => WithUsers(p, users)).ToList());
+        }));
+        api.MapPost("/software/{id}/check", async (string id, CancellationToken ct) =>
+            await HandleAsync(async () => Results.Ok(
+                WithUsers(await ModelInstalls().CheckPackageUpdateAsync(id, ct), PackageUsers()))));
+        api.MapPost("/software/{id}/update", (string id, bool? deleteOld) => Handle(() =>
+        {
+            EnsureSoftwareAdmin();
+            var dto = ModelInstalls().StartPackageUpdate(id, deleteOld ?? true);
+            PluginSoftwareProbe.Forget();
+            return Results.Ok(WithUsers(dto, PackageUsers()));
+        }));
+        api.MapPost("/software/{id}/cancel", (string id) => Handle(() =>
+        {
+            ModelInstalls().CancelPackageInstall(id);
+            return Results.Ok(WithUsers(ModelInstalls().InstalledPackage(id), PackageUsers()));
         }));
 
         // --- настройки ПРИЛОЖЕНИЯ (гл. 10): изменение из UI пишет обратно в config.json ---

@@ -1,5 +1,6 @@
 @inject ApiClient Api
 @inject I18nService L
+@inject IDialogService Dialogs
 
 @* Форма правила безопасности (ТЗ гл. 12, todo25): на что распространяется (действие AI2P /
    команда OS / доступ до каталогов), разрешение (разрешено / переспросить / запрещено),
@@ -81,6 +82,20 @@
                                  SearchFunc="SearchPluginPatternsAsync" CoerceValue="true"
                                  MaxItems="100" Clearable="true" Immediate="true"
                                  HelperText="@PatternHint" data-security-pattern="plugin" />
+            }
+            else if (_target == SecurityTarget.Directory)
+            {
+                @* ВЫБОР КАТАЛОГА (T-587-S0): обход дисков ЭТОГО сервера тем же диалогом, что и
+                   папка проекта, — путь набирать руками не нужно; на любой ОС (список дисков
+                   или «/» отдаёт сервер). Поле остаётся вводимым: маски и относительные пути *@
+                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                    <MudTextField @bind-Value="_pattern" Label="@L["security.pattern"]" Immediate="true"
+                                  HelperText="@PatternHint" Class="flex-grow-1" />
+                    <MudTooltip Text="@L["folders.browse"]">
+                        <MudIconButton Icon="@Icons.Material.Filled.FolderOpen" OnClick="BrowseAsync"
+                                       data-security-browse="1" />
+                    </MudTooltip>
+                </MudStack>
             }
             else
             {
@@ -262,6 +277,24 @@
         return Task.FromResult<IEnumerable<string>>(needle.Length == 0
             ? _pluginPatterns
             : _pluginPatterns.Where(p => p.Contains(needle, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>Каталог правила выбирается диалогом; набранный полный путь — начало обхода
+    /// (маска и относительный путь обходу не годятся — тогда с прошлого места/дисков).</summary>
+    private async Task BrowseAsync()
+    {
+        var start = _pattern.Trim();
+        var parameters = new DialogParameters<FolderPickerDialog>
+        {
+            { d => d.StartPath, SecurityRulePaths.IsFullPath(start) && start.IndexOfAny(['*', '?']) < 0
+                ? start : null },
+        };
+        var dialog = await Dialogs.ShowAsync<FolderPickerDialog>(L["folders.title"], parameters);
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string path })
+        {
+            _pattern = path;
+        }
     }
 
     private void Save() => Dialog.Close(DialogResult.Ok(new SecurityRule

@@ -65,6 +65,12 @@ public static class AgentCliRunner
         ["template-update"] = new("update_template", "code", "msg.agentCli.34"),
         ["message"] = new("send_chat_message", "text", "msg.agentCli.35"),
         ["to-task"] = new("send_task_message", "code", "msg.agentCli.36"),
+        // мгновенное сообщение на другой сервер кластера (T-590-S0)
+        ["push"] = new("send_chat_to_server", "server", "msg.agentCli.55"),
+        // ДОЖДАТЬСЯ ОТВЕТА В СВОЁМ ЧАТЕ, не заканчивая ход (T-590-S0). Агенту в паре на
+        // другом сервере пауза задания не годится: она кончает сессию, и с ней умирает
+        // запущенный им процесс (сервер игры), который партнёр как раз проверяет
+        ["reply-wait"] = new("wait_task_reply", "minutes", "msg.agentCli.56"),
         ["file"] = new("fetch_file", "url", "msg.agentCli.37"),
         ["import"] = new("import_task_from_url", "url", "msg.agentCli.38"),
         // медиатека проекта (T-113-S0)
@@ -90,7 +96,7 @@ public static class AgentCliRunner
 
     /// <summary>Параметры-списки: «--skills a --skills b» либо «--skills a,b».</summary>
     private static readonly HashSet<string> ListParams = new(StringComparer.OrdinalIgnoreCase)
-        { "skills", "tags", "altExecutors" };
+        { "skills", "tags", "altExecutors", "blockers" };
 
     public static async Task<int> RunAsync(string[] args)
     {
@@ -196,8 +202,11 @@ public static class AgentCliRunner
         {
             // сервер может слушать HTTPS (T-206): по петле проверка сертификата не действует —
             // адрес localhost имени в сертификате не совпадает никогда
+            // предел — с запасом над самым долгим действием: ожидание ответа собеседника
+            // (reply-wait, T-590-S0) держит вызов до MaxWaitReplyMinutes, и пять минут
+            // прежнего предела обрывали бы его раньше, чем истечёт заказанное агентом время
             using var http = new HttpClient(HttpsPeers.LoopbackHandler(), disposeHandler: false)
-                { Timeout = TimeSpan.FromMinutes(5) };
+                { Timeout = TimeSpan.FromMinutes(AI2P.Connectors.TaskToolset.MaxWaitReplyMinutes + 5) };
             http.DefaultRequestHeaders.Add(Api.AgentEndpoints.TokenHeader, token);
             using var content = new StringContent(payload.ToString(), Encoding.UTF8, "application/json");
             using var response = await http.PostAsync(url + "/api/agent/call", content);

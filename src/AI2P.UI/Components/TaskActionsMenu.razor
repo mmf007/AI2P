@@ -11,7 +11,33 @@
    изменить статус, изменить, сменить сервер, копировать, все файлы, ссылки, удалить.
    Признака живого задания у строки списка нет, поэтому видимость пунктов считается
    по статусу задачи. *@
-<span class="ai2p-tree-menu" @onclick:stopPropagation="true">
+@* Множественный выбор (T-651-S0): выбрано больше одной строки — «…» выбранной строки
+   открывает меню для всего выбора, «…» невыбранной строки не делает ничего. Одна
+   выбранная строка выбор не меняет: меню её «…» — обычное меню своей задачи. *@
+<span class="ai2p-tree-menu" @onclick:stopPropagation="true" @ondblclick:stopPropagation="true">
+    @if (Multi && Selection!.Contains(Item.Id))
+    {
+    <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
+             data-task-menu-multi="@Selection.Count">
+        <MudMenuItem Icon="@Icons.Material.Filled.SwapHoriz" Disabled="@(!State.CanEdit)"
+                     OnClick="@(() => MultiAsync("status"))">@L["task.changeStatus"]</MudMenuItem>
+        @if (State.IsCluster)
+        {
+            <MudMenuItem Icon="@Icons.Material.Filled.Dns" Disabled="@(!State.CanEdit)"
+                         OnClick="@(() => MultiAsync("server"))">@L["task.server.change"]</MudMenuItem>
+        }
+        <MudMenuItem Icon="@Icons.Material.Filled.Delete" Disabled="@(!State.CanEdit)"
+                     OnClick="@(() => MultiAsync("delete"))">@L["common.delete"]</MudMenuItem>
+    </MudMenu>
+    }
+    else if (Multi)
+    {
+        @* строка вне выбора: щелчок по «…» игнорируется *@
+        <MudIconButton Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Style="opacity: .4;"
+                       data-task-menu-ignored="@Item.DisplayId" />
+    }
+    else
+    {
     <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
              data-tree-menu="@Item.DisplayId" data-task-menu="@Item.DisplayId">
         <MudMenuItem Icon="@Icons.Material.Filled.OpenInNew"
@@ -52,6 +78,7 @@
         <MudMenuItem Icon="@Icons.Material.Filled.Delete" Disabled="@(!CanAct)"
                      OnClick="@(() => RunAsync("delete"))">@L["common.delete"]</MudMenuItem>
     </MudMenu>
+    }
 </span>
 @* переспрос запуска иерархии — тот же, что у кнопки карточки (T-159, T-186, T-210) *@
 <MudMessageBox @ref="_hierarchyBox" Title="@L["task.startHierarchy"]"
@@ -82,6 +109,12 @@
 
     /// <summary>Действие выполнено — список перечитывается.</summary>
     [Parameter] public EventCallback OnDone { get; set; }
+
+    /// <summary>Выбор строк представления (T-651-S0); нет — список без выбора (диаграмма).</summary>
+    [CascadingParameter] public TaskSelection? Selection { get; set; }
+
+    /// <summary>Выбрано больше одной строки — меню работает в режиме множественного выбора.</summary>
+    private bool Multi => Selection is { Count: > 1 };
 
     private MudMessageBox _hierarchyBox = default!;
     private bool _withErrors;
@@ -152,6 +185,99 @@
         {
             Snackbar.Add(ex.Message, Severity.Error);
         }
+    }
+
+    /// <summary>
+    /// Действие над всеми выбранными задачами (T-651-S0): те же формы, что у одной задачи,
+    /// с подписью «Выбрано задач - N». Общее значение статуса или сервера показывается
+    /// текущим, только если оно у всех одинаково: статус тогда пуст, сервер — «###».
+    /// Задачи обрабатываются по одной; отказ по одной не останавливает остальные.
+    /// </summary>
+    private async Task MultiAsync(string action)
+    {
+        var items = Selection!.Items.ToList();
+        var errors = new List<string>();
+        async Task Each(IEnumerable<TaskItem> tasks, Func<TaskItem, Task> act)
+        {
+            foreach (var task in tasks)
+            {
+                try
+                {
+                    await act(task);
+                }
+                catch (ApiException ex)
+                {
+                    errors.Add($"{task.DisplayId}: {ex.Message}");
+                }
+            }
+        }
+
+        switch (action)
+        {
+            case "status":
+            {
+                var common = items.Select(t => t.Status).Distinct().Count() == 1 ? items[0].Status : "";
+                var parameters = new DialogParameters<StatusDialog>
+                {
+                    { d => d.Current, common },
+                    { d => d.Count, items.Count },
+                };
+                var dialog = await Dialogs.ShowAsync<StatusDialog>(L["task.changeStatus"], parameters);
+                if (await dialog.Result is not { Canceled: false, Data: string status } || status.Length == 0)
+                {
+                    return;
+                }
+                await Each(items.Where(t => t.Status != status), t => Api.ChangeTaskStatusAsync(t.Id, status));
+                break;
+            }
+            case "server":
+            {
+                var servers = items.Select(t => t.ServerId ?? "").Distinct().ToList();
+                var common = servers.Count == 1 ? servers[0] : TaskServerDialog.Mixed;
+                var parameters = new DialogParameters<TaskServerDialog>
+                {
+                    { d => d.Current, common },
+                    { d => d.IsTemplate, items.All(t => t.IsTemplate) },
+                    { d => d.Count, items.Count },
+                };
+                var dialog = await Dialogs.ShowAsync<TaskServerDialog>(L["task.server.change"], parameters);
+                if (await dialog.Result is not { Canceled: false, Data: string serverId }
+                    || serverId.Length == 0 || serverId == TaskServerDialog.Mixed)
+                {
+                    return;
+                }
+                await Each(items.Where(t => (t.ServerId ?? "") != serverId),
+                    t => Api.ChangeTaskServerAsync(t.Id, serverId));
+                break;
+            }
+            case "delete":
+            {
+                var target = items.All(t => t.IsTemplate) ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
+                var names = string.Join(", ", items.Select(t => $"{t.DisplayId} {t.Title}"));
+                var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
+                    target, items[0].Id, names, items.Select(t => t.Id).ToList());
+                if (choice is null)
+                {
+                    return;
+                }
+                // потомок, чей родитель тоже выбран, уходит вместе с родителем — отдельно его
+                // не трогаем, иначе второй вызов получил бы «задача не найдена»
+                var ids = items.Select(t => t.Id).ToHashSet();
+                var roots = items.Where(t => t.ParentId is null || !ids.Contains(t.ParentId));
+                await Each(roots, t => choice == ArchiveOrDeleteDialog.Archive
+                    ? Api.MoveToArchiveAsync(target, t.Id)
+                    : Api.DeleteTaskAsync(t.Id));
+                break;
+            }
+        }
+
+        if (errors.Count > 0)
+        {
+            Snackbar.Add(L["tasks.multi.failed", errors.Count, string.Join("; ", errors)], Severity.Error);
+        }
+        Selection.Clear();
+        await OnDone.InvokeAsync();
+        State.NotifyChanged();
     }
 
     /// <summary>Действия, которым нужна полная карточка задачи. false — человек отказался.</summary>

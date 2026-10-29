@@ -524,6 +524,15 @@ public abstract class AiConnectorBase : IAgentConnector
             tools.PluginTools = names;
             tools.PluginToolOwners = owners;
         }
+        // САЙТЫ В SaaS-РЕДАКТОРАХ (T-567-S0): универсальные site_* поверх живых плагинов вида
+        // saas этого сервера — списки сайтов и ключи у каждого сервера свои
+        if (Saas?.Invoke() is { Count: > 0 } saas)
+        {
+            // папка проекта — корень выкладки site_upload (T-582-S0), под теми же правилами
+            // каталогов, что файловые инструменты
+            tools.Sites = new SiteToolset(saas, security, _actions.CodeByTool, folderPath,
+                (abs, op) => security.ForPath(abs, op).Decision != SecurityDecision.Deny);
+        }
         // ТОКЕН ЗАДАНИЯ (T-34-S0): реквизиты, под которыми агент зовёт действия AI2P клиентом
         // командной строки — синхронно, внутри своего хода, а не маркером (то есть концом хода).
         // Живёт только в памяти процесса и только пока идёт задание: снимается в finally ниже.
@@ -1160,6 +1169,10 @@ public abstract class AiConnectorBase : IAgentConnector
     /// Не подставлен — подключений MCP у этого сервера нет, всё работает как прежде.
     /// </summary>
     public Func<IReadOnlyDictionary<string, IReadOnlyList<string>>>? McpTools { get; set; }
+
+    /// <summary>Живые плагины SaaS-редакторов сайтов этого сервера (T-567-S0); не подставлен
+    /// или пусто — действий site_* у задания нет.</summary>
+    public Func<IReadOnlyList<SaasPlugin>>? Saas { get; set; }
 
     /// <summary>Ключ + источник для диагностики (само значение ключа в логи не пишется, п. 6.3).
     /// Пустой secretRef — сервер без авторизации (локальный llama-server/Ollama): ключ не ищется.</summary>

@@ -47,6 +47,28 @@ There is one team lead per team, and only a top-level member may be one; if ther
 executor at the top, they are marked as the team lead automatically. For a subordinate the flag is
 disabled.
 
+### Org structure: departments and positions
+
+In the form, the team's membership is set as a **tree of org units**. A unit is one of two kinds:
+
+| Kind | Executor | Example |
+|---|---|---|
+| **Department** | its head (may be left empty) | "Marketing" — head Mark_manager |
+| **Position** | whoever holds it; empty means **vacant** | "Marketer 1" — Mark1, "SMM" — vacant |
+
+A unit has a name, a parent unit (the "Belongs to" field — this is also how a unit is moved
+in the hierarchy) and **skills**. A unit's skills are added to the skills of the executor
+holding it when an executor is picked automatically in this team: if the executor's
+declaration lacks such a skill, it counts as mastered at 70 out of 100.
+
+A member's manager is no longer chosen separately — it comes from the tree: the executor of
+the nearest parent unit that has one. The team lead is the executor of a top-level unit; the
+rules above are unchanged. One executor holds one unit in a team.
+
+Teams created before org units look as they did: every member is shown as an unnamed position
+in its former place in the hierarchy. Such units are written to the database the first time
+the team is saved.
+
 ### Two activities, and that is not duplication
 
 * **The executor's activity** (in the executor reference book) — "they work at all".
@@ -61,8 +83,25 @@ without touching the rest.
 
 ## Two list views
 
-* **The table** — the teams as rows, the team lead is marked with an asterisk next to the nick.
-* **The hierarchy** — a block per team, the members as a tree by subordination.
+* **The table** — every org unit (and so every executor) on its own row: name, executor or
+  “vacant”, manager, professional role, activity. The team is a group header row with the start,
+  “+” and edit-team buttons.
+* **The hierarchy** — a block per team, the org units as a tree by subordination.
+
+A single unit is edited without opening the whole team form:
+
+* **“+”** on a team adds a top-level unit, **“+”** on a hierarchy node adds a unit under it. A
+  separate form for one unit opens: kind, name, executor, parent unit, skills, professional role,
+  team lead, activity.
+* **The “…” menu** of a row: **Edit** (the same form), **Toggle active** (active in this team or
+  not), **Delete** (with confirmation; nested units move up to its level).
+* **Dragging in the hierarchy** changes the parent unit: a row onto another row goes under it,
+  onto the “To the top level” bar at the top of the list — no parent unit. The handle on the left
+  is the easiest grip; on a phone, drag the handle with a finger at once or press and hold the
+  row. A unit cannot be moved under its own subordinate.
+
+Each of these actions changes one unit instead of rewriting the whole team. Users who may not
+edit teams (the project administrator role is required) see no edit buttons.
 
 They are switched by the button above the list; the chosen view is remembered.
 

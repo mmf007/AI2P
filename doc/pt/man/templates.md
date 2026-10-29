@@ -112,6 +112,11 @@ sozinho, pelo calendário (veja [Agenda](schedule.md)).
 O agente de IA tem as ações `list_templates`, `create_template` e `update_template` para os nós
 de modelo **do seu projeto**: ver a lista, criar um nó novo (título, descrição, critérios,
 habilidades, pai) e corrigir um existente pelo código (o campo não informado não muda).
+Ao nó podem ser atribuídos de imediato **nós bloqueadores** (`blockers` — códigos de nós do mesmo
+modelo; um nó de outro modelo é recusado), **executor** e **responsável** (`executor`,
+`responsible` — apelidos; só uma pessoa pode ser responsável) e, na edição, também **habilidades**
+(`skills`). Uma string ou lista vazia limpa o valor. As tarefas criadas a partir desse modelo ficam
+bloqueadas da mesma forma que os nós.
 
 Duas regras que vale conhecer:
 

@@ -13,6 +13,8 @@
 * [editor.openshot](editor.openshot.md) — OpenShot — 网关 `editor.openshot`（备选）
 * [editor.resolve](editor.resolve.md) — DaVinci Resolve（OTIO）
 * [editor.shotcut](editor.shotcut.md) — Shotcut / Kdenlive（MLT XML）
+* [editor.vscode](editor.vscode.md) — VS Code 插件
+* [saas.wix](saas.wix.md) — Wix — plugin `saas.wix`
 * [tool.ffmpeg](tool.ffmpeg.md) — 视频转换器（ffmpeg）— 插件 `tool.ffmpeg`
 * [trainer.musubi](trainer.musubi.md) — Musubi Tuner (LoRA) —— 插件 `trainer.musubi`
 

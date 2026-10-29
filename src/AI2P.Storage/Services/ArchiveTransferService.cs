@@ -424,7 +424,7 @@ public sealed class ArchiveTransferService
         [
             "roles", "role_texts", "skills", "skill_texts", "io_formats", "io_format_texts",
             "task_statuses", "task_status_texts", "actions", "action_texts",
-            "ai_models", "executors", "teams", "team_members",
+            "ai_models", "executors", "teams", "team_members", "team_units", "team_unit_skills",
         ];
         var verb = restore ? "INSERT OR IGNORE" : "INSERT OR REPLACE";
         foreach (var table in tables)

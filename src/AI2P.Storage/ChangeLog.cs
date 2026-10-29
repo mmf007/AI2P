@@ -89,7 +89,10 @@ public static class ChangeLog
         // обучение адаптера LoRA под модель (T-12-S1): едет вместе с объектом — на соседнем
         // сервере должно быть видно, под какие модели персонаж обучен и чем это кончилось
         "object_loras",
-        "executors", "teams", "team_members", "tasks", "task_executors",
+        "executors", "teams", "team_members",
+        // оргединицы команды и их навыки (T-628-S0)
+        "team_units", "team_unit_skills",
+        "tasks", "task_executors",
         // «могут заменить исполнителя» (T-221): запасные исполнители задачи — такая же
         // связь, как task_executors, и едет она тем же журналом
         "task_alt_executors", "task_prompter_alt_executors", "task_skills",
@@ -429,6 +432,37 @@ public static class ChangeLog
             Sanitize(row);
         }
         return rows;
+    }
+
+    /// <summary>
+    /// ПОСЛЕДНЯЯ запись журнала об одной строке (T-590-S0): мгновенная доставка сообщения
+    /// чата соседу везёт именно её — с часами и автором из журнала. Тогда сеанс репликации,
+    /// привезя ту же запись позже, найдёт у получателя запись с теми же часами и автором
+    /// и пропустит её (LWW «не новее»), то есть сообщение не задвоится. null — строки
+    /// в журнале нет (под пометкой молчания или вовсе не реплицируемая таблица).
+    /// </summary>
+    public static RowChange? ReadLatest(SqliteConnection conn, string table, string pk)
+    {
+        var row = Sql.Query(conn, null, """
+            SELECT seq, tbl, pk, op, ts, node_id, payload_json FROM changes
+            WHERE tbl=@t AND pk=@p ORDER BY seq DESC LIMIT 1
+            """,
+            r => new RowChange
+            {
+                Seq = r.L("seq"),
+                Table = r.S("tbl"),
+                Pk = r.S("pk"),
+                Op = r.S("op"),
+                Ts = r.S("ts"),
+                NodeId = r.S("node_id"),
+                PayloadJson = r.S("payload_json"),
+            },
+            ("@t", table), ("@p", pk)).FirstOrDefault();
+        if (row is not null)
+        {
+            Sanitize(row);
+        }
+        return row;
     }
 
     /// <summary>Вырезать из payload колонки, которые не покидают сервер (ТЗ гл. 12).</summary>

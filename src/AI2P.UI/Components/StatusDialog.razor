@@ -9,6 +9,11 @@
    раскрытием списка; цвет состояния из справочника остаётся на глазах. *@
 <MudDialog>
     <DialogContent>
+        @if (Count > 0)
+        {
+            @* множественный выбор (T-651-S0): статус ставится всем выбранным задачам *@
+            <MudText Typo="Typo.body2" Class="mb-2" data-multi-count="@Count">@L["tasks.multi.count", Count]</MudText>
+        }
         <MudRadioGroup T="string" @bind-Value="_status">
             <MudStack Spacing="0">
                 @foreach (var status in Options)
@@ -24,7 +29,7 @@
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
-        <MudButton Color="Color.Primary" Variant="Variant.Filled"
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_status.Length == 0)"
                    OnClick="@(() => Dialog.Close(DialogResult.Ok(_status)))">@L["common.save"]</MudButton>
     </DialogActions>
 </MudDialog>
@@ -34,6 +39,10 @@
 
     /// <summary>Текущий статус задачи (код состояния).</summary>
     [Parameter] public string Current { get; set; } = TaskStatuses.Draft;
+
+    /// <summary>Число выбранных задач (T-651-S0); 0 — диалог одной задачи. Статусы
+    /// выбранных разные — Current пуст, и ни один вариант не отмечен.</summary>
+    [Parameter] public int Count { get; set; }
 
     private string _status = TaskStatuses.Draft;
 

@@ -1,0 +1,116 @@
+@inject UiState State
+@inject I18nService L
+
+@* Форма ОДНОЙ оргединицы команды (T-629-S0): «+» в списке команд, «+» у узла иерархии
+   (подчинённый) и пункт «Изменить» меню «…». Сохраняется своим вызовом
+   POST /teams/{id}/units — меняется одна единица и строка её исполнителя, а не вся
+   команда. Правила те же, что у формы команды (T-628-S0): у должности исполнитель может
+   быть пуст (вакансия), у подразделения исполнитель — руководитель; «Входит в» не
+   предлагает своё поддерево; тимлид — только у единицы верхнего уровня. *@
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2" data-team-unit-form="1">
+            <MudSelect T="string" @bind-Value="_unit.Kind" Label="@L["teams.unitKind"]" Dense="true" Margin="Margin.Dense">
+                <MudSelectItem T="string" Value="@TeamUnit.Department">@L["teams.unitKind.department"]</MudSelectItem>
+                <MudSelectItem T="string" Value="@TeamUnit.Position">@L["teams.unitKind.position"]</MudSelectItem>
+            </MudSelect>
+            <MudTextField T="string" @bind-Value="_unit.Name" Label="@L["teams.unitName"]" Margin="Margin.Dense" />
+            @* только активные исполнители (ТЗ п. 2.2), не занявшие другую единицу *@
+            <MudSelect T="string" @bind-Value="_unit.ExecutorId" Label="@L["teams.unitExecutor"]"
+                       Dense="true" Margin="Margin.Dense" Clearable="true" Placeholder="@L["teams.vacancy"]">
+                @foreach (var executor in Available)
+                {
+                    <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" @bind-Value="_unit.ParentUnitId" Label="@L["teams.unitParent"]"
+                       Dense="true" Margin="Margin.Dense" Clearable="true" Placeholder="@L["teams.topLevel"]">
+                @foreach (var other in Team.Units.Where(u => !IsInside(u)))
+                {
+                    <MudSelectItem T="string" Value="@other.Id">@TeamUnits.Title(other, State, L)</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="string" MultiSelection="true" Dense="true" Margin="Margin.Dense" Label="@L["teams.unitSkills"]"
+                       SelectedValues="@_unit.SkillIds"
+                       SelectedValuesChanged="@(values => _unit.SkillIds = values.ToList())"
+                       ToStringFunc="@(id => State.Skills.FirstOrDefault(s => s.Id == id)?.Name ?? id ?? "")">
+                @foreach (var skill in State.Skills)
+                {
+                    <MudSelectItem T="string" Value="@skill.Id">@skill.Name</MudSelectItem>
+                }
+            </MudSelect>
+            @if (_unit.ExecutorId is not null)
+            {
+                <MudSelect T="string" @bind-Value="_roleId" Label="@L["teams.role"]"
+                           Dense="true" Margin="Margin.Dense" Clearable="true">
+                    @foreach (var role in State.Roles)
+                    {
+                        <MudSelectItem T="string" Value="@role.Id">@role.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudTooltip Text="@L["teams.leadHint"]">
+                    <MudCheckBox T="bool" @bind-Value="_lead" Label="@L["teams.lead"]" Dense="true"
+                                 Disabled="@(_unit.ParentUnitId is not null)" />
+                </MudTooltip>
+            }
+            <MudTooltip Text="@L["teams.memberActiveHint"]">
+                <MudCheckBox T="bool" @bind-Value="_unit.IsActive" Label="@L["teams.memberActive"]" Dense="true" />
+            </MudTooltip>
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save">@L["common.save"]</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public Team Team { get; set; } = default!;
+
+    /// <summary>Правимая единица; null — новая.</summary>
+    [Parameter] public TeamUnit? Source { get; set; }
+
+    /// <summary>Вышестоящая единица новой («+» у узла иерархии).</summary>
+    [Parameter] public string? ParentUnitId { get; set; }
+
+    private TeamUnit _unit = new();
+    private string? _roleId;
+    private bool _lead;
+
+    protected override void OnInitialized()
+    {
+        _unit = Source is null
+            ? new TeamUnit { ParentUnitId = ParentUnitId }
+            : new TeamUnit
+            {
+                Id = Source.Id,
+                ParentUnitId = Source.ParentUnitId,
+                Kind = Source.Kind,
+                Name = Source.Name,
+                ExecutorId = Source.ExecutorId,
+                Sort = Source.Sort,
+                IsActive = Source.IsActive,
+                SkillIds = Source.SkillIds.ToList(),
+            };
+        var member = Team.Members.FirstOrDefault(m => m.ExecutorId == _unit.ExecutorId);
+        _roleId = member?.RoleId;
+        _lead = member?.IsLead ?? false;
+    }
+
+    private IEnumerable<Executor> Available => State.Executors.Where(e =>
+        e.Id == Source?.ExecutorId
+        || (e.IsActive && Team.Units.All(u => u.Id == _unit.Id || u.ExecutorId != e.Id)));
+
+    /// <summary>Лежит ли <paramref name="unit"/> внутри правимой единицы (или это она сама).</summary>
+    private bool IsInside(TeamUnit unit) => TeamUnits.IsInside(Team.Units, unit, _unit.Id);
+
+    private void Save() =>
+        Dialog.Close(DialogResult.Ok(new TeamUnitEditDto
+        {
+            Unit = _unit,
+            RoleId = _roleId,
+            IsLead = _lead && _unit.ParentUnitId is null,
+        }));
+}

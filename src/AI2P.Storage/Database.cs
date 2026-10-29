@@ -594,7 +594,15 @@ public sealed class Database
         // прежней версии отбирает правила по ТОЧНОМУ коду события, поэтому незнакомое
         // событие он просто не срабатывает (никакой else-ветки «сделать наоборот»), а
         // незнакомый вид шлёт обычным письмом (NotificationChannels.TransportOf)
-        Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '49')");
+        // v49 → v50 (T-628-S0): ОРГЕДИНИЦЫ КОМАНДЫ — подразделения и должности. Таблицы
+        // team_units и team_unit_skills создаёт сама схема (CREATE IF NOT EXISTS), обе
+        // реплицируются; сервер прежней версии их строки пропускает молча. team_members не
+        // меняется: подчинение исполнителей по-прежнему лежит в parent_executor_id и при
+        // сохранении команды выводится из единиц (TeamService.DeriveMembers). У старой команды
+        // единиц нет — TeamService достраивает их В ПАМЯТИ по составу (должность без названия
+        // на каждого участника), поэтому шаг переноса данных не нужен, а два сервера не
+        // заводят двух комплектов единиц с разными id
+        Sql.Exec(conn, null, "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', '50')");
     }
 
     /// <summary>
@@ -1156,6 +1164,26 @@ public sealed class Database
           is_lead            INTEGER NOT NULL DEFAULT 0,    -- тимлид (только верхний уровень, v1.17)
           is_active          INTEGER NOT NULL DEFAULT 1,    -- активен именно в этой команде (T-129)
           PRIMARY KEY (team_id, executor_id)
+        );
+
+        -- оргединицы команды (T-628-S0): подразделение или должность, иерархия по единицам;
+        -- у должности исполнитель может быть пуст (вакансия), у подразделения это руководитель.
+        -- FK на executors намеренно нет: исполнитель мог не приехать к партнёру (наука T-169-S0)
+        CREATE TABLE IF NOT EXISTS team_units (
+          id             TEXT PRIMARY KEY,
+          team_id        TEXT NOT NULL,
+          parent_unit_id TEXT,
+          kind           TEXT NOT NULL DEFAULT 'position', -- department | position
+          name           TEXT NOT NULL DEFAULT '',
+          executor_id    TEXT,
+          sort           INTEGER NOT NULL DEFAULT 0,
+          is_active      INTEGER NOT NULL DEFAULT 1
+        );
+
+        CREATE TABLE IF NOT EXISTS team_unit_skills (
+          unit_id  TEXT NOT NULL,
+          skill_id TEXT NOT NULL,
+          PRIMARY KEY (unit_id, skill_id)
         );
 
         CREATE TABLE IF NOT EXISTS roles (

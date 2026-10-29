@@ -20,6 +20,41 @@ public sealed class ChatService
     /// локальной записи — по нему уходит уведомление «вопрос агента».</summary>
     public event Action<ChatMessage>? QuestionAsked;
 
+    /// <summary>
+    /// МГНОВЕННАЯ ДОСТАВКА СООБЩЕНИЯ СОСЕДУ (T-590-S0): (id сообщения, сервер — код S1,
+    /// имя или id) → текст итога. Ставит серверный слой (репликация знает адреса и токены
+    /// соседей), здесь только точка вызова. null — кластера нет (тесты, одиночная установка).
+    /// </summary>
+    public Func<string, string, CancellationToken, Task<string>>? Push { get; set; }
+
+    /// <summary>
+    /// Написать в чат задачи и СРАЗУ отвезти сообщение на сервер <paramref name="server"/>,
+    /// не дожидаясь сеанса репликации (T-590-S0). Сообщение пишется у себя обычным порядком,
+    /// а соседу уходит его запись журнала изменений — поэтому сеанс репликации, привезя её
+    /// позже, сообщения не задвоит. Не дозвонились — сообщение всё равно на месте и уедет
+    /// репликацией; исключение несёт причину.
+    /// </summary>
+    public async Task<(ChatMessage Message, bool Delivered, string Note)> AddAndPushAsync(string taskId,
+        string fromExecutorId, string? toExecutorId, string text, string server,
+        CancellationToken ct = default)
+    {
+        if (Push is null)
+        {
+            throw new InvalidOperationException(Loc.T("msg.chat.7"));
+        }
+        var message = Add(taskId, fromExecutorId, toExecutorId, text);
+        try
+        {
+            return (message, true, await Push(message.Id, server, ct));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // сообщение уже записано у нас и уедет обычной репликацией — это не потеря,
+            // а только не случившаяся спешка; причину отдаём вызывающему
+            return (message, false, Loc.T("msg.chat.8", ex.Message));
+        }
+    }
+
     public ChatService(Database db, EventStore events)
     {
         _db = db;

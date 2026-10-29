@@ -113,7 +113,8 @@ public sealed class ExecutorPickService
                 busySkipped.Add(Loc.T("msg.executorPick.3", executor.Nick, busy.ToLocalTime()));
                 continue;
             }
-            var (quality, cost) = ReadScope(executor, skillNames, executor.Kind);
+            var (quality, cost) = ReadScope(executor, skillNames, executor.Kind,
+                SkillNames(TeamService.UnitSkillIdsOf(team, executor.Id)));
             kinds[executor.Id] = executor.Kind;
             candidates.Add(new PickCandidateDto
             {
@@ -307,6 +308,10 @@ public sealed class ExecutorPickService
         }
     }
 
+    /// <summary>Оценка навыка, который исполнитель получает от занятой им оргединицы команды
+    /// (T-628-S0), если в его декларации этого навыка нет или он оценён ниже.</summary>
+    public const double UnitSkillScore = 70;
+
     /// <summary>Имена (коды) skills по id из справочника — в декларациях skills хранятся по имени.</summary>
     private List<string> SkillNames(IReadOnlyCollection<string> skillIds)
     {
@@ -331,19 +336,29 @@ public sealed class ExecutorPickService
     /// i2v-задачу). У человека декларация форматов — условность, поэтому правило только для ИИ.
     /// </summary>
     private (double Quality, double Cost) ReadScope(Executor executor, List<string> skillNames,
-        ExecutorKind kind)
+        ExecutorKind kind, IReadOnlyCollection<string>? unitSkills = null)
     {
         try
         {
             var json = executor.CapabilitiesPath.Length == 0 ? "" : _files.ReadText(executor.CapabilitiesPath);
             if (json.Trim().Length == 0)
             {
-                return (0, 0);
+                if (unitSkills is not { Count: > 0 })
+                {
+                    return (0, 0);
+                }
+                json = "{}";   // декларации нет, но должность в команде даёт навыки (T-628-S0)
             }
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
             var scores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            // НАВЫКИ ОРГЕДИНИЦЫ (T-628-S0) добавляются к навыкам занявшего её исполнителя в
+            // рамках команды: объявленная в декларации оценка выше — остаётся она
+            foreach (var name in unitSkills ?? [])
+            {
+                scores[name] = UnitSkillScore;
+            }
             if (root.TryGetProperty("skills", out var skills) && skills.ValueKind == JsonValueKind.Array)
             {
                 foreach (var entry in skills.EnumerateArray())
@@ -352,7 +367,8 @@ public sealed class ExecutorPickService
                         && entry.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
                         && entry.TryGetProperty("score", out var s) && s.TryGetDouble(out var score))
                     {
-                        scores[n.GetString()!] = score;
+                        var name = n.GetString()!;
+                        scores[name] = scores.TryGetValue(name, out var unit) ? Math.Max(unit, score) : score;
                     }
                 }
             }

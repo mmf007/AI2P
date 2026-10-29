@@ -50,6 +50,29 @@ El jefe de equipo es uno por equipo, y sólo puede serlo un integrante del nivel
 arriba hay un único ejecutor, se le marca como jefe de equipo automáticamente. En un
 subordinado el atributo no está disponible.
 
+### Estructura organizativa: departamentos y puestos
+
+En el formulario, la composición del equipo se define como un **árbol de unidades
+organizativas**. Una unidad es de uno de dos tipos:
+
+| Tipo | Ejecutor | Ejemplo |
+|---|---|---|
+| **Departamento** | su jefe (puede quedar vacío) | «Marketing» — jefe Mark_manager |
+| **Puesto** | quien lo ocupa; vacío significa **vacante** | «Especialista de marketing 1» — Mark1, «SMM» — vacante |
+
+Una unidad tiene nombre, unidad superior (el campo «Pertenece a», con el que también se mueve
+la unidad en la jerarquía) y **habilidades**. Las habilidades de la unidad se suman a las del
+ejecutor que la ocupa cuando el ejecutor se elige automáticamente en este equipo: si la
+declaración del ejecutor no tiene esa habilidad, cuenta como dominada en 70 de 100.
+
+El jefe de un miembro ya no se elige aparte: se toma del árbol, es el ejecutor de la unidad
+superior más cercana que lo tenga. El jefe de equipo es el ejecutor de una unidad de nivel
+superior; las reglas anteriores no cambian. Un ejecutor ocupa una sola unidad en un equipo.
+
+Los equipos creados antes de las unidades organizativas se ven como antes: cada miembro aparece
+como un puesto sin nombre en su lugar anterior de la jerarquía. Esas unidades se guardan en la
+base de datos la primera vez que se guarda el equipo.
+
 ### Dos actividades, y no es una duplicación
 
 * La **actividad del ejecutor** (en el catálogo de ejecutores) significa «trabaja, en general».
@@ -64,9 +87,26 @@ a un ejecutor en un proyecto sin tocar los demás.
 
 ## Dos vistas de la lista
 
-* **Tabla**: los equipos en filas, con el jefe de equipo marcado con un asterisco junto al
-  alias.
-* **Jerarquía**: un bloque por equipo, con los integrantes en árbol según la subordinación.
+* **Tabla**: cada unidad organizativa (y por tanto cada ejecutor) en su propia fila: nombre,
+  ejecutor o «vacante», responsable, rol profesional, actividad. El equipo es una fila de
+  cabecera del grupo con los botones de inicio, «+» y edición del equipo.
+* **Jerarquía**: un bloque por equipo, con las unidades organizativas en árbol según la
+  subordinación.
+
+Una unidad se edita sin abrir el formulario de todo el equipo:
+
+* **«+»** en el equipo añade una unidad de nivel superior; **«+»** en un nodo de la jerarquía,
+  una subordinada a él. Se abre un formulario aparte para una unidad: tipo, nombre, ejecutor,
+  unidad superior, habilidades, rol profesional, jefe de equipo, actividad.
+* **El menú «…»** de la fila: **Editar** (el mismo formulario), **Cambiar actividad** (activo o
+  no en este equipo), **Eliminar** (con confirmación; las unidades anidadas suben a su nivel).
+* **Arrastrar en la jerarquía** cambia la unidad superior: una fila sobre otra entra en ella;
+  sobre la barra «Al nivel superior», arriba de la lista, queda sin unidad superior. Lo más
+  cómodo es tirar del asa de la izquierda; en el teléfono, con el dedo desde el asa al instante o
+  manteniendo pulsada la fila. Una unidad no se puede mover dentro de su propia subordinada.
+
+Cada una de estas acciones cambia una unidad y no reescribe todo el equipo. Quien no puede
+editar equipos (hace falta el rol de administrador de proyectos) no ve los botones de edición.
 
 Se alternan con el botón que hay encima de la lista; la vista elegida se recuerda.
 

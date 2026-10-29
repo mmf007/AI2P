@@ -233,6 +233,11 @@ else
                             @L["settings.update.run"]
                         </MudButton>
                     }
+                    @* ОБНОВЛЕНИЕ УСТАНОВЛЕННОГО ПО (T-652-S0): пакеты моделей, плагинов и MCP —
+                       рядом с обновлением самого AI2P, окном со списком всего установленного *@
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" data-software-open="1"
+                               StartIcon="@Icons.Material.Filled.Upgrade"
+                               OnClick="OpenSoftwareUpdateAsync">@L["software.open"]</MudButton>
                     @if (_settings.Update.ReleasesUrl.Length > 0)
                     {
                         <MudLink Href="@_settings.Update.ReleasesUrl" Target="_blank"
@@ -3026,6 +3031,13 @@ else
             _settings = await Api.GetSettingsAsync();
         }
     }
+
+    /// <summary>
+    /// Окно «Обновить установленное ПО» (T-652-S0).
+    /// </summary>
+    private async Task OpenSoftwareUpdateAsync() =>
+        await Dialogs.ShowAsync<SoftwareUpdateDialog>(L["software.title"],
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseButton = true });
 
     /// <summary>
     /// «Проверить обновления» (T-208): один поход в репозиторий выпусков. Отказ сети —

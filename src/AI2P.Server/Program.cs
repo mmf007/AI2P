@@ -348,6 +348,9 @@ try
         // действием человека и лежит в config.json этого компьютера — у соседа версия
         // сервера MCP может быть другой, поэтому в базу организации список не едет
         PluginTools: code => config.Plugins.TryGetValue(code, out var mcp) ? mcp.Tools : [],
+        // сайты плагина SaaS-редактора и их ключи (T-567-S0): оба пер-серверные
+        PluginSites: code => config.Plugins.TryGetValue(code, out var saas) ? saas.Sites : [],
+        PluginSecret: secretRef => secrets.Read(secretRef),
         // ПУТЬ К ПРОГРАММЕ ПЛАГИНА, НАЙДЕННОЙ УСТАНОВКОЙ МОДЕЛИ (T-156-S0). Пишем ровно так же,
         // как форма плагина (PUT /plugins/{код}/path): главная программа — в поле path,
         // остальные — в словарь paths по имени записи софта (T-146-S0). ТОЛЬКО В ПУСТОЕ ПОЛЕ:
@@ -412,6 +415,7 @@ try
     // pull-протокол и таймер автоматических сеансов. Один на установку: сеанс идёт
     // по организации, и организации обрабатываются по очереди
     var replication = new ReplicationService(orgs);
+    orgs.ChatPusher = replication.PushChatAsync;
     var replicationRunner = new ReplicationRunner(orgs, replication, secrets);
 
     builder.Services.AddSingleton(orgs);

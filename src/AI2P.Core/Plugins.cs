@@ -123,6 +123,13 @@ public sealed class PluginManifest
     /// </summary>
     public RunOps? Run { get; set; }
 
+    /// <summary>
+    /// СРЕДА РЕДАКТИРОВАНИЯ САЙТОВ (блок <c>saas</c>, T-567-S0) — только у <c>mcp</c>: плагин
+    /// ведёт к SaaS-конструктору сайтов, у записи есть список сайтов, а агент работает с ним
+    /// универсальными действиями <c>site_*</c>. null — обычный сервер MCP.
+    /// </summary>
+    public SaasSpec? Saas { get; set; }
+
     /// <summary>Манифест годен: код есть, вид известен, и блок соответствует виду.</summary>
     public bool IsValid =>
         Code.Length > 0 && Entities.PluginKinds.IsKnown(Kind)
@@ -167,6 +174,7 @@ public sealed class PluginManifest
                 Render = RenderCommand.From(root, "render"),
                 Convert = ConvertOps.From(root, "convert"),
                 Run = RunOps.From(root, "run"),
+                Saas = SaasSpec.From(root, "saas"),
             };
             manifest.Actions = Each(root, "actions", PluginAction.From);
             manifest.Experience = Each(root, "experience", PluginExperience.From);
@@ -197,6 +205,7 @@ public sealed class PluginManifest
             else
             {
                 manifest.Connection = null;
+                manifest.Saas = null;
             }
             return manifest.IsValid ? manifest : null;
         }
@@ -591,6 +600,20 @@ public sealed class PluginConnection
     /// <c>Authorization</c>. Пусто — секрет не нужен.</summary>
     public string SecretHeader { get; set; } = "";
 
+    /// <summary>
+    /// СХЕМА ПЕРЕД СЕКРЕТОМ (T-567-S0). null (поля нет) — как раньше: к <c>Authorization</c>
+    /// дописывается <c>Bearer</c>. Пустая строка — секрет уходит как есть (так ждёт ключ API
+    /// у Wix); иначе — «схема секрет».
+    /// </summary>
+    public string? SecretScheme { get; set; }
+
+    /// <summary>
+    /// НЕСЕКРЕТНЫЕ ЗАГОЛОВКИ (транспорт http, T-567-S0): <c>{"wix-account-id": "{accountId}"}</c>.
+    /// Значение — шаблон с полями сайта (<see cref="SaasSite.Fill"/>); пустой после подстановки
+    /// заголовок не отправляется.
+    /// </summary>
+    public Dictionary<string, string> Headers { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Подключение описано целиком: у stdio есть команда, у http — адрес.</summary>
     public bool IsComplete => Transport == Stdio ? Command.Length > 0 : Url.Length > 0;
 
@@ -602,7 +625,7 @@ public sealed class PluginConnection
             return null;
         }
         var transport = JsonRead.Str(v, "transport", Stdio).ToLowerInvariant();
-        return new PluginConnection
+        var connection = new PluginConnection
         {
             Transport = transport == Http ? Http : Stdio,
             Command = JsonRead.Str(v, "command"),
@@ -610,7 +633,22 @@ public sealed class PluginConnection
             Url = JsonRead.Str(v, "url"),
             SecretRef = JsonRead.Str(v, "secretRef"),
             SecretHeader = JsonRead.Str(v, "secretHeader"),
+            SecretScheme = v.TryGetProperty("secretScheme", out var scheme)
+                           && scheme.ValueKind == JsonValueKind.String
+                ? scheme.GetString()!.Trim()
+                : null,
         };
+        if (v.TryGetProperty("headers", out var headers) && headers.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var p in headers.EnumerateObject())
+            {
+                if (p.Value.ValueKind == JsonValueKind.String && p.Name.Trim().Length > 0)
+                {
+                    connection.Headers[p.Name.Trim()] = p.Value.GetString() ?? "";
+                }
+            }
+        }
+        return connection;
     }
 }
 

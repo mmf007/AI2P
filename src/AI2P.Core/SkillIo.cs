@@ -58,6 +58,13 @@ public static class SkillIo
             ["3d-image"] = (Image, Model),          // i23d
             ["3d-texture"] = (Model, Model),
             ["3d-animation"] = (Model, Model),
+            // маркетинг (T-627-S0): текстовая работа — медиа-модель на неё не берётся
+            ["marketing-strategy"] = (Text, Text),
+            ["marketing-copy"] = (Text, Text),
+            ["marketing-smm"] = (Text, Text),
+            ["marketing-seo"] = (Text, Text),
+            ["marketing-pr"] = (Text, Text),
+            ["marketing-analytics"] = (Text, Text),
         };
 
     /// <summary>

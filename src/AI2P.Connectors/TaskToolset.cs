@@ -406,7 +406,10 @@ public sealed class TaskToolset
                 "description": { "type": "string" },
                 "acceptance":  { "type": "string" },
                 "parent":      { "type": "string" },
-                "skills":      { "type": "array", "items": { "type": "string" } }
+                "skills":      { "type": "array", "items": { "type": "string" } },
+                "blockers":    { "type": "array", "items": { "type": "string" } },
+                "executor":    { "type": "string" },
+                "responsible": { "type": "string" }
               },
               "required": ["title", "description"]
             }
@@ -419,7 +422,11 @@ public sealed class TaskToolset
                 "code":        { "type": "string" },
                 "title":       { "type": "string" },
                 "description": { "type": "string" },
-                "acceptance":  { "type": "string" }
+                "acceptance":  { "type": "string" },
+                "skills":      { "type": "array", "items": { "type": "string" } },
+                "blockers":    { "type": "array", "items": { "type": "string" } },
+                "executor":    { "type": "string" },
+                "responsible": { "type": "string" }
               },
               "required": ["code"]
             }
@@ -454,6 +461,19 @@ public sealed class TaskToolset
             """),
         new("wait_task_reply", "",
             """{ "type": "object", "properties": { "minutes": { "type": "integer" } } }"""),
+        // мгновенное сообщение в чат с доставкой на названный сервер (T-590-S0)
+        new("send_chat_to_server", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "server": { "type": "string" },
+                "text":   { "type": "string" },
+                "code":   { "type": "string" }
+              },
+              "required": ["server", "text"]
+            }
+            """),
         // ветвление и циклы (T-300-S0): решение условия, исход проверки цикла, задачи ветви
         // из узла шаблона, остановка выполнения иерархии
         new("set_condition_result", "",
@@ -466,7 +486,8 @@ public sealed class TaskToolset
               "type": "object",
               "properties": {
                 "template": { "type": "string" },
-                "parent":   { "type": "string" }
+                "parent":   { "type": "string" },
+                "macros":   { "type": "object", "additionalProperties": { "type": "string" } }
               },
               "required": ["template"]
             }
@@ -514,6 +535,7 @@ public sealed class TaskToolset
                 "send_chat_message" => SendChatMessage(RequiredString(args, "text", Language)),
                 "send_task_message" => SendTaskMessage(args),
                 "wait_task_reply" => await WaitTaskReplyAsync(args, ct),
+                "send_chat_to_server" => await SendChatToServerAsync(args, ct),
                 "set_condition_result" => SetFlowDecision(args, "value", loop: false),
                 "set_loop_result" => SetFlowDecision(args, "continue", loop: true),
                 "create_tasks_from_template" => CreateTasksFromTemplate(args),
@@ -706,6 +728,58 @@ public sealed class TaskToolset
         }
         _chat.Add(_current.Id, _actorExecutorId!, null, trimmed);
         return Loc.In(Language, "prompt.tasks.11", _current.DisplayId, trimmed.Length);
+    }
+
+    /// <summary>Мгновенное сообщение на другой сервер (send_chat_to_server, T-590-S0)
+    /// публикуется, когда есть от чьего имени писать и сервер в кластере (есть куда везти).</summary>
+    public bool CanPushChat => _actorExecutorId is not null && _chat.Push is not null;
+
+    /// <summary>
+    /// send_chat_to_server (T-590-S0): написать в чат задачи (своей либо названной кодом)
+    /// и СРАЗУ отвезти сообщение на сервер <c>server</c> (код S1, имя или id), не дожидаясь
+    /// сеанса репликации. Нужен агентам, которые работают в паре на разных серверах и
+    /// проверяют одно и то же вживую (сервер игры на одном, клиент на другом): сеанс
+    /// репликации идёт минутами, а им нужны секунды. На сервере-получателе сообщение
+    /// попадает в чат той же задачи и доходит до работающего там агента перебивкой;
+    /// обычная репликация его потом не задвоит. Не дозвонились — сообщение остаётся и уедет
+    /// репликацией, агент получает причину.
+    /// </summary>
+    private async Task<string> SendChatToServerAsync(JsonElement args, CancellationToken ct)
+    {
+        if (!CanPushChat)
+        {
+            return Loc.In(Language, "prompt.push.1");
+        }
+        var server = RequiredString(args, "server", Language).Trim();
+        var text = RequiredString(args, "text", Language).Trim();
+        if (text.Length == 0)
+        {
+            return Loc.In(Language, "prompt.tasks.10");
+        }
+        var target = _current;
+        if (OptionalString(args, "code") is { Length: > 0 } code
+            && !code.Trim().Equals(_current.DisplayId, StringComparison.OrdinalIgnoreCase))
+        {
+            var found = ProjectTasks(includeTemplates: false)
+                .FirstOrDefault(t => t.DisplayId.Equals(code.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (found is null)
+            {
+                return Loc.In(Language, "prompt.tasks.30", code);
+            }
+            target = found;
+        }
+        // адресат — тот, кто ведёт задачу-получателя (как у send_task_message); своя задача —
+        // без адресата, как обычное сообщение агента в свой чат
+        string? addressee = null;
+        if (!ReferenceEquals(target, _current))
+        {
+            addressee = target.ActualExecutorId is { Length: > 0 } actual
+                ? actual
+                : target.ExecutorIds.Count == 1 ? target.ExecutorIds[0] : null;
+        }
+        var (_, delivered, note) = await _chat.AddAndPushAsync(target.Id, _actorExecutorId!, addressee,
+            text, server, ct);
+        return Loc.In(Language, delivered ? "prompt.push.2" : "prompt.push.3", target.DisplayId, note);
     }
 
     // --- разговор агентов между собой (T-185) ---
@@ -2015,8 +2089,19 @@ public sealed class TaskToolset
             }
             parent = found;
         }
+        // макроподстановки ${key} (T-655-S0) — как sed по шаблону: объект «ключ → значение»,
+        // пустое значение подстановку не проводит
+        Dictionary<string, string>? macros = null;
+        if (args.TryGetProperty("macros", out var m) && m.ValueKind == JsonValueKind.Object)
+        {
+            macros = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var p in m.EnumerateObject())
+            {
+                macros[p.Name] = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() ?? "" : p.Value.ToString();
+            }
+        }
         var head = _tasks.InstantiateTemplate(node.Id, baseDate: null, _actorExecutorId, PickMode.AiFirst,
-            _picker, parent.Id);
+            _picker, parent.Id, macros);
         return Loc.In(Language, "prompt.tasks.182", head.DisplayId, head.Title, node.DisplayId, parent.DisplayId);
     }
 
@@ -2661,6 +2746,83 @@ public sealed class TaskToolset
         return found?.Id;
     }
 
+    /// <summary>Корень дерева шаблона, в котором стоит узел (T-630-S0).</summary>
+    private string TemplateRootOf(string nodeId)
+    {
+        var id = nodeId;
+        for (var guard = 0; guard < 1000 && _tasks.Get(id)?.ParentId is { } parentId; guard++)
+        {
+            id = parentId;
+        }
+        return id;
+    }
+
+    /// <summary>Исполнитель и ответственный узла шаблона по никам (T-630-S0). null — поле
+    /// не передано, пустой список / пустая строка — снять.</summary>
+    private bool TryTemplateAssignment(JsonElement args, out List<string>? executorIds,
+        out string? responsibleId, out string error)
+    {
+        executorIds = null;
+        responsibleId = null;
+        error = "";
+        if (OptionalString(args, "executor") is { } executorNick)
+        {
+            if (!TryResolveExecutors([executorNick], out var found, out error))
+            {
+                return false;
+            }
+            executorIds = found;
+        }
+        if (OptionalString(args, "responsible") is { } responsibleNick)
+        {
+            if (!TryResolveExecutors([responsibleNick], out var found, out error))
+            {
+                return false;
+            }
+            responsibleId = found.Count == 0 ? "" : found[0];
+        }
+        return true;
+    }
+
+    /// <summary>Блокирующие узла шаблона по кодам (или заголовкам) узлов (T-630-S0): годятся
+    /// только узлы того же шаблона — с тем же корнем <paramref name="rootId"/>; null — у узла
+    /// нет шаблона, в котором искать (новый корневой узел), годного нет вовсе.</summary>
+    private bool TryResolveTemplateBlockers(IEnumerable<string> codes, string? rootId, string? selfId,
+        out List<string> blockerIds, out string error)
+    {
+        blockerIds = [];
+        error = "";
+        foreach (var raw in codes)
+        {
+            var code = raw.Trim();
+            if (code.Length == 0)
+            {
+                continue;
+            }
+            var id = TemplateIdOf(code);
+            if (id is null)
+            {
+                error = Loc.In(Language, "prompt.tasks.72", code);
+                return false;
+            }
+            if (string.Equals(id, selfId, StringComparison.Ordinal))
+            {
+                error = Loc.In(Language, "prompt.tasks.190", code);
+                return false;
+            }
+            if (rootId is null || !string.Equals(TemplateRootOf(id), rootId, StringComparison.Ordinal))
+            {
+                error = Loc.In(Language, "prompt.tasks.189", code);
+                return false;
+            }
+            if (!blockerIds.Contains(id))
+            {
+                blockerIds.Add(id);
+            }
+        }
+        return true;
+    }
+
     /// <summary>list_templates (T-144): узлы шаблонов проекта — код, заголовок, родитель
     /// и число записей опыта. С этого начинается любая работа с шаблонами: коды узлов
     /// агенту иначе взять неоткуда (в файлах проекта шаблонов нет).</summary>
@@ -2712,6 +2874,19 @@ public sealed class TaskToolset
         {
             return skillError;
         }
+        if (!TryTemplateAssignment(args, out var executorIds, out var responsibleId, out var assignError))
+        {
+            return assignError;
+        }
+        // блокирующие (T-630-S0) — только узлы ТОГО ЖЕ шаблона: InstantiateTemplate ссылку
+        // на не скопированный узел отбрасывает, и связь молча пропала бы у копии
+        List<string> blockerIds = [];
+        if (StringList(args, "blockers") is { } blockerCodes
+            && !TryResolveTemplateBlockers(blockerCodes, parentId is null ? null : TemplateRootOf(parentId),
+                null, out blockerIds, out var blockerError))
+        {
+            return blockerError;
+        }
         var node = _tasks.Create(new TaskItem
         {
             ProjectId = _current.ProjectId,
@@ -2722,6 +2897,9 @@ public sealed class TaskToolset
             Status = TaskStatuses.Draft,
             IsTemplate = true,
             SkillIds = skillIds,
+            ExecutorIds = executorIds ?? [],
+            ResponsibleId = string.IsNullOrEmpty(responsibleId) ? null : responsibleId,
+            BlockerIds = blockerIds,
         }, description, acceptance, _actorExecutorId);
         return Loc.In(Language, "prompt.tasks.73", node.DisplayId, node.Title)
                + (parentId is null ? Loc.In(Language, "prompt.tasks.74") : Loc.In(Language, "prompt.tasks.75", CodeOf(parentId)));
@@ -2745,6 +2923,37 @@ public sealed class TaskToolset
         if (OptionalString(args, "title")?.Trim() is { Length: > 0 } title)
         {
             node.Title = title;
+        }
+        // исполнитель, ответственный, навыки и блокирующие (T-630-S0): не переданное поле
+        // не меняется, пустая строка или пустой список — снять
+        if (!TryTemplateAssignment(args, out var executorIds, out var responsibleId, out var assignError))
+        {
+            return assignError;
+        }
+        if (executorIds is not null)
+        {
+            node.ExecutorIds = executorIds;
+        }
+        if (responsibleId is not null)
+        {
+            node.ResponsibleId = responsibleId.Length == 0 ? null : responsibleId;
+        }
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("skills", out _))
+        {
+            if (!TryResolveSkills(args, out var skillIds, out var skillError))
+            {
+                return skillError;
+            }
+            node.SkillIds = skillIds;
+        }
+        if (StringList(args, "blockers") is { } blockerCodes)
+        {
+            if (!TryResolveTemplateBlockers(blockerCodes, TemplateRootOf(node.Id), node.Id,
+                    out var blockerIds, out var blockerError))
+            {
+                return blockerError;
+            }
+            node.BlockerIds = blockerIds;
         }
         // пустые критерии приёмки хранилище понимает как «оставить прежние»,
         // а формулировку пишет всегда — не переданную подставляем текущую

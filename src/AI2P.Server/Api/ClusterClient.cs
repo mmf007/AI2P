@@ -206,6 +206,30 @@ public sealed class ClusterClient : IDisposable
         ReplApplyDto batch, CancellationToken ct = default) =>
         await SendAsync<ReplApplyResultDto>(target, token, HttpMethod.Post, "repl/apply", batch, ct);
 
+    /// <summary>Мгновенная доставка сообщения чата (T-590-S0): одна запись журнала вне
+    /// сеанса репликации. Курсоров пары партнёр при этом не двигает. Клиент короткий
+    /// (<c>_http</c>, 20 с): это одна строка, и человек ждёт ответа у кнопки.</summary>
+    public async Task<ReplApplyResultDto> ChatPushAsync(ServerNode target, string token,
+        ReplApplyDto batch, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await CallAsync(_http, target, "chat/push", url =>
+            {
+                var request = Signed(HttpMethod.Post, url, token);
+                request.Content = JsonContent.Create(batch, options: Ai2pJson.Options);
+                return request;
+            }, ct);
+            await ThrowIfFailedAsync(response, ct, target, "chat/push");
+            return await response.Content.ReadFromJsonAsync<ReplApplyResultDto>(Ai2pJson.Options, ct)
+                   ?? throw new InvalidOperationException(Loc.T("msg.clusterClient.4", "chat/push"));
+        }
+        catch (Exception ex) when (IsNetwork(ex, ct))
+        {
+            throw Unreachable(ex, target, "chat/push");
+        }
+    }
+
     /// <summary>Передать партнёру токен, которым ОН будет ходить к нам (обратное направление
     /// обмена, ТЗ гл. 12): без него дирижёр не смог бы сам начать сеанс с этим сервером.</summary>
     public async Task ReplPeerTokenAsync(ServerNode target, string token, string ourToken,

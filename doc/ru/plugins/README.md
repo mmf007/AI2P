@@ -14,6 +14,8 @@
 * [editor.openshot](editor.openshot.md) — OpenShot — шлюз `editor.openshot` (запасной)
 * [editor.resolve](editor.resolve.md) — DaVinci Resolve (OTIO)
 * [editor.shotcut](editor.shotcut.md) — Shotcut / Kdenlive (MLT XML)
+* [editor.vscode](editor.vscode.md) — Плагин «VS Code»
+* [saas.wix](saas.wix.md) — Wix — плагин `saas.wix`
 * [tool.ffmpeg](tool.ffmpeg.md) — Видео конвертор (ffmpeg) — плагин `tool.ffmpeg`
 * [trainer.musubi](trainer.musubi.md) — Musubi Tuner (LoRA) — плагин `trainer.musubi`
 

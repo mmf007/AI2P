@@ -1672,6 +1672,9 @@ public sealed class InstantiateTemplateDto
     /// <summary>Задача-родитель (T-201): голова копии становится её подзадачей, а вся копия
     /// переезжает в проект родителя. Пусто — задача создаётся корневой, как раньше.</summary>
     public string? ParentId { get; set; }
+    /// <summary>Значения макроподстановок <c>${key}</c> (T-655-S0); пустое значение —
+    /// подстановка не проводится.</summary>
+    public Dictionary<string, string>? Macros { get; set; }
 }
 
 /// <summary>Запись опыта по узлу шаблона для UI (вкладка «Опыт» шаблона, todo32):
@@ -1947,6 +1950,9 @@ public sealed class TemplateInfoDto
     public DateTime? MinDueDate { get; set; }
     /// <summary>Есть задачи со skills без активного исполнителя → спросить вариант автоподбора.</summary>
     public bool NeedsExecutorPick { get; set; }
+    /// <summary>Ключи макроподстановок <c>${key}</c> в заголовках, описаниях и критериях
+    /// приёмки узлов (T-655-S0) → спросить значения.</summary>
+    public List<string> Macros { get; set; } = new();
 }
 
 /// <summary>Элемент Inbox (гл. 5, экран 7): задание человеку либо вопрос агента (T-165).</summary>
@@ -1983,6 +1989,30 @@ public sealed class ChatPostDto
 {
     public string Text { get; set; } = "";
     public string? ToExecutorId { get; set; }
+
+    /// <summary>Сервер мгновенной доставки (T-590-S0): код S1, имя или id. Читает только
+    /// <c>POST /tasks/{id}/chat/push</c>; обычная отправка поле не смотрит.</summary>
+    public string Server { get; set; } = "";
+}
+
+/// <summary>Итог мгновенной отправки сообщения чата на другой сервер (T-590-S0).</summary>
+public sealed class ChatPushResultDto
+{
+    public ChatMessage Message { get; set; } = new();
+
+    /// <summary>Доставлено сразу; false — записано у нас и уедет обычной репликацией.</summary>
+    public bool Delivered { get; set; }
+
+    /// <summary>Итог словами: куда доставлено либо почему не получилось.</summary>
+    public string Note { get; set; } = "";
+}
+
+/// <summary>Сервер, на который можно мгновенно отправить сообщение чата (T-590-S0).</summary>
+public sealed class ChatServerDto
+{
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool IsConductor { get; set; }
 }
 
 /// <summary>
@@ -2417,6 +2447,37 @@ public sealed class ModelInstallFileDto
     public long Downloaded { get; set; }
     /// <summary>done — размер совпал; partial — есть частично (докачаем); missing — файла нет.</summary>
     public string State { get; set; } = "missing";
+}
+
+/// <summary>
+/// УСТАНОВЛЕННОЕ ПО ЭТОГО КОМПЬЮТЕРА (T-652-S0): пакет справочника, стоящий здесь, — для
+/// окна «Обновить установленное ПО». Версии — по именам дистрибутивов (у npm — номер).
+/// </summary>
+public sealed class InstalledPackageDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Каталог пакета (или файл программы, найденной в системе).</summary>
+    public string Dir { get; set; } = "";
+    /// <summary>Кем пакет нужен: модели, плагины, серверы MCP (имена через запятую).</summary>
+    public string UsedBy { get; set; } = "";
+    /// <summary>dist — архив/файлы с сервера раздачи, npm — программа из реестра npm.</summary>
+    public string Kind { get; set; } = "";
+    public string CurrentVersion { get; set; } = "";
+    public string CurrentDist { get; set; } = "";
+    public string LatestVersion { get; set; } = "";
+    public string LatestDist { get; set; } = "";
+    /// <summary>unchecked | current | available | running | error | system.</summary>
+    public string State { get; set; } = "";
+    /// <summary>Пакет поставлен AI2P — обновлять можно; найденную в системе программу — нет.</summary>
+    public bool Updatable { get; set; }
+    public bool Running { get; set; }
+    public string CurrentFile { get; set; } = "";
+    public long Size { get; set; }
+    public long Downloaded { get; set; }
+    public string Error { get; set; } = "";
+    /// <summary>Итог последнего обновления (какие старые дистрибутивы удалены).</summary>
+    public string Note { get; set; } = "";
 }
 
 /// <summary>
@@ -3416,6 +3477,34 @@ public sealed class ObjectParentDto
 }
 
 /// <summary>
+/// ПРАВКА ОДНОЙ ОРГЕДИНИЦЫ КОМАНДЫ (T-629-S0): форма участника, «+» и пункт «Изменить»
+/// меню «…». Меняет одну единицу и строку её исполнителя в составе, а не всю команду —
+/// иначе две правки с разных серверов затирали бы друг друга (урок T-3-S1).
+/// Единица с незнакомым id добавляется.
+/// </summary>
+public sealed class TeamUnitEditDto
+{
+    public TeamUnit Unit { get; set; } = new();
+    /// <summary>Проф. роль исполнителя единицы в этой команде.</summary>
+    public string? RoleId { get; set; }
+    /// <summary>Тимлид — только у единицы верхнего уровня (ТЗ v1.17).</summary>
+    public bool IsLead { get; set; }
+}
+
+/// <summary>Смена вышестоящей единицы (перенос в иерархии команды, T-629-S0).</summary>
+public sealed class TeamUnitParentDto
+{
+    /// <summary>Новая вышестоящая единица; null или пусто — верхний уровень.</summary>
+    public string? ParentUnitId { get; set; }
+}
+
+/// <summary>Смена активности единицы и её исполнителя в команде (T-629-S0).</summary>
+public sealed class TeamUnitActiveDto
+{
+    public bool IsActive { get; set; }
+}
+
+/// <summary>
 /// СОСТОЯНИЕ ВХОДА В CLAUDE CLI на компьютере этого сервера (todo96, версия 1.96):
 /// ответ <c>claude auth status --json</c> плюс признак «вход прямо сейчас идёт».
 /// Показывается в настройках (Модели → «Вход в Claude CLI») и открывается само,
@@ -3579,6 +3668,13 @@ public sealed class PluginActionDto
 public sealed class PluginDetailsDto
 {
     public PluginListItemDto Plugin { get; set; } = new();
+
+    /// <summary>Имя SaaS у плагина-редактора сайтов (T-567-S0): <c>wix</c>; пусто — у
+    /// плагина нет списка сайтов.</summary>
+    public string Saas { get; set; } = "";
+
+    /// <summary>Сайты плагина SaaS на этом сервере (T-567-S0).</summary>
+    public List<SaasSiteDto> Sites { get; set; } = [];
 
     /// <summary>Код пакета справочника (<c>models/packages.json</c>); пусто — ставить нечем,
     /// остаётся ручной путь.</summary>
@@ -3751,6 +3847,33 @@ public sealed class McpToolsDto
 public sealed class PluginSecretDto
 {
     public string Value { get; set; } = "";
+}
+
+/// <summary>
+/// САЙТ ПЛАГИНА SaaS-РЕДАКТОРА (T-567-S0). Ключ сюда приходит только В ЗАПРОСЕ записи
+/// (<see cref="Key"/>; пусто — «не менять») и обратно не отдаётся никогда: наружу идёт
+/// признак <see cref="HasKey"/> и файл, где ключ лежит.
+/// </summary>
+public sealed class SaasSiteDto
+{
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string SiteId { get; set; } = "";
+    public string AccountId { get; set; } = "";
+    public string Note { get; set; } = "";
+
+    /// <summary>Ключ API сайта — только при записи; пусто — оставить прежний.</summary>
+    public string Key { get; set; } = "";
+
+    /// <summary>У сайта есть ключ (свой либо общий ключ плагина).</summary>
+    public bool HasKey { get; set; }
+
+    /// <summary>У сайта СВОЙ ключ (а не общий ключ плагина).</summary>
+    public bool OwnKey { get; set; }
+
+    /// <summary>Файл ключа сайта на этом сервере.</summary>
+    public string KeyFile { get; set; } = "";
 }
 
 /// <summary>Ручной путь к программе плагина: «софт можно не ставить, но покажите, где он стоит».</summary>

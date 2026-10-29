@@ -19,13 +19,16 @@ public static class InstantiateFlow
         var info = await api.GetTemplateInfoAsync(templateId);
         DateTime? baseDate = null;
         string? pick = null;
-        if (info.HasDueDates || info.NeedsExecutorPick)
+        Dictionary<string, string>? macros = null;
+        // макроподстановки ${key} (T-655-S0) тоже переспрашиваются этим окном
+        if (info.HasDueDates || info.NeedsExecutorPick || info.Macros.Count > 0)
         {
             var parameters = new DialogParameters<InstantiateDialog>
             {
                 { d => d.AskDate, info.HasDueDates },
                 { d => d.AskPick, info.NeedsExecutorPick },
                 { d => d.TemplateDue, info.MinDueDate },
+                { d => d.Macros, info.Macros },
             };
             var dialog = await dialogs.ShowAsync<InstantiateDialog>(l["task.instantiate.title"], parameters);
             var result = await dialog.Result;
@@ -35,7 +38,8 @@ public static class InstantiateFlow
             }
             baseDate = choice.BaseDate;
             pick = choice.Pick;
+            macros = choice.Macros;
         }
-        return await api.InstantiateTemplateAsync(templateId, baseDate, pick, parentId);
+        return await api.InstantiateTemplateAsync(templateId, baseDate, pick, parentId, macros);
     }
 }

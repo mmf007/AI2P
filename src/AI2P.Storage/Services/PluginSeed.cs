@@ -56,7 +56,86 @@ public static class PluginSeed
 
     /// <summary>Встроенные манифесты. Порядок безразличен — файлы независимы.</summary>
     public static IReadOnlyList<string> All =>
-        [ShotcutJson, FfmpegJson, ResolveJson, BlenderJson, OpenShotJson, TrainerMusubiJson, VsCodeJson];
+        [ShotcutJson, FfmpegJson, ResolveJson, BlenderJson, OpenShotJson, TrainerMusubiJson, VsCodeJson,
+            WixJson];
+
+    /// <summary>Код плагина «Wix» (T-567-S0): SaaS-редактор сайтов через официальный MCP Wix.</summary>
+    public const string WixCode = "saas.wix";
+
+    /// <summary>
+    /// ПЛАГИН «WIX» (T-567-S0) — первый плагин вида SaaS-редактор сайтов. Подключение —
+    /// официальный сервер MCP Wix (https://mcp.wix.com/mcp, транспорт http) по КЛЮЧУ API:
+    /// ключ уходит в <c>Authorization</c> КАК ЕСТЬ (без Bearer — <c>secretScheme: ""</c>),
+    /// рядом заголовок <c>wix-account-id</c> из строки сайта (dev.wix.com, «About the Wix MCP»,
+    /// сверено 21.10.2026). Вход OAuth не поддержан: из задания войти в браузере некому.
+    ///
+    /// <para>У каждого сайта свой ключ (или общий ключ плагина), свой Site ID и Account ID —
+    /// список сайтов ведётся в форме плагина. Агент работает универсальными действиями
+    /// site_list / site_tools / site_call, а правила манифеста относят вызов инструмента Wix
+    /// к операции (read, pages, design, media, seo, publish, api) — по ней и пишутся правила
+    /// безопасности «saas.wix:&lt;сайт&gt;:&lt;операция&gt;».</para>
+    /// </summary>
+    public const string WixJson = """
+        {
+          "code": "saas.wix",
+          "kind": "mcp",
+          "version": 3,
+          "name": "Wix",
+          "description": {
+            "ru": "Редактирование сайтов Wix агентом: страницы, дизайн, картинки и файлы, SEO, публикация. Подключение — официальный MCP Wix по ключу API; сайтов может быть несколько.",
+            "en": "Lets agents edit Wix sites: pages, design, images and files, SEO, publishing. Connects to the official Wix MCP with an API key; several sites are supported.",
+            "es": "Permite a los agentes editar sitios Wix: paginas, diseno, imagenes y archivos, SEO, publicacion. Se conecta al MCP oficial de Wix con una clave API; admite varios sitios.",
+            "pt": "Permite que agentes editem sites Wix: paginas, design, imagens e arquivos, SEO, publicacao. Conecta-se ao MCP oficial da Wix com uma chave de API; suporta varios sites.",
+            "zh-cn": "让智能体编辑 Wix 网站：页面、设计、图片与文件、SEO、发布。通过 API 密钥连接 Wix 官方 MCP，支持多个网站。"
+          },
+          "connection": {
+            "transport": "http",
+            "url": "https://mcp.wix.com/mcp",
+            "secretHeader": "Authorization",
+            "secretScheme": "",
+            "headers": { "wix-account-id": "{accountId}" }
+          },
+          "saas": {
+            "code": "wix",
+            "siteArg": "siteId",
+            "upload": {
+              "url": "https://www.wixapis.com/headless-business-setup/v1/headless-business/{siteId}/drop?campaign=mcp&agent=ai2p",
+              "part": "files",
+              "op": "publish",
+              "skip": ["wix.config.json"],
+              "index": "index.html",
+              "maxBytes": 20971520
+            },
+            "rules": [
+              { "op": "read", "tools": ["WixREADME", "Search*", "Browse*", "Read*", "WixBusinessFlowsDocumentation", "ListWixSites", "GetSiteContext"] },
+              { "op": "read", "tools": ["CallWixSiteAPI"], "args": "\"method\"\\s*:\\s*\"GET\"" },
+              { "op": "media", "tools": ["UploadImageToWixSite"] },
+              { "op": "publish", "tools": ["ManageWixSite", "CallWixSiteAPI", "ExecuteWixAPI"], "args": "publish" },
+              { "op": "media", "tools": ["CallWixSiteAPI", "ExecuteWixAPI"], "args": "site-media|media-manager|/files" },
+              { "op": "seo", "tools": ["CallWixSiteAPI", "ExecuteWixAPI"], "args": "seo|redirect|sitemap|robots|structured-data|meta-?tag" },
+              { "op": "pages", "tools": ["CallWixSiteAPI", "ExecuteWixAPI"], "args": "page|blog|post|wix-data|data/v\\d|collection|menu|cms|items" },
+              { "op": "design", "tools": ["ManageWixSite"] },
+              { "op": "design", "tools": ["CallWixSiteAPI", "ExecuteWixAPI"], "args": "theme|style|design|editor|font|color" }
+            ]
+          },
+          "experience": [
+            {
+              "skill": "site-edit",
+              "text": {
+                "ru": "Сайты Wix правятся универсальными действиями AI2P: site_list (какие сайты подключены), site_tools (инструменты Wix со схемами аргументов), site_call (вызов инструмента Wix для выбранного сайта; siteId подставляется сам). Начинай с site_call tool=WixREADME, затем ищи метод через SearchWixRESTDocumentation и зови CallWixSiteAPI или ExecuteWixAPI. Картинки — UploadImageToWixSite. Сайт «из файлов» (адрес *.wix-site-host.com) выкладывается действием site_upload из папки проекта (dir, например site/wix): загрузка ЗАМЕНЯЕТ ВСЕ файлы сайта и сразу публикует, поэтому в папке должен лежать полный набор. Публикацию сайта без прямого указания в задаче не делай.",
+                "en": "Wix sites are edited with the universal AI2P actions: site_list (connected sites), site_tools (Wix tools with argument schemas), site_call (call a Wix tool for the chosen site; siteId is filled in automatically). Start with site_call tool=WixREADME, then find the method via SearchWixRESTDocumentation and call CallWixSiteAPI or ExecuteWixAPI. Images go through UploadImageToWixSite. A files-only site (*.wix-site-host.com address) is deployed with site_upload from a project folder (dir, e.g. site/wix): the upload REPLACES ALL site files and publishes at once, so the folder must hold the complete set. Do not publish the site unless the task says so explicitly."
+              }
+            }
+          ],
+          "doc": {
+            "ru": "plugins/saas.wix.md",
+            "en": "plugins/saas.wix.md",
+            "es": "plugins/saas.wix.md",
+            "pt": "plugins/saas.wix.md",
+            "zh-cn": "plugins/saas.wix.md"
+          }
+        }
+        """;
 
     /// <summary>Код плагина «VS Code» (T-530-S0): сам редактор.</summary>
     public const string VsCodeCode = "editor.vscode";

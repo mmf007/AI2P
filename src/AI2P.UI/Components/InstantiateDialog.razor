@@ -24,13 +24,27 @@
                     <MudRadio T="string" Value="@("none")" Dense="true">@L["task.instantiate.pick.none"]</MudRadio>
                 </MudRadioGroup>
             }
+            @if (Macros.Count > 0)
+            {
+                @* макроподстановки ${key} (T-655-S0): пустое поле — подстановка не проводится,
+                   хотя бы один знак (и пробел) — проводится *@
+                <MudText Typo="Typo.body2">@L["task.instantiate.macrosHint"]</MudText>
+                @foreach (var key in Macros)
+                {
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" data-instantiate-macro="@key">
+                        <MudText Typo="Typo.body2" Style="min-width:8em;white-space:nowrap">@key —</MudText>
+                        <MudTextField T="string" Value="@MacroValue(key)" ValueChanged="@(v => _macros[key] = v ?? "")"
+                                      Immediate="true" Dense="true" Variant="Variant.Text" />
+                    </MudStack>
+                }
+            }
         </MudStack>
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => Dialog.Cancel())">@L["common.cancel"]</MudButton>
         <MudButton Color="Color.Primary" Variant="Variant.Filled"
                    OnClick="@(() => Dialog.Close(DialogResult.Ok(
-                       new Choice(_baseDate?.ToUniversalTime(), PickAnswer))))">
+                       new Choice(_baseDate?.ToUniversalTime(), PickAnswer, MacroAnswer))))">
             @L["common.create"]
         </MudButton>
     </DialogActions>
@@ -41,7 +55,7 @@
     /// Ответы переспроса: базовая дата и вариант автоподбора ("ai_first"/"human_first";
     /// null — «не искать исполнителя», T-56-S0).
     /// </summary>
-    public sealed record Choice(DateTime? BaseDate, string? Pick);
+    public sealed record Choice(DateTime? BaseDate, string? Pick, Dictionary<string, string>? Macros);
 
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
 
@@ -51,9 +65,24 @@
     [Parameter] public bool AskPick { get; set; }
     /// <summary>Самая ранняя дата иерархии шаблона — начальное значение базовой даты.</summary>
     [Parameter] public DateTime? TemplateDue { get; set; }
+    /// <summary>Ключи макроподстановок ${key} шаблона (T-655-S0).</summary>
+    [Parameter] public List<string> Macros { get; set; } = new();
 
     private DateTime? _baseDate;
     private string _pick = "ai_first";
+    private readonly Dictionary<string, string> _macros = new();
+
+    private string MacroValue(string key) => _macros.TryGetValue(key, out var v) ? v : "";
+
+    /// <summary>Только заполненные поля: пустое значение подстановку не проводит.</summary>
+    private Dictionary<string, string>? MacroAnswer
+    {
+        get
+        {
+            var filled = _macros.Where(p => p.Value.Length > 0).ToDictionary(p => p.Key, p => p.Value);
+            return filled.Count > 0 ? filled : null;
+        }
+    }
 
     /// <summary>
     /// Ответ про подбор исполнителя: вариант «не искать» (T-56-S0) уезжает НА СЕРВЕР пустым —

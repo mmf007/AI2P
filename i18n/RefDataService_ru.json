@@ -1,5 +1,5 @@
 {
-  "seedVersion": 2,
+  "seedVersion": 4,
   "roles": [
     {
       "id": "rd710000-0000-4000-9000-000000000001",
@@ -164,6 +164,34 @@
     {
       "name": "3d-environment",
       "description": "создание 3D-окружения (ландшафта)"
+    },
+    {
+      "name": "site-edit",
+      "description": "правка сайтов (Wix и другие SaaS-конструкторы)"
+    },
+    {
+      "name": "marketing-strategy",
+      "description": "маркетинговая стратегия и план кампании (позиционирование, ключевые сообщения)"
+    },
+    {
+      "name": "marketing-copy",
+      "description": "рекламные и продающие тексты, тексты публикаций под площадку"
+    },
+    {
+      "name": "marketing-smm",
+      "description": "соцсети и сообщества (посты, ответы в обсуждениях, правила площадок)"
+    },
+    {
+      "name": "marketing-seo",
+      "description": "SEO и поиск ИИ (ключевые слова, метаданные, каталоги, awesome-списки)"
+    },
+    {
+      "name": "marketing-pr",
+      "description": "PR: статьи, пресс-релизы, запуски (Show HN, Product Hunt)"
+    },
+    {
+      "name": "marketing-analytics",
+      "description": "аналитика маркетинга (метрики кампании, UTM, отчёты по каналам)"
     }
   ],
   "ioFormats": [

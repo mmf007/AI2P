@@ -185,6 +185,67 @@
                     </div>
                 }
 
+                @* --- 1б. САЙТЫ (T-567-S0): только у плагина SaaS-редактора. Сайт заводится
+                   ДО инициализации: список инструментов снимается через сайт с ключом *@
+                @if (_details.Saas.Length > 0)
+                {
+                    <div data-pluginf-block="sites">
+                        <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.sites"]</MudText>
+                        <MudText Typo="Typo.caption" Class="d-block mb-2" Style="opacity:.75;">
+                            @L["plugins.sites.hint"]
+                        </MudText>
+                        @if (_details.Sites.Count == 0)
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" data-pluginf-sites-empty="1">
+                                @L["plugins.sites.empty"]
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudSimpleTable Dense="true" Hover="true">
+                                <thead>
+                                    <tr>
+                                        <th>@L["plugins.sites.code"]</th>
+                                        <th>@L["plugins.sites.name"]</th>
+                                        <th>@L["plugins.sites.siteId"]</th>
+                                        <th>@L["plugins.sites.key"]</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var site in _details.Sites)
+                                    {
+                                        <tr data-pluginf-site="@site.Code">
+                                            <td style="white-space: nowrap;">@site.Code</td>
+                                            <td>@site.Name<br /><MudText Typo="Typo.caption" Style="opacity:.7;">@site.Url</MudText></td>
+                                            <td style="word-break: break-all;">@site.SiteId</td>
+                                            <td>
+                                                <MudIcon Size="Size.Small"
+                                                         Color="@(site.OwnKey ? Color.Success : site.HasKey ? Color.Info : Color.Warning)"
+                                                         Title="@(site.OwnKey ? L["plugins.sites.keySet"] : site.HasKey ? L["plugins.sites.keyShared"] : L["plugins.sites.keyNone"])"
+                                                         Icon="@(site.HasKey ? Icons.Material.Filled.Key : Icons.Material.Filled.KeyOff)" />
+                                            </td>
+                                            <td style="white-space: nowrap;">
+                                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit"
+                                                               Disabled="@(!CanEdit || _busy)" data-pluginf-site-edit="@site.Code"
+                                                               OnClick="@(() => EditSiteAsync(site))" />
+                                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                                               Disabled="@(!CanEdit || _busy)" data-pluginf-site-delete="@site.Code"
+                                                               OnClick="@(() => DeleteSiteAsync(site))" />
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" Class="mt-2"
+                                   StartIcon="@Icons.Material.Filled.Add" Disabled="@(!CanEdit || _busy)"
+                                   data-pluginf-site-add="1" OnClick="@(() => EditSiteAsync(null))">
+                            @L["plugins.sites.add"]
+                        </MudButton>
+                    </div>
+                }
+
                 @* --- 2. ДЕЙСТВИЯ --- *@
                 <div data-pluginf-block="actions">
                     <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.actions"]</MudText>
@@ -491,6 +552,47 @@
         finally
         {
             _busy = false;
+        }
+    }
+
+    /// <summary>Завести (null) или изменить сайт плагина SaaS-редактора (T-567-S0).</summary>
+    private async Task EditSiteAsync(SaasSiteDto? site)
+    {
+        var parameters = new DialogParameters<SaasSiteDialog>
+        {
+            { d => d.Code, Code },
+            { d => d.Site, site },
+        };
+        var dialog = await Dialogs.ShowAsync<SaasSiteDialog>(
+            site is null ? L["plugins.sites.add"] : L["plugins.sites.edit"] + " " + site.Code, parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false })
+        {
+            _changed = true;
+            await LoadAsync();
+        }
+    }
+
+    /// <summary>Удалить сайт вместе с ключом — переспрос обязателен.</summary>
+    private async Task DeleteSiteAsync(SaasSiteDto site)
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["plugins.sites.delete"] + " " + site.Code,
+            L["plugins.sites.deleteConfirm"],
+            yesText: L["plugins.sites.delete"], cancelText: L["common.cancel"]);
+        if (confirmed != true)
+        {
+            return;
+        }
+        try
+        {
+            await Api.DeletePluginSiteAsync(Code, site.Code);
+            _changed = true;
+            await LoadAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
         }
     }
 

@@ -26,13 +26,13 @@
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 92, `audio-music` 92
 * [ElevenLabs-Music](ElevenLabs-Music.md) — текст → музыка и песни, очищенные по правам, навыки `audio-song` 89, `audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — текст → речь, навыки `audio-speech` 96
-* [FLUX-3](FLUX-3.md) — текст → изображение, навыки `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [FLUX-3-Max-Video](FLUX-3-Max-Video.md) — текст → видео 5–20 секунд со звуком, навыки `video-generate` 93
+* [FLUX-3](FLUX-3.md) — текст → изображение, навыки `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, через OpenAI-совместимый слой
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, через OpenAI-совместимый слой
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, через OpenAI-совместимый слой
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, через OpenAI-совместимый слой
-* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, контекст 1 048 576 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 91–95
+* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, через OpenAI-совместимый слой
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — текст → видео со звуком, 8 секунд, навыки `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Сбер, Россия; OpenAI-совместимый
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, OpenAI-совместимый
@@ -43,6 +43,7 @@
 * [GPT-6-Luna](GPT-6-Luna.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Sol](GPT-6-Sol.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6.1-Sol](GPT-6.1-Sol.md) — API OpenAI, OpenAI-совместимый
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI, контекст 1 050 000 токенов, 1,00 $ / 5,00 $ за 1 млн, оценки навыков 89–93
 * [GPT-Image-2.5](GPT-Image-2.5.md) — текст → изображение, счёт по токенам, навыки `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — текст → изображение, счёт по токенам, навыки `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — API xAI, OpenAI-совместимый
@@ -51,12 +52,14 @@
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, через шлюз OpenRouter
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — текст → видео 5 секунд со звуком, навыки `video-generate` 90
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-совместимый
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, контекст 1 048 576 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 87–92
 * [Kling-3.0](Kling-3.0.md) — картинка → видео со звуком, до 15 секунд, навыки `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, через шлюз OpenRouter
 * [Meshy-7.1](Meshy-7.1.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — текст → видео до 15 секунд, навыки `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-совместимый
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, контекст 1 048 576 токенов, 0,15 $ / 0,60 $ за 1 млн, оценки навыков 80–84
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Франция; OpenAI-совместимый
 * [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, Франция; OpenAI-совместимый
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, через шлюз OpenRouter
@@ -66,7 +69,7 @@
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — картинка и указание → изменённая картинка, навыки `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — текст → изображение до 4K, лучший текст в кадре, навыки `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, через шлюз OpenRouter
-* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, контекст 262 144 токенов, 0,15 $ / 0,50 $ за 1 млн, оценки навыков 77–83
+* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, через шлюз OpenRouter
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, OpenAI-совместимый
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, OpenAI-совместимый
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — картинка → видео со звуком, навыки `video-animate` 95

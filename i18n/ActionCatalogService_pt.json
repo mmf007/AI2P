@@ -1,5 +1,5 @@
 {
-  "seedVersion": 26,
+  "seedVersion": 30,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -364,7 +364,47 @@
       "tool": "create_tasks_from_template",
       "title": "Tarefas do ramo a partir de um nó de modelo",
       "hint": "O agente instancia um nó de modelo do projeto como subtarefa da sua tarefa (ou de uma tarefa da sua subárvore) — o mesmo que o botão «a partir de modelo» no cartão (T-300-S0). Necessário a um ramo da condição sem tarefa com a opção «criar tarefas»: o trabalho típico do ramo fica melhor como modelo. Os executores são escolhidos «primeiro IA». Assim o agente não faz crescer uma árvore alheia. Para um agente CLI: o comando «ai2p from-template <código do nó>» e o marcador AI2P_FROM_TEMPLATE.",
-      "prompt": "Criar tarefas a partir de um NÓ DE MODELO do projeto: parâmetro template — código do nó (T-5) ou o seu título; parent — código da tarefa-pai da sua subárvore (por omissão, a tarefa atual). O nó é instanciado com todos os descendentes e os executores são escolhidos automaticamente. Use quando um ramo da condição mandar «criar tarefas» e existir um modelo adequado; caso contrário, create_task."
+      "prompt": "Criar tarefas a partir de um NÓ DE MODELO do projeto: parâmetro template — código do nó (T-5) ou o seu título; parent — código da tarefa-pai da sua subárvore (por omissão, a tarefa atual). O nó é instanciado com todos os descendentes e os executores são escolhidos automaticamente. Use quando um ramo da condição mandar «criar tarefas» e existir um modelo adequado; caso contrário, create_task. O parâmetro macros é um objeto «chave → valor» para as substituições ${key} nos títulos, descrições e critérios de aceitação dos nós (como sed sobre o modelo); valor vazio não é substituído."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000047",
+      "code": "AI2P.Site.List",
+      "tool": "site_list",
+      "title": "Sites in SaaS editors",
+      "hint": "Sites connected by SaaS editor plugins (Wix etc.) on this server: SaaS, short site name, URL, whether a key is set and whether rules deny it (T-567-S0).",
+      "prompt": "List of sites in SaaS editors (Wix etc.) available to you: saas, site (short name), url, siteId, hasKey, deniedByRules, plus the operations used by security rules. Parameter saas (optional) filters by SaaS. Call it first before working with a site."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000048",
+      "code": "AI2P.Site.Tools",
+      "tool": "site_tools",
+      "title": "SaaS editor tools",
+      "hint": "Tools of the SaaS editor (MCP server) for the chosen site with argument schemas; rule operation is read (T-567-S0).",
+      "prompt": "SaaS editor tools for a site: name, description, argument schema (inputSchema), registered — whether AI2P allows it. Parameters: saas (wix; may be omitted if the site name is unique), site — short site name from site_list, filter — substring to match name or description."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000049",
+      "code": "AI2P.Site.Call",
+      "tool": "site_call",
+      "title": "Call a SaaS editor tool",
+      "hint": "Call a SaaS editor (Wix MCP) tool for the chosen site: pages, design, files, SEO, publishing. Security rules use the mask plugin:site:operation, e.g. saas.wix:ai2p:publish (T-567-S0).",
+      "prompt": "Call a SaaS editor tool for a site. Parameters: saas (wix), site — short site name from site_list, tool — tool name from site_tools, arguments — object per its inputSchema. The site id (siteId) is filled in automatically; a different siteId is refused. The call maps to an operation (read, pages, design, media, seo, publish, api) that security rules may deny. Returns the SaaS answer text."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000050",
+      "code": "AI2P.Site.Upload",
+      "tool": "site_upload",
+      "title": "Upload site files",
+      "hint": "Uploads a project folder to a files-only site of a SaaS editor (for Wix — a site at *.wix-site-host.com) in one request: all files of the folder replace the whole file set of the site and are published at once. Key and site come from the plugin form. Rule operation — publish, e.g. saas.wix:ai2p:publish (T-582-S0).",
+      "prompt": "Upload site files from a project folder. Parameters: saas (wix), site — short site name from site_list, dir — folder relative to the project root (e.g. site/wix). WARNING: the upload REPLACES ALL site files and publishes at once — the folder must hold the complete set with the home page (index.html); files missing from it disappear from the site. Call only when the task explicitly says to deploy or publish the site. Answer — HTTP status and the SaaS answer (for Wix — uploadId and siteUrl)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000051",
+      "code": "AI2P.Chat.Push",
+      "tool": "send_chat_to_server",
+      "title": "Mensagem instantânea para outro servidor",
+      "hint": "O agente escreve no chat de uma tarefa (a sua ou uma indicada por código) e entrega a mensagem ao servidor do cluster indicado IMEDIATAMENTE, sem esperar por uma sessão de replicação (T-590-S0). Necessário a agentes que trabalham em par em servidores diferentes. No servidor de destino a mensagem chega ao agente em execução como interrupção; a replicação normal não a duplica depois. Se o servidor não for alcançado, a mensagem fica e segue com a replicação. Uma regra de segurança deny/confirm neste código fecha o envio instantâneo. O agente CLI tem o mesmo como comando «ai2p push».",
+      "prompt": "Escrever num chat e entregar a mensagem a outro servidor do cluster IMEDIATAMENTE, sem esperar pela replicação. Parâmetros: server — código do servidor na organização (S0, S1…) ou o seu nome; text — texto da mensagem; code — código da tarefa em cujo chat escrever (vazio — a tarefa atual). Use quando trabalha em par com um agente noutro servidor e ele precisa de saber já. Se a entrega imediata falhar, a mensagem segue mesmo assim com a replicação normal; a resposta indica o motivo."
     }
   ]
 }

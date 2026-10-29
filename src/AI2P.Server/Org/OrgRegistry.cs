@@ -144,6 +144,10 @@ public sealed class OrgRegistry : IDisposable
         _codes = Orgs.List(includeInactive: false).Select(o => o.Code).ToArray();
 
     /// <summary>Живой контекст организации; создаётся и наполняется при первом обращении.</summary>
+    /// <summary>Мгновенная доставка сообщения чата соседу (T-590-S0) —
+    /// <see cref="ReplicationService.PushChatAsync"/>; ставит Program.cs.</summary>
+    public Func<OrgContext, string, string, CancellationToken, Task<string>>? ChatPusher { get; set; }
+
     public OrgContext Context(Organization org)
     {
         if (_contexts.TryGetValue(org.Id, out var existing))
@@ -161,6 +165,11 @@ public sealed class OrgRegistry : IDisposable
             var dir = DirOf(org);
             Directory.CreateDirectory(dir);
             var context = new OrgContext(org, dir, ServerDb.NodeId, _deps);
+            // мгновенная доставка сообщения чата соседу (T-590-S0): адреса и токены
+            // соседей знает репликация, а она строится после реестра — отсюда делегат
+            context.Chat.Push = (messageId, server, ct) =>
+                (ChatPusher ?? throw new InvalidOperationException(Loc.T("msg.chat.7")))(
+                    context, messageId, server, ct);
             // общий каталог импорта моделей уровня сервера (туда пишут инсталляторы)
             context.SeedAndMigrate(Path.Combine(_dataDir, "models"));
             context.ScheduleRunner.Start();

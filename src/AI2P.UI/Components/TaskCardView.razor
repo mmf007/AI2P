@@ -546,6 +546,7 @@ else
                 }
                 else
                 {
+                    <CascadingValue Value="_subSel" IsFixed="true">
                     <MudSimpleTable Dense="true" Hover="true">
                         <thead>
                             <tr>
@@ -564,8 +565,10 @@ else
                         <tbody>
                             @foreach (var subtask in _subtasks)
                             {
-                                <tr style="cursor: pointer;"
-                                    @onclick="@(() => State.OpenTask(subtask.Id, subtask.DisplayId, subtask.Title, FrameIndex))">
+                                @* щелчок — выбор, двойной щелчок — открыть (T-651-S0) *@
+                                <tr style="cursor: pointer;" class="@_subSel.Css(subtask.Id)" data-task-sel="@subtask.Id"
+                                    @onclick="@(e => _subSel.Click(subtask, _subtasks, e.ShiftKey, e.CtrlKey || e.MetaKey))"
+                                    @ondblclick="@(() => State.OpenTask(subtask.Id, subtask.DisplayId, subtask.Title, FrameIndex))">
                                     <td>@subtask.DisplayId</td>
                                     <td>@subtask.Title</td>
                                     <td><span class="ai2p-status" style="@State.StatusStyle(subtask.Status)">@State.StatusName(subtask.Status)</span></td>
@@ -582,6 +585,7 @@ else
                             }
                         </tbody>
                     </MudSimpleTable>
+                    </CascadingValue>
                 }
             </MudStack>
         </MudTabPanel>
@@ -717,6 +721,26 @@ else
                                        Disabled="@(ChatText.Trim().Length == 0 || !CanChatTask)"
                                        OnClick="SendChatAsync" data-task-chat-send="1" />
                     </MudTooltip>
+                    @* ВТОРАЯ КНОПКА (T-590-S0): отправить и СРАЗУ отвезти на выбранный сервер,
+                       не дожидаясь сеанса репликации. Сервер спрашивается меню — кнопка одна
+                       на любой размер кластера; при репликации сообщение не задвоится *@
+                    @if (_chatServers is { Count: > 0 })
+                    {
+                        <MudMenu Icon="@Icons.Material.Filled.Bolt" Color="Color.Secondary"
+                                 Variant="Variant.Filled"
+                                 Disabled="@(ChatText.Trim().Length == 0 || !CanChatTask)"
+                                 AnchorOrigin="Origin.TopRight" TransformOrigin="Origin.BottomRight"
+                                 title="@L["task.chat.push"]" data-task-chat-push="1">
+                            <MudText Typo="Typo.caption" Class="px-4 py-1">@L["task.chat.pushTo"]</MudText>
+                            @foreach (var server in _chatServers)
+                            {
+                                <MudMenuItem OnClick="@(() => PushChatAsync(server.Code))"
+                                             data-task-chat-push-to="@server.Code">
+                                    @server.Code — @server.Name
+                                </MudMenuItem>
+                            }
+                        </MudMenu>
+                    }
                 </MudStack>
             </MudStack>
         </MudTabPanel>
@@ -1126,7 +1150,15 @@ else
     }
 
     private List<ChatMessage> _chat = [];
+
+    /// <summary>Куда можно отправить сообщение сразу, минуя ожидание репликации (T-590-S0);
+    /// null — ещё не спрашивали, пусто — кластера нет, вторая кнопка не показывается.</summary>
+    private List<ChatServerDto>? _chatServers;
     private List<TaskItem> _subtasks = [];
+
+    /// <summary>Выбор строк таблицы подзадач (T-651-S0): щелчок выделяет, Ctrl/Shift — как
+    /// в проводнике, подзадача открывается двойным щелчком.</summary>
+    private readonly TaskSelection _subSel = new();
 
     /// <summary>ВСЁ ПОДДЕРЕВО задачи (T-132-S0): нужно представлению «иерархия» — таблица
     /// показывает только прямых потомков, а дерево строится по всей ветке.</summary>
@@ -1559,6 +1591,19 @@ else
             var usedTask = ReloadUsedExperienceAsync();
             _events = await eventsTask;
             _chat = await chatTask;
+            // серверы мгновенной доставки (T-590-S0) — один раз на карточку: состав кластера
+            // за время просмотра не меняется, а спрашивать его каждым обновлением незачем
+            if (_chatServers is null)
+            {
+                try
+                {
+                    _chatServers = await Api.GetChatServersAsync();
+                }
+                catch (ApiException)
+                {
+                    _chatServers = [];   // сервер прежней версии: кнопки просто не будет
+                }
+            }
             if (statsTask is not null)
             {
                 _stats = await statsTask;
@@ -1566,6 +1611,7 @@ else
             await usedTask;
             var candidates = await candidatesTask;
             _subtasks = candidates.Where(t => t.ParentId == TaskId).ToList();
+            _subSel.Refresh(_subtasks);
             // поддерево целиком (T-132-S0) — для представления «иерархия»
             _subtree = Subtree(candidates, TaskId);
             // коды блокирующих задач (ТЗ v1.35) — для строки в шапке
@@ -2480,6 +2526,24 @@ else
             await Api.PostChatAsync(TaskId, ChatText, to);
             ChatText = "";
             _chat = await Api.GetChatAsync(TaskId);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Отправить и сразу отвезти на сервер <paramref name="server"/> (T-590-S0).</summary>
+    private async Task PushChatAsync(string server)
+    {
+        try
+        {
+            var to = _details?.Task.ResponsibleId == State.LocalUser.Id ? null : _details?.Task.ResponsibleId;
+            var result = await Api.PushChatAsync(TaskId, ChatText, server, to);
+            ChatText = "";
+            _chat = await Api.GetChatAsync(TaskId);
+            // не дозвонились — не ошибка: сообщение записано и уедет репликацией
+            Snackbar.Add(result.Note, result.Delivered ? Severity.Success : Severity.Warning);
         }
         catch (ApiException ex)
         {

@@ -814,6 +814,9 @@ public sealed class TaskService
                 info.NeedsExecutorPick = true;
             }
         }
+        // макроподстановки ${key} (T-655-S0) — по порядку узлов, без повторов
+        info.Macros = TemplateMacros.Find(nodes.SelectMany(n =>
+            new[] { n.Title, ReadDescription(n), ReadAcceptance(n) }));
         return info;
     }
 
@@ -997,7 +1000,8 @@ public sealed class TaskService
     /// Вся копия при этом переезжает в проект родителя: подзадача обязана лежать в его
     /// проекте (то же правило у переноса по иерархии, ChangeParent).</summary>
     public TaskItem InstantiateTemplate(string templateId, DateTime? baseDate, string? actorId,
-        PickMode? pickMode = null, ExecutorPickService? picker = null, string? parentId = null)
+        PickMode? pickMode = null, ExecutorPickService? picker = null, string? parentId = null,
+        IReadOnlyDictionary<string, string>? macros = null)
     {
         var head = Get(templateId) ?? throw new InvalidOperationException(Loc.T("msg.task.12", templateId));
         if (!head.IsTemplate)
@@ -1069,7 +1073,8 @@ public sealed class TaskService
                     ? mapped
                     : parent?.Id,
                 Kind = node.Kind,
-                Title = node.Title,
+                // макроподстановки ${key} (T-655-S0): заголовок, описание, критерии приёмки
+                Title = TemplateMacros.Apply(node.Title, macros),
                 Status = TaskStatuses.Pending,
                 // статус по готовности (T-250) переезжает из узла шаблона: им расписано, надо
                 // ли проверять результат этой работы человеку, — и в копии это ровно то же
@@ -1113,7 +1118,8 @@ public sealed class TaskService
             // по недостроенному дереву запустил бы голову раньше её подзадач
             // сервер исполнителя здесь НЕ проверяется (T-446-S0): сразу после создания человек
             // должен иметь возможность сменить исполнителя, а не получить отказ; проверит запуск
-            copy = Create(copy, ReadDescription(node), ReadAcceptance(node), actorId, notify: false,
+            copy = Create(copy, TemplateMacros.Apply(ReadDescription(node), macros),
+                TemplateMacros.Apply(ReadAcceptance(node), macros), actorId, notify: false,
                 checkExecutorServer: false);
             idMap[node.Id] = copy.Id;
             newHead ??= copy;

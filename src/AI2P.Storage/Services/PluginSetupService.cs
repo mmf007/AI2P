@@ -396,7 +396,9 @@ public sealed class PluginSetupService
         var name = skill.Trim();
         var found = _refData.Skills()
             .FirstOrDefault(s => s.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-        return found?.Id ?? throw new ArgumentException(Loc.T("msg.pluginSetup.3", name));
+        // встроенный навык этой версии, ещё не засеянный дирижёром, — заводится здесь (T-570-S0)
+        return found?.Id ?? _refData.EnsureSeedSkill(name)
+            ?? throw new ArgumentException(Loc.T("msg.pluginSetup.3", name));
     }
 
     private static string Code(string pluginCode) =>

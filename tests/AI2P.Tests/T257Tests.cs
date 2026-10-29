@@ -159,6 +159,7 @@ public sealed class T257Tests : IDisposable
     [InlineData("video-lipsync", SkillIo.Audio, SkillIo.Video)]
     [InlineData("image-edit", SkillIo.Image, SkillIo.Image)]
     [InlineData("3d-image", SkillIo.Image, SkillIo.Model)]
+    [InlineData("marketing-copy", SkillIo.Text, SkillIo.Text)]   // T-627-S0
     public void Skill_Mode_Is_Known(string code, string input, string output)
     {
         var mode = SkillIo.For(code);

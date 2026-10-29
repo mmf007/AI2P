@@ -22,4 +22,9 @@ public sealed record McpToolInfo(string Name, string Title = "", string Descript
 {
     /// <summary>Название для записи справочника: своё, если сервер его назвал, иначе имя.</summary>
     public string TitleOrName => Title.Trim().Length > 0 ? Title.Trim() : Name;
+
+    /// <summary>Схема аргументов (<c>inputSchema</c>) как её прислал сервер — сырым JSON;
+    /// пусто — сервер схему не прислал (T-567-S0: по ней агенту объясняют вызов, а
+    /// <c>site_call</c> узнаёт, куда подставить сайт).</summary>
+    public string InputSchema { get; init; } = "";
 }

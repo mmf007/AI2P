@@ -14,6 +14,8 @@ program itself and the path to it belong to **this computer** and are not replic
 * [editor.openshot](editor.openshot.md) — OpenShot — the `editor.openshot` gateway (backup)
 * [editor.resolve](editor.resolve.md) — DaVinci Resolve (OTIO)
 * [editor.shotcut](editor.shotcut.md) — Shotcut / Kdenlive (MLT XML)
+* [editor.vscode](editor.vscode.md) — VS Code plugin
+* [saas.wix](saas.wix.md) — Wix — plugin `saas.wix`
 * [tool.ffmpeg](tool.ffmpeg.md) — Video converter (ffmpeg) — plugin `tool.ffmpeg`
 * [trainer.musubi](trainer.musubi.md) — Musubi Tuner (LoRA) — the `trainer.musubi` plugin
 

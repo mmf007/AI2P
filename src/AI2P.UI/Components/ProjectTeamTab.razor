@@ -7,7 +7,8 @@
 @implements IDisposable
 
 @* Вкладка «команда» проекта (ТЗ v1.17, todo20): участники команды проекта со статусами
-   работы (ТЗ v1.14), кнопка «запустить»/«остановить», добавление исполнителя в команду. *@
+   работы (ТЗ v1.14), кнопка «запустить»/«остановить», добавление члена команды «+».
+   С T-637-S0 состав — оргединицами, действия записи — в меню «…» (TeamUnitMenu). *@
 @if (Team is null)
 {
     <MudAlert Severity="Severity.Info">@L["projects.team.none"]</MudAlert>
@@ -41,24 +42,29 @@ else
                                    OnClick="StartAsync" />
                 </MudTooltip>
             }
-            <MudTooltip Text="@(HasFreeExecutor ? L["teams.addMember"] : L["teams.noFreeExecutors"])">
-                <MudIconButton Icon="@Icons.Material.Filled.PersonAdd" Size="Size.Small"
-                               Color="Color.Primary"
-                               Disabled="@(!HasFreeExecutor || !State.CanManageProjects)"
-                               OnClick="AddMemberAsync" />
-            </MudTooltip>
             <MudTooltip Text="@L["common.edit"]">
                 <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
                                Disabled="@(!State.CanManageProjects)" OnClick="EditTeamAsync" />
             </MudTooltip>
+            @* «+» в правом верхнем углу (T-637-S0) — член команды верхнего уровня; подчинённого
+               добавляет пункт меню «…» записи *@
+            <MudTooltip Text="@L["teams.addMember"]">
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Size="Size.Small" Color="Color.Primary"
+                               Disabled="@(!State.CanManageProjects)" data-project-team-add="1"
+                               OnClick="AddUnitAsync" />
+            </MudTooltip>
         </MudStack>
 
+        @* с T-637-S0 состав строится по оргединицам (как список команд, T-629-S0), а все
+           действия записи — в меню «…» TeamUnitMenu: запуск/остановка участника (T-129),
+           подчинённый, правка, активность, удаление *@
         @if (_view == "table")
         {
             <MudSimpleTable Dense="true">
                 <thead>
                     <tr>
-                        <th>@L["executors.nick"]</th>
+                        <th>@L["teams.unitName"]</th>
+                        <th>@L["teams.unitExecutor"]</th>
                         <th>@L["teams.role"]</th>
                         <th>@L["teams.manager"]</th>
                         <th>@L["teams.workStatus"]</th>
@@ -66,19 +72,25 @@ else
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var member in Team.Members)
+                    @foreach (var (unit, depth) in TeamUnits.Ordered(Team.Units))
                     {
-                        <tr>
-                            <td>@MemberName(member)</td>
-                            <td>@RoleName(member.RoleId)</td>
-                            <td>@(member.ParentExecutorId is null ? "" : Nick(member.ParentExecutorId))</td>
-                            <td>@StatusChip(member)</td>
-                            @* запуск/останов ОДНОГО участника (T-129): вкладка «команда» проекта —
-                               то место, где на состав смотрят чаще всего *@
-                            <td style="white-space: nowrap;">
-                                <TeamMemberWorkButtons Status="@StatusOf(member)" CanEdit="@State.CanEdit"
-                                                       OnStart="StartMemberAsync" OnStop="StopMemberAsync" />
+                        var member = MemberOf(unit);
+                        <tr data-team-unit="@unit.Id" style="@(unit.IsActive ? "" : "opacity: .5;")">
+                            <td><span style="@($"padding-left: {depth * 16}px;")">@UnitName(unit)</span></td>
+                            <td>
+                                @if (member is not null)
+                                {
+                                    @MemberName(member)
+                                }
+                                else
+                                {
+                                    <span style="opacity: .6;">@L["teams.vacancy"]</span>
+                                }
                             </td>
+                            <td>@RoleName(member?.RoleId)</td>
+                            <td>@(member?.ParentExecutorId is { } head ? Nick(head) : "")</td>
+                            <td>@(member is null ? null : StatusChip(member))</td>
+                            <td>@UnitMenu(unit, member)</td>
                         </tr>
                     }
                 </tbody>
@@ -86,24 +98,36 @@ else
         }
         else
         {
-            @* иерархия команды по руководителям (todo22): отступ — уровень подчинения *@
+            @* иерархия оргединиц: отступ — уровень вложенности *@
             <MudStack Spacing="0">
-                @foreach (var (member, depth) in Hierarchy())
+                @foreach (var (unit, depth) in TeamUnits.Ordered(Team.Units))
                 {
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2"
-                              Style="@($"padding: 4px 8px 4px {8 + depth * 28}px;")">
+                    var member = MemberOf(unit);
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" data-team-unit="@unit.Id"
+                              Style="@($"padding: 4px 8px 4px {8 + depth * 28}px;" + (unit.IsActive ? "" : " opacity: .5;"))">
                         @if (depth > 0)
                         {
                             <MudIcon Icon="@Icons.Material.Filled.SubdirectoryArrowRight"
                                      Size="Size.Small" Style="opacity: .5;" />
                         }
-                        @MemberName(member)
-                        <MudText Typo="Typo.caption" Style="opacity: .7;">@RoleName(member.RoleId)</MudText>
+                        <MudIcon Icon="@(unit.Kind == TeamUnit.Department ? Icons.Material.Filled.Folder : Icons.Material.Filled.Badge)"
+                                 Size="Size.Small" />
+                        <MudText Typo="Typo.body2">@UnitName(unit)</MudText>
+                        @if (member is not null)
+                        {
+                            @MemberName(member)
+                            <MudText Typo="Typo.caption" Style="opacity: .7;">@RoleName(member.RoleId)</MudText>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.caption" Style="opacity: .6;">@L["teams.vacancy"]</MudText>
+                        }
                         <MudSpacer />
-                        @StatusChip(member)
-                        @* запуск/останов ОДНОГО участника (T-129) *@
-                        <TeamMemberWorkButtons Status="@StatusOf(member)" CanEdit="@State.CanEdit"
-                                               OnStart="StartMemberAsync" OnStop="StopMemberAsync" />
+                        @if (member is not null)
+                        {
+                            @StatusChip(member)
+                        }
+                        @UnitMenu(unit, member)
                     </MudStack>
                 }
             </MudStack>
@@ -311,42 +335,24 @@ else
     /// <summary>Попыток опроса по 2 с — 12 минут (ожидание готовности сервера модели — 10 мин).</summary>
     private const int PollAttempts = 360;
 
-    /// <summary>Есть ли активный исполнитель, ещё не входящий в состав.</summary>
-    private bool HasFreeExecutor => Team is { } team && State.Executors.Any(e =>
-        e.IsActive && team.Members.All(m => m.ExecutorId != e.Id));
+    private TeamMember? MemberOf(TeamUnit unit) =>
+        unit.ExecutorId is null ? null : Team?.Members.FirstOrDefault(m => m.ExecutorId == unit.ExecutorId);
 
-    /// <summary>Состав в порядке иерархии по руководителям с уровнем вложенности (todo22).
-    /// Участник с руководителем вне состава показывается на верхнем уровне.</summary>
-    private IEnumerable<(TeamMember Member, int Depth)> Hierarchy()
+    private string UnitName(TeamUnit unit) =>
+        unit.Name.Trim().Length > 0 ? unit.Name.Trim() : L["teams.unitKind." + unit.Kind];
+
+    /// <summary>Меню «…» записи (T-637-S0) — то же, что в списке команд.</summary>
+    private RenderFragment UnitMenu(TeamUnit unit, TeamMember? member) => __builder =>
     {
-        if (Team is not { } team)
-        {
-            yield break;
-        }
-        var ids = team.Members.Select(m => m.ExecutorId).ToHashSet();
-        var visited = new HashSet<TeamMember>(); // защита от цикла в данных
-        IEnumerable<(TeamMember, int)> Walk(string? parentId, int depth)
-        {
-            foreach (var member in team.Members.Where(m =>
-                         parentId is null
-                             ? m.ParentExecutorId is null || !ids.Contains(m.ParentExecutorId)
-                             : m.ParentExecutorId == parentId))
-            {
-                if (!visited.Add(member))
-                {
-                    continue;
-                }
-                yield return (member, depth);
-                foreach (var child in Walk(member.ExecutorId, depth + 1))
-                {
-                    yield return child;
-                }
-            }
-        }
-        foreach (var node in Walk(null, 0))
-        {
-            yield return node;
-        }
+        <TeamUnitMenu Team="@(Team!)"Unit="@unit" Status="@(member is null ? null : StatusOf(member))"
+                      OnStart="StartMemberAsync" OnStop="StopMemberAsync" OnChanged="OnUnitChangedAsync" />
+    };
+
+    private async Task OnUnitChangedAsync()
+    {
+        await State.RefreshReferenceDataAsync();
+        await RefreshWorkAsync();
+        State.NotifyChanged();
     }
 
     /// <summary>Имя участника: иконка вида, звезда тимлида, ник — одинаково в обоих представлениях.</summary>
@@ -401,41 +407,36 @@ else
             new DialogOptions { MaxWidth = MaxWidth.Medium, FullWidth = true });
     }
 
-    /// <summary>Добавление участника — через форму (todo22): исполнитель, роль, руководитель, тимлид.</summary>
-    private async Task AddMemberAsync()
+    /// <summary>«+» (T-637-S0): член команды — оргединица верхнего уровня, той же формой
+    /// TeamUnitDialog и тем же вызовом, что «+» списка команд (меняется одна единица).</summary>
+    private async Task AddUnitAsync()
     {
         if (Team is not { } team)
         {
             return;
         }
-        var parameters = new DialogParameters<TeamMemberDialog> { { d => d.Team, team } };
-        var dialog = await Dialogs.ShowAsync<TeamMemberDialog>(L["teams.addMember"], parameters);
+        var parameters = new DialogParameters<TeamUnitDialog>
+        {
+            { d => d.Team, team },
+            { d => d.Source, null },
+            { d => d.ParentUnitId, null },
+        };
+        var dialog = await Dialogs.ShowAsync<TeamUnitDialog>(L["teams.addMember"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
         var result = await dialog.Result;
-        if (result is not { Canceled: false, Data: TeamMember member })
+        if (result is not { Canceled: false, Data: TeamUnitEditDto dto })
         {
             return;
         }
         try
         {
-            // тимлид один: у остальных признак снимается (ТЗ v1.17)
-            if (member.IsLead)
-            {
-                foreach (var other in team.Members)
-                {
-                    other.IsLead = false;
-                }
-            }
-            team.Members.Add(member);
-            await Api.UpdateTeamAsync(team);
-            await State.RefreshReferenceDataAsync();
-            await RefreshWorkAsync();
-            State.NotifyChanged();
+            await Api.SaveTeamUnitAsync(team.Id, dto);
         }
         catch (ApiException ex)
         {
             Snackbar.Add(ex.Message, Severity.Error);
-            await State.RefreshReferenceDataAsync(); // откат локальной правки состава
         }
+        await OnUnitChangedAsync();
     }
 
     private async Task EditTeamAsync()

@@ -47,6 +47,29 @@ são proibidos — o núcleo não os deixa passar e o formulário os destaca.
 O líder é um só por equipe e só pode ser um integrante do nível de cima; se no topo houver um
 único executor, ele é marcado como líder sozinho. Em um subordinado a marca fica indisponível.
 
+### Estrutura organizacional: departamentos e cargos
+
+No formulário, a composição da equipe é definida como uma **árvore de unidades
+organizacionais**. Uma unidade é de um de dois tipos:
+
+| Tipo | Executor | Exemplo |
+|---|---|---|
+| **Departamento** | o seu chefe (pode ficar vazio) | «Marketing» — chefe Mark_manager |
+| **Cargo** | quem o ocupa; vazio significa **vago** | «Profissional de marketing 1» — Mark1, «SMM» — vago |
+
+Uma unidade tem nome, unidade superior (o campo «Pertence a», com o qual a unidade também é
+movida na hierarquia) e **habilidades**. As habilidades da unidade somam-se às do executor que
+a ocupa quando o executor é escolhido automaticamente nesta equipe: se a declaração do
+executor não tem essa habilidade, ela conta como dominada em 70 de 100.
+
+O chefe de um membro não é mais escolhido à parte: vem da árvore, é o executor da unidade
+superior mais próxima que tenha um. O líder técnico é o executor de uma unidade de nível
+superior; as regras acima não mudaram. Um executor ocupa uma só unidade numa equipe.
+
+As equipes criadas antes das unidades organizacionais aparecem como antes: cada membro é
+mostrado como um cargo sem nome no seu lugar anterior da hierarquia. Essas unidades são
+gravadas no banco de dados na primeira vez que a equipe é salva.
+
 ### Duas atividades, e isso não é duplicação
 
 * **A atividade do executor** (no catálogo de executores) é «ele trabalha, em geral».
@@ -61,8 +84,26 @@ executor em um projeto sem mexer nos demais.
 
 ## Duas visualizações da lista
 
-* **Tabela** — as equipes em linhas, com o líder marcado por uma estrela ao lado do apelido.
-* **Hierarquia** — um bloco por equipe, com os integrantes em árvore por subordinação.
+* **Tabela** — cada unidade organizacional (e, portanto, cada executor) em sua própria linha:
+  nome, executor ou «vago», gestor, papel profissional, atividade. A equipe é uma linha de
+  cabeçalho do grupo com os botões de iniciar, «+» e editar a equipe.
+* **Hierarquia** — um bloco por equipe, com as unidades organizacionais em árvore por
+  subordinação.
+
+Uma unidade é editada sem abrir o formulário da equipe inteira:
+
+* **«+»** na equipe adiciona uma unidade de nível superior; **«+»** num nó da hierarquia, uma
+  subordinada a ele. Abre-se um formulário separado para uma unidade: tipo, nome, executor,
+  unidade superior, habilidades, papel profissional, líder, atividade.
+* **O menu «…»** da linha: **Editar** (o mesmo formulário), **Alternar atividade** (ativo ou não
+  nesta equipe), **Excluir** (com confirmação; as unidades aninhadas sobem para o nível dela).
+* **Arrastar na hierarquia** muda a unidade superior: uma linha sobre outra entra nela; sobre a
+  faixa «Para o nível superior», no topo da lista, fica sem unidade superior. O mais cômodo é
+  puxar pela alça à esquerda; no celular, com o dedo pela alça de imediato ou mantendo a linha
+  pressionada. Uma unidade não pode ser movida para dentro da sua própria subordinada.
+
+Cada uma dessas ações altera uma unidade, sem regravar a equipe inteira. Quem não pode editar
+equipes (é preciso o papel de administrador de projetos) não vê os botões de edição.
 
 A troca é pelo botão acima da lista; a visualização escolhida é memorizada.
 

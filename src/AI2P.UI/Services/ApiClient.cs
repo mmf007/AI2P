@@ -311,6 +311,21 @@ public sealed class ApiClient
 
     public Task<Team> UpdateTeamAsync(Team team) => Put<Team>($"api/teams/{team.Id}", team);
 
+    // правка ОДНОЙ оргединицы команды (T-629-S0) — не перезапись всей команды
+    public Task<Team> SaveTeamUnitAsync(string teamId, TeamUnitEditDto dto) =>
+        Post<Team>($"api/teams/{teamId}/units", dto);
+
+    public Task DeleteTeamUnitAsync(string teamId, string unitId) =>
+        Send(HttpMethod.Delete, $"api/teams/{teamId}/units/{Uri.EscapeDataString(unitId)}");
+
+    public Task<Team> SetTeamUnitActiveAsync(string teamId, string unitId, bool active) =>
+        Post<Team>($"api/teams/{teamId}/units/{Uri.EscapeDataString(unitId)}/active",
+            new TeamUnitActiveDto { IsActive = active });
+
+    public Task<Team> MoveTeamUnitAsync(string teamId, string unitId, string? parentUnitId) =>
+        Post<Team>($"api/teams/{teamId}/units/{Uri.EscapeDataString(unitId)}/parent",
+            new TeamUnitParentDto { ParentUnitId = parentUnitId });
+
     // --- запуск/остановка работы команды и статусы участников (ТЗ v1.14) ---
     public Task<TeamWorkStatusDto> StartTeamWorkAsync(string teamId) =>
         Post<TeamWorkStatusDto>($"api/teams/{teamId}/work/start", new { });
@@ -417,6 +432,21 @@ public sealed class ApiClient
             + SoftArg(soft),
             new { });
 
+    // --- обновление установленного ПО (T-652-S0) ---
+    public Task<List<InstalledPackageDto>> GetInstalledSoftwareAsync() =>
+        Get<List<InstalledPackageDto>>("api/software/installed");
+
+    public Task<InstalledPackageDto> CheckSoftwareAsync(string id) =>
+        Post<InstalledPackageDto>($"api/software/{Uri.EscapeDataString(id)}/check", new { });
+
+    public Task<InstalledPackageDto> UpdateSoftwareAsync(string id, bool deleteOld) =>
+        Post<InstalledPackageDto>(
+            $"api/software/{Uri.EscapeDataString(id)}/update?deleteOld={(deleteOld ? "true" : "false")}",
+            new { });
+
+    public Task<InstalledPackageDto> CancelSoftwareAsync(string id) =>
+        Post<InstalledPackageDto>($"api/software/{Uri.EscapeDataString(id)}/cancel", new { });
+
     /// <summary>Размер дистрибутива пакета — запросом к серверу раздачи (несколько секунд сети).</summary>
     public Task<PluginInstallDto> ResolvePluginInstallSizeAsync(string code, string lang,
         string soft = "") =>
@@ -447,6 +477,17 @@ public sealed class ApiClient
         Put<PluginListItemDto>(
             $"api/plugins/{Uri.EscapeDataString(code)}/secret?lang={Uri.EscapeDataString(lang)}",
             new PluginSecretDto { Value = value });
+
+    /// <summary>Завести или изменить сайт плагина SaaS-редактора (T-567-S0); ключ в
+    /// <see cref="SaasSiteDto.Key"/> — только при вводе, пусто — «не менять».</summary>
+    public Task<SaasSiteDto> SavePluginSiteAsync(string code, SaasSiteDto site) =>
+        Put<SaasSiteDto>(
+            $"api/plugins/{Uri.EscapeDataString(code)}/sites/{Uri.EscapeDataString(site.Code)}", site);
+
+    /// <summary>Удалить сайт плагина SaaS-редактора вместе с его ключом (T-567-S0).</summary>
+    public Task DeletePluginSiteAsync(string code, string site) =>
+        Send(HttpMethod.Delete,
+            $"api/plugins/{Uri.EscapeDataString(code)}/sites/{Uri.EscapeDataString(site)}");
 
     // --- правила безопасности (ТЗ гл. 12, todo25) ---
     public Task<List<SecurityRule>> GetSecurityRulesAsync(string scope, string? scopeId) =>
@@ -1232,9 +1273,9 @@ public sealed class ApiClient
     /// ранней даты иерархии (todo31); pick — вариант автоподбора ("ai_first"/"human_first");
     /// parentId (T-201) — создать подзадачей этой задачи.</summary>
     public Task<TaskItem> InstantiateTemplateAsync(string id, DateTime? baseDate, string? pick = null,
-        string? parentId = null) =>
+        string? parentId = null, Dictionary<string, string>? macros = null) =>
         Post<TaskItem>($"api/tasks/{id}/instantiate",
-            new InstantiateTemplateDto { BaseDate = baseDate, Pick = pick, ParentId = parentId });
+            new InstantiateTemplateDto { BaseDate = baseDate, Pick = pick, ParentId = parentId, Macros = macros });
 
     /// <summary>Авторазбиение задачи на подзадачи ИИ-агентом (ТЗ v1.26, todo28).</summary>
     public Task<Job> SplitTaskAsync(string id) => Post<Job>($"api/tasks/{id}/split", new { });
@@ -1266,6 +1307,16 @@ public sealed class ApiClient
 
     public Task<ChatMessage> PostChatAsync(string taskId, string text, string? toExecutorId = null) =>
         Post<ChatMessage>($"api/tasks/{taskId}/chat", new ChatPostDto { Text = text, ToExecutorId = toExecutorId });
+
+    /// <summary>Сообщение в чат с мгновенной доставкой на сервер <paramref name="server"/> (T-590-S0).</summary>
+    public Task<ChatPushResultDto> PushChatAsync(string taskId, string text, string server,
+        string? toExecutorId = null) =>
+        Post<ChatPushResultDto>($"api/tasks/{taskId}/chat/push",
+            new ChatPostDto { Text = text, ToExecutorId = toExecutorId, Server = server });
+
+    /// <summary>Серверы, куда можно мгновенно отправить сообщение чата (T-590-S0).</summary>
+    public Task<List<ChatServerDto>> GetChatServersAsync() =>
+        Get<List<ChatServerDto>>("api/chat/servers");
 
     /// <summary>Перенос обсуждения внешней системы в чат задачи (T-152): вызывается сразу
     /// после создания задачи из карточки Trello; повторный вызов дублей не делает.</summary>

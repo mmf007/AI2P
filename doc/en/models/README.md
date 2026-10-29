@@ -26,13 +26,13 @@ key, why a model may be inactive and how to create your own record.
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — text into music and songs, rights-cleared, skills `audio-song` 92, `audio-music` 92
 * [ElevenLabs-Music](ElevenLabs-Music.md) — text into music and songs, rights-cleared, skills `audio-song` 89, `audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — text into speech, skills `audio-speech` 96
-* [FLUX-3](FLUX-3.md) — text into an image, skills `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [FLUX-3-Max-Video](FLUX-3-Max-Video.md) — text into a 5-20 second video with sound, skills `video-generate` 93
+* [FLUX-3](FLUX-3.md) — text into an image, skills `image-generate` 95, `image-photo` 95, `image-concept` 91, `image-text` 88
 * [Gemini-3-Ultra](Gemini-3-Ultra.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, through an OpenAI-compatible layer
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, through an OpenAI-compatible layer
-* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, a context of 1,048,576 tokens, $2.00 / $10.00 per 1M, skill scores 91-95
+* [Gemini-4-Argon](Gemini-4-Argon.md) — Google, through an OpenAI-compatible layer
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — text into an 8-second video with sound, skills `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Sber, Russia; OpenAI-compatible
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, OpenAI-compatible
@@ -43,6 +43,7 @@ key, why a model may be inactive and how to create your own record.
 * [GPT-6-Luna](GPT-6-Luna.md) — the OpenAI API, OpenAI-compatible
 * [GPT-6-Sol](GPT-6-Sol.md) — the OpenAI API, OpenAI-compatible
 * [GPT-6.1-Sol](GPT-6.1-Sol.md) — the OpenAI API, OpenAI-compatible
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI, a context of 1,050,000 tokens, $1.00 / $5.00 per 1M, skill scores 89-93
 * [GPT-Image-2.5](GPT-Image-2.5.md) — text into an image, billed by tokens, skills `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — text into an image, billed by tokens, skills `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — the xAI API, OpenAI-compatible
@@ -51,12 +52,14 @@ key, why a model may be inactive and how to create your own record.
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, through the OpenRouter gateway
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — text into a 5-second video with sound, skills `video-generate` 90
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-compatible
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, a context of 1,048,576 tokens, $2.00 / $10.00 per 1M, skill scores 87-92
 * [Kling-3.0](Kling-3.0.md) — a picture into a video with sound, up to 15 seconds, skills `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, through the OpenRouter gateway
 * [Meshy-7.1](Meshy-7.1.md) — text into a game-ready 3D model, skills `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — text into a game-ready 3D model, skills `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — text into a video up to 15 seconds, skills `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-compatible
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, a context of 1,048,576 tokens, $0.15 / $0.60 per 1M, skill scores 80-84
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, France; OpenAI-compatible
 * [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, France; OpenAI-compatible
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, through the OpenRouter gateway
@@ -66,7 +69,7 @@ key, why a model may be inactive and how to create your own record.
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — a picture plus an instruction into an edited picture, skills `image-edit` 98, `image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — text into an image up to 4K, the best text in the frame, skills `image-text` 98, `image-generate` 97, `image-photo` 96, `image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md) — NVIDIA, through the OpenRouter gateway
-* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, a context of 262,144 tokens, $0.15 / $0.50 per 1M, skill scores 77-83
+* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, through the OpenRouter gateway
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, OpenAI-compatible
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, OpenAI-compatible
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — a picture into a video with sound, skills `video-animate` 95

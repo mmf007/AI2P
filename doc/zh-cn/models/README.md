@@ -26,13 +26,13 @@
 * [ElevenLabs-Music-v2.5](ElevenLabs-Music-v2.5.md) — 文本 → 音乐和歌曲，版权已清理，技能 `audio-song` 92、`audio-music` 92
 * [ElevenLabs-Music](ElevenLabs-Music.md) — 文本 → 音乐和歌曲，版权已清理，技能 `audio-song` 89、`audio-music` 89
 * [ElevenLabs-TTS-v3](ElevenLabs-TTS-v3.md) — 文本 → 语音，技能 `audio-speech` 96
-* [FLUX-3](FLUX-3.md) — 文本 → 图像，技能 `image-generate` 95、`image-photo` 95、`image-concept` 91、`image-text` 88
 * [FLUX-3-Max-Video](FLUX-3-Max-Video.md) — 文本 → 5–20 秒带声音的视频，技能 `video-generate` 93
+* [FLUX-3](FLUX-3.md) — 文本 → 图像，技能 `image-generate` 95、`image-photo` 95、`image-concept` 91、`image-text` 88
 * [Gemini-3-Ultra](Gemini-3-Ultra.md)
 * [Gemini-3.1-Pro](Gemini-3.1-Pro.md)
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md)
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md)
-* [Gemini-4-Argon](Gemini-4-Argon.md) — Google，上下文 1 048 576 令牌，每百万 2,00 $ / 10,00 $，技能评分 91–95
+* [Gemini-4-Argon](Gemini-4-Argon.md)
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — 文本 → 带声音的视频，8 秒，技能 `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md)
 * [GLM-5.2](GLM-5.2.md)
@@ -43,6 +43,7 @@
 * [GPT-6-Luna](GPT-6-Luna.md)
 * [GPT-6-Sol](GPT-6-Sol.md)
 * [GPT-6.1-Sol](GPT-6.1-Sol.md)
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI，上下文 1 050 000 令牌，每百万 1,00 $ / 5,00 $，技能评分 89–93
 * [GPT-Image-2.5](GPT-Image-2.5.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 97、`image-text` 96、`image-photo` 95、`image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 96、`image-text` 95、`image-photo` 94、`image-concept` 90
 * [Grok-4.6](Grok-4.6.md)
@@ -51,12 +52,14 @@
 * [Inkling-975B](Inkling-975B.md)
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — 文本 → 带声音的 5 秒视频，技能 `video-generate` 90
 * [Kimi-K3](Kimi-K3.md)
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI，上下文 1 048 576 令牌，每百万 2,00 $ / 10,00 $，技能评分 87–92
 * [Kling-3.0](Kling-3.0.md) — 图片 → 带声音的视频，最长 15 秒，技能 `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md)
 * [Meshy-7.1](Meshy-7.1.md) — 文本 → 可直接进游戏的 3D 模型，技能 `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — 文本 → 可直接进游戏的 3D 模型，技能 `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — 文本 → 最长 15 秒的视频，技能 `video-generate` 92
 * [MiniMax-M3](MiniMax-M3.md)
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax，上下文 1 048 576 令牌，每百万 0,15 $ / 0,60 $，技能评分 80–84
 * [Mistral-Large-3](Mistral-Large-3.md)
 * [Mistral-Large-4](Mistral-Large-4.md)
 * [Muse-Spark-1.2](Muse-Spark-1.2.md)
@@ -66,7 +69,7 @@
 * [Nano-Banana-Pro-Edit](Nano-Banana-Pro-Edit.md) — 图片加指令 → 改过的图片，技能 `image-edit` 98、`image-inpaint` 90
 * [Nano-Banana-Pro](Nano-Banana-Pro.md) — 文本 → 最高 4K 的图像，画面中的文字最好，技能 `image-text` 98、`image-generate` 97、`image-photo` 96、`image-concept` 92
 * [Nemotron-3-Ultra](Nemotron-3-Ultra.md)
-* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA，上下文 262 144 令牌，每百万 0,15 $ / 0,50 $，技能评分 77–83
+* [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md)
 * [Qwen3.8-Max](Qwen3.8-Max.md)
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md)
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — 图片 → 带声视频，技能 `video-animate` 95

@@ -27,6 +27,11 @@
 <MudDialog>
     <DialogContent>
         <MudStack Spacing="3" data-arcdel-form="@Target">
+            @if (Ids is { Count: > 1 })
+            {
+                @* множественный выбор (T-651-S0): в названии — список выбранных задач *@
+                <MudText Typo="Typo.body2" data-multi-count="@Ids.Count">@L["tasks.multi.count", Ids.Count]</MudText>
+            }
             <MudText>@L["arcdel.ask", Name]</MudText>
 
             @if (_loading)
@@ -80,6 +85,10 @@
     /// <summary>Как запись зовётся на экране (номер и заголовок, имя объекта).</summary>
     [Parameter] public string Name { get; set; } = "";
 
+    /// <summary>Несколько записей сразу (T-651-S0, множественный выбор задач): состав
+    /// переноса проверяется у каждой, первый отказ закрывает вариант «в архив».</summary>
+    [Parameter] public List<string>? Ids { get; set; }
+
     /// <summary>Выбор человека: перенести в архив.</summary>
     public const string Archive = "archive";
 
@@ -92,13 +101,14 @@
     /// одинаково на всех пяти экранах.
     /// </summary>
     public static async Task<string?> AskAsync(IDialogService dialogs, string title,
-        string target, string id, string name)
+        string target, string id, string name, List<string>? ids = null)
     {
         var parameters = new DialogParameters<ArchiveOrDeleteDialog>
         {
             { d => d.Target, target },
             { d => d.Id, id },
             { d => d.Name, name },
+            { d => d.Ids, ids },
         };
         var dialog = await dialogs.ShowAsync<ArchiveOrDeleteDialog>(title, parameters);
         var result = await dialog.Result;
@@ -108,6 +118,8 @@
     private ArchiveMovableDto? _movable;
     private string _reason = "";
     private bool _loading = true;
+    /// <summary>Сколько выбранных записей сверх первой (T-651-S0): они не «потомки».</summary>
+    private int _extraRoots;
 
     /// <summary>Вариант «перенести в архив» доступен, только если состав посчитан: любой
     /// отказ движка переноса (и отсутствие архива, и задача в работе) оставляет причину.</summary>
@@ -131,6 +143,20 @@
             if (!archives.Any(a => a.IsCurrent))
             {
                 _reason = L["arcdel.noArchive"];
+                return;
+            }
+            if (Ids is { Count: > 1 })
+            {
+                // множественный выбор (T-651-S0): уезжает всё, если уехать может каждая;
+                // подсказка «что уедет» — сумма потомков по всем выбранным
+                var tasks = new List<string>();
+                foreach (var id in Ids)
+                {
+                    var plan = await Api.GetArchiveMovableAsync(Target, id);
+                    tasks.AddRange(plan.Tasks);
+                }
+                _movable = new ArchiveMovableDto { Tasks = tasks.Distinct().ToList() };
+                _extraRoots = Ids.Count - 1;
                 return;
             }
             _movable = await Api.GetArchiveMovableAsync(Target, Id);
@@ -161,7 +187,7 @@
             {
                 return "";
             }
-            var children = Math.Max(0, plan.Tasks.Count - 1);
+            var children = Math.Max(0, plan.Tasks.Count - 1 - _extraRoots);
             return Target switch
             {
                 ArchiveMoveTargets.Task when children > 0 => L["arcdel.info.task", children],

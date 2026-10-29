@@ -118,7 +118,7 @@ public sealed class TeamMemberWorkTests : IDisposable
         // v35 — объекты проекта (T-259); v36 — пер-серверная активность моделей (T-8-S1);
         // v37 — заявки на остановку с другого сервера, stop_requests (T-263);
         // v38 — обучение адаптера LoRA (T-12-S1); v39 — смена дирижёра заявкой (T-21-S1)
-        Assert.Equal("49", _f.Db.Meta("schema_version"));
+        Assert.Equal("50", _f.Db.Meta("schema_version"));
 
         // строка состава, записанная БЕЗ новой колонки (как её писала прошлая версия),
         // читается как «активен» — умолчание колонки, а не пустое значение
@@ -355,19 +355,25 @@ public sealed class TeamMemberWorkTests : IDisposable
     /// Жалоба заказчика при повторном заходе: «иконка остановки и запуска у каждого участника
     /// не появились». В списке команд они были, а во вкладке «команда» карточки проекта —
     /// нет: на состав чаще всего смотрят именно там. Компонент кнопок обязан стоять в обоих
-    /// местах; bUnit в проекте нет, поэтому проверяется состав разметки.
+    /// местах; bUnit в проекте нет, поэтому проверяется состав разметки. С T-637-S0 запуск и
+    /// остановка участника — пункты меню «…» записи (TeamUnitMenu), меню печатается
+    /// фрагментом UnitMenu в каждом представлении состава.
     /// </summary>
     [Theory]
     [InlineData("TeamsView.razor", 2)]        // два представления: таблица и иерархия
     [InlineData("ProjectTeamTab.razor", 2)]   // то же самое во вкладке «команда» проекта
     public void Member_Start_Stop_Buttons_Are_Present_In_Every_Member_List(string file, int times)
     {
-        var path = Path.Combine(RepoRoot(), "AI2P_app", "src", "AI2P.UI", "Components", file);
-        var text = File.ReadAllText(path);
-        var count = text.Split("<TeamMemberWorkButtons").Length - 1;
+        var dir = Path.Combine(RepoRoot(), "AI2P_app", "src", "AI2P.UI", "Components");
+        var text = File.ReadAllText(Path.Combine(dir, file));
+        Assert.Contains("<TeamUnitMenu", text, StringComparison.Ordinal);
+        var count = text.Split("@UnitMenu(").Length - 1;
         Assert.True(count >= times,
-            $"{file}: кнопок участника {count}, ожидалось не меньше {times} "
+            $"{file}: меню записи {count}, ожидалось не меньше {times} "
             + "(по одному разу на каждое представление состава)");
+        var menu = File.ReadAllText(Path.Combine(dir, "TeamUnitMenu.razor"));
+        Assert.Contains("teams.startMember", menu, StringComparison.Ordinal);
+        Assert.Contains("teams.stopMember", menu, StringComparison.Ordinal);
         Assert.Contains("StartTeamMemberAsync", text, StringComparison.Ordinal);
         Assert.Contains("StopTeamMemberAsync", text, StringComparison.Ordinal);
     }

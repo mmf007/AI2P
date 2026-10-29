@@ -112,7 +112,11 @@ itself, by the calendar (see [Schedule](schedule.md)).
 The AI agent has the actions `list_templates`, `create_template` and `update_template` — the
 template nodes **of its own project**: look at the list, create a new node (title, description,
 criteria, skills, parent), fix an existing one by its code (a field that is not passed is not
-changed).
+changed). A node can be given **blocking nodes** right away (`blockers` — codes of nodes of the
+same template; a node of another template is refused), an **executor** and a **responsible**
+(`executor`, `responsible` — nicks; only a human can be responsible), and when editing also
+**skills** (`skills`). An empty string or an empty list clears the value. Tasks created from such a
+template are blocked the same way as the nodes.
 
 Two rules worth knowing:
 

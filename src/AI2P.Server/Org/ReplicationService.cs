@@ -227,6 +227,86 @@ public sealed class ReplicationService : IDisposable
             : links.Where(l => l.IsConductor).ToList();
     }
 
+    // --- мгновенная доставка сообщения чата (T-590-S0) ---
+
+    /// <summary>
+    /// Куда можно мгновенно отправить сообщение чата: подтверждённые активные серверы
+    /// организации, кроме своего. Не только партнёры по репликации (звезда), а все — токен
+    /// к рядовому соседу у рядового сервера может и быть, а нет — отказ назовёт причину.
+    /// </summary>
+    public List<OrgServer> ChatTargets(string orgId)
+    {
+        var localId = _registry.Servers.LocalId();
+        return _registry.Servers.ServersOf(orgId, includeRequests: false)
+            .Where(l => l.Status == OrgServerStatus.Active && l.IsActive && l.ServerId != localId)
+            .OrderBy(l => l.Code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>
+    /// ОТВЕЗТИ СООБЩЕНИЕ ЧАТА СОСЕДУ СЕЙЧАС (T-590-S0), не дожидаясь сеанса репликации:
+    /// соседу уходит последняя запись журнала изменений об этом сообщении (с часами и автором
+    /// журнала), и он применяет её тем же путём, что и пачку сеанса. Поэтому, когда та же
+    /// запись приедет обычной репликацией, у получателя уже лежит запись с теми же часами
+    /// и автором — она «не новее» и пропускается: сообщение не задваивается. Курсоры пары
+    /// не трогаются вовсе — это не сеанс, а одна строка вне очереди.
+    /// </summary>
+    /// <param name="server">Код сервера в организации (S1), его имя либо внутренний ключ.</param>
+    /// <returns>Текст итога для человека или агента.</returns>
+    public async Task<string> PushChatAsync(OrgContext context, string messageId, string server,
+        CancellationToken ct = default)
+    {
+        var org = context.Org;
+        var wanted = server.Trim();
+        var localId = _registry.Servers.LocalId();
+        var self = _registry.Servers.ServersOf(org.Id, includeRequests: false)
+            .FirstOrDefault(l => l.ServerId == localId);
+        if (self is not null && Matches(self, wanted))
+        {
+            throw new ArgumentException(Loc.T("msg.replication.10"));
+        }
+        var targets = ChatTargets(org.Id);
+        var link = targets.FirstOrDefault(l => Matches(l, wanted))
+                   ?? throw new ArgumentException(Loc.T("msg.replication.6", wanted,
+                       targets.Count == 0 ? "—" : string.Join(", ",
+                           targets.Select(t => $"{t.Code} ({t.ServerName})"))));
+        var target = _registry.Servers.Get(link.ServerId)
+                     ?? throw new InvalidOperationException(Loc.T("msg.replication.2"));
+        if (CannotCall(target) is { } silence)
+        {
+            throw new InvalidOperationException(silence);
+        }
+        var token = _registry.Servers.PeerToken(target.Id);
+        if (string.IsNullOrEmpty(token))
+        {
+            throw new InvalidOperationException(Loc.T("msg.replication.11", target.Name));
+        }
+        RowChange row;
+        using (var conn = context.Db.Open())
+        {
+            row = ChangeLog.ReadLatest(conn, "chat_messages", messageId)
+                  ?? throw new InvalidOperationException(Loc.T("msg.replication.7", messageId));
+        }
+        var result = await _client.ChatPushAsync(target, token, new ReplApplyDto
+        {
+            OrgCode = org.Code,
+            Scope = ReplScopes.Org,
+            Items = [row],
+        }, ct);
+        Serilog.Log.Information("Чат {Org}: сообщение {Message} отвезено на {Server} сразу, "
+                                + "вне сеанса репликации (T-590-S0): принято {Applied}, "
+                                + "пропущено {Skipped}, отвергнуто {Failed}",
+            org.Code, messageId, target.Name, result.Applied, result.Skipped, result.Failed);
+        return result.Failed > 0
+            ? Loc.T("msg.replication.9", $"{link.Code} {target.Name}", result.LastFailed)
+            : Loc.T("msg.replication.8", $"{link.Code} {target.Name}");
+
+        static bool Matches(OrgServer l, string name) =>
+            string.Equals(l.Code, name, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(l.ServerName, name, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(l.ServerId, name, StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Интервалы отсчёта для пары. Принадлежат записи РЯДОВОГО сервера: дирижёр задаёт их
     /// всем, сам сервер — только себе, и оба конца пары считают по одному значению

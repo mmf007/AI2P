@@ -16,6 +16,8 @@ computador** e não são replicados.
 * [editor.openshot](editor.openshot.md) — OpenShot — gateway `editor.openshot` (reserva)
 * [editor.resolve](editor.resolve.md) — DaVinci Resolve (OTIO)
 * [editor.shotcut](editor.shotcut.md) — Shotcut / Kdenlive (MLT XML)
+* [editor.vscode](editor.vscode.md) — Plugin VS Code
+* [saas.wix](saas.wix.md) — Wix — plugin `saas.wix`
 * [tool.ffmpeg](tool.ffmpeg.md) — Conversor de vídeo (ffmpeg) — plugin `tool.ffmpeg`
 * [trainer.musubi](trainer.musubi.md) — Musubi Tuner (LoRA) — o plugin `trainer.musubi`
 

@@ -379,6 +379,95 @@ public sealed class RefDataService
         return [.. order.Select(name => (name, texts[name]))];
     }
 
+    /// <summary>
+    /// Встроенный навык дистрибутива по требованию (T-570-S0). Сид навыков идёт только на
+    /// дирижёре (T-3-S1), и рядовой сервер новой версии не видит её НОВЫХ навыков, пока не
+    /// обновится дирижёр, — настройка плагина и установка набора опыта отказывали «навык не
+    /// найден». Заводит строку и тексты на всех языках сида, только если код есть в файлах
+    /// сида этой версии; иначе null. Id строки постоянный (SeedRowId) — совпадёт с дирижёрским.
+    /// </summary>
+    public string? EnsureSeedSkill(string name)
+    {
+        var code = name.Trim();
+        if (code.Length == 0)
+        {
+            return null;
+        }
+        var files = LoadSeedFiles();
+        var seed = SkillsByCode(files)
+            .FirstOrDefault(s => s.Name.Equals(code, StringComparison.OrdinalIgnoreCase));
+        if (seed.Name is null)
+        {
+            return null;
+        }
+        using var conn = _db.Open();
+        using var tx = conn.BeginTransaction();
+        var id = EnsureRow(conn, tx, "skills", seed.Name, seed.ByLang);
+        foreach (var (lang, description) in seed.ByLang)
+        {
+            SetItemText(conn, tx, "skill_texts", "skill_id", id, lang, description, false);
+        }
+        Sql.Exec(conn, tx, "UPDATE skills SET is_custom=0, deleted_at=NULL WHERE id=@id", ("@id", id));
+        tx.Commit();
+        return id;
+    }
+
+    /// <summary>
+    /// Недостающие встроенные навыки и форматы на РЯДОВОМ сервере (T-627-S0): новые навыки
+    /// версии (маркетинговые в 1.194) появились у дирижёра, а до рядового сервера репликацией
+    /// так и не доехали. Заводятся только строки, которых нет по коду (снятые не оживляются),
+    /// с постоянным id (SeedRowId) — это та же строка, что у дирижёра; тексты имеющихся строк
+    /// не трогаются. Возвращает число заведённых строк.
+    /// </summary>
+    public int SeedMissing()
+    {
+        var files = LoadSeedFiles();
+        if (files.Count == 0)
+        {
+            return 0;
+        }
+        var formats = files.Values.SelectMany(f => f.IoFormats.Select(x => x.Name)).Distinct()
+            .Select(name => (Name: name, ByLang: files
+                .Where(kv => kv.Value.IoFormats.Any(x => x.Name == name))
+                .ToDictionary(kv => kv.Key, kv => kv.Value.IoFormats.First(x => x.Name == name).Description)));
+        var added = 0;
+        using var conn = _db.Open();
+        using var tx = conn.BeginTransaction();
+
+        void Put(string table, string textTable, string key, string name, Dictionary<string, string> byLang)
+        {
+            if (Sql.Scalar<string>(conn, tx, $"SELECT id FROM {table} WHERE name=@name", ("@name", name)) is { Length: > 0 })
+            {
+                return;
+            }
+            var id = EnsureRow(conn, tx, table, name, byLang);
+            foreach (var (lang, description) in byLang)
+            {
+                SetItemText(conn, tx, textTable, key, id, lang, description, false);
+            }
+            added++;
+        }
+
+        foreach (var (name, byLang) in SkillsByCode(files))
+        {
+            Put("skills", "skill_texts", "skill_id", name, byLang);
+        }
+        foreach (var (name, byLang) in formats)
+        {
+            Put("io_formats", "io_format_texts", "format_id", name, byLang);
+        }
+        tx.Commit();
+        return added;
+    }
+
+    /// <summary>Постоянный id встроенной строки справочника: от таблицы и кода.</summary>
+    internal static string SeedRowId(string table, string name)
+    {
+        var hash = System.Security.Cryptography.MD5.HashData(
+            System.Text.Encoding.UTF8.GetBytes(table + ":" + name));
+        return new Guid(hash).ToString();
+    }
+
     /// <summary>Строка справочника по коду: заводится, если её нет; возвращается её id
     /// (у существующей — прежний, поэтому ссылки задач и деклараций целы).</summary>
     private static string EnsureRow(SqliteConnection conn, SqliteTransaction tx, string table,
@@ -390,7 +479,10 @@ public sealed class RefDataService
         {
             return id;
         }
-        id = Guid.NewGuid().ToString();
+        // id НОВОЙ встроенной строки выводится из кода (T-570-S0): так строку, заведённую
+        // рядовым сервером по требованию (EnsureSeedSkill), и строку сида дирижёра делает
+        // одна и та же запись, а не два комплекта с UNIQUE(name). Прежние строки — как были
+        id = SeedRowId(table, name);
         var now = Sql.ToDb(DateTime.UtcNow);
         // description — «запасное» описание строки: его показывают, если текстов языка нет
         var fallback = byLang.TryGetValue(LocCatalog.BaseLanguage, out var basic)

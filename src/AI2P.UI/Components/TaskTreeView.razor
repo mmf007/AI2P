@@ -18,6 +18,7 @@
 }
 else
 {
+    <CascadingValue Value="_sel" IsFixed="true">
     <div id="@_containerId">
         @* полоса «в корень» вверху дерева (T-176) — она же подсказка к перетаскиванию.
            ЛИПКАЯ: зона сброса обязана оставаться на виду при любом размере дерева. Раньше
@@ -55,11 +56,13 @@ else
             @* data-tree-move дублирует draggable для переноса ПАЛЬЦЕМ (T-193): на телефоне
                нативное перетаскивание выключается на время касания (оно съедало прокрутку
                списка), поэтому «можно ли двигать» жест читает из своего атрибута *@
-            <div class="ai2p-tree-node" draggable="@(CanMove(task) ? "true" : "false")"
+            @* щелчок — выбор, двойной щелчок — открыть (T-651-S0) *@
+            <div class="@("ai2p-tree-node " + _sel.Css(task.Id))" data-task-sel="@task.Id" draggable="@(CanMove(task) ? "true" : "false")"
                  data-tree-move="@(CanMove(task) ? "1" : "0")"
                  data-tree-task="@task.Id" data-tree-drop="@task.Id"
                  style="@($"padding-left: {8 + depth * 24}px;")"
-                 @onclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
+                 @onclick="@(e => _sel.Click(task, Flatten().Select(x => x.Task), e.ShiftKey, e.CtrlKey || e.MetaKey))"
+                 @ondblclick="@(() => State.OpenTask(task.Id, task.DisplayId, task.Title, FrameIndex))">
                 <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
                     @if (CanMove(task))
                     {
@@ -123,6 +126,7 @@ else
         </div>
         }
     </div>
+    </CascadingValue>
 }
 
 @code {
@@ -148,6 +152,11 @@ else
     [Parameter] public TaskItem? RootTask { get; set; }
 
     private readonly HashSet<string> _collapsed = [];
+    /// <summary>Выбор строк (T-651-S0): щелчок выделяет, Ctrl/Shift — как в проводнике,
+    /// задача открывается двойным щелчком; меню «…» получает выбор каскадом.</summary>
+    private readonly TaskSelection _sel = new();
+
+    protected override void OnParametersSet() => _sel.Refresh(Tasks);
     /// <summary>Свой id контейнера: в одном фрейме может жить несколько деревьев.</summary>
     private readonly string _containerId = "ai2p-tree-" + Guid.NewGuid().ToString("N")[..8];
     private DotNetObjectReference<TaskTreeView>? _selfRef;

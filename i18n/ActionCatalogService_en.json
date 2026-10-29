@@ -1,5 +1,5 @@
 {
-  "seedVersion": 26,
+  "seedVersion": 30,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -364,7 +364,47 @@
       "tool": "create_tasks_from_template",
       "title": "Branch tasks from a template node",
       "hint": "The agent instantiates a project template node as a subtask of its own task (or of a task in its subtree) — the same as the \"from template\" button in the card (T-300-S0). Needed by a condition branch without a task that has \"create tasks\" set: routine branch work is easier to keep as a template. Executors are picked \"AI first\". The agent cannot grow someone else's tree this way. For a CLI agent: the command \"ai2p from-template <node code>\" and the AI2P_FROM_TEMPLATE marker.",
-      "prompt": "Create tasks from a project TEMPLATE NODE: parameter template — the node code (T-5) or its title; parent — code of a parent task in your subtree (default — the current task). The node is instantiated with all its descendants, executors are picked automatically. Use it when a condition branch says \"create tasks\" and a suitable template exists; otherwise use create_task."
+      "prompt": "Create tasks from a project TEMPLATE NODE: parameter template — the node code (T-5) or its title; parent — code of a parent task in your subtree (default — the current task). The node is instantiated with all its descendants, executors are picked automatically. Use it when a condition branch says \"create tasks\" and a suitable template exists; otherwise use create_task. The macros parameter is a key → value object for ${key} macro substitutions in node titles, descriptions and acceptance criteria (like sed over the template); an empty value is not substituted."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000047",
+      "code": "AI2P.Site.List",
+      "tool": "site_list",
+      "title": "Sites in SaaS editors",
+      "hint": "Sites connected by SaaS editor plugins (Wix etc.) on this server: SaaS, short site name, URL, whether a key is set and whether rules deny it (T-567-S0).",
+      "prompt": "List of sites in SaaS editors (Wix etc.) available to you: saas, site (short name), url, siteId, hasKey, deniedByRules, plus the operations used by security rules. Parameter saas (optional) filters by SaaS. Call it first before working with a site."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000048",
+      "code": "AI2P.Site.Tools",
+      "tool": "site_tools",
+      "title": "SaaS editor tools",
+      "hint": "Tools of the SaaS editor (MCP server) for the chosen site with argument schemas; rule operation is read (T-567-S0).",
+      "prompt": "SaaS editor tools for a site: name, description, argument schema (inputSchema), registered — whether AI2P allows it. Parameters: saas (wix; may be omitted if the site name is unique), site — short site name from site_list, filter — substring to match name or description."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000049",
+      "code": "AI2P.Site.Call",
+      "tool": "site_call",
+      "title": "Call a SaaS editor tool",
+      "hint": "Call a SaaS editor (Wix MCP) tool for the chosen site: pages, design, files, SEO, publishing. Security rules use the mask plugin:site:operation, e.g. saas.wix:ai2p:publish (T-567-S0).",
+      "prompt": "Call a SaaS editor tool for a site. Parameters: saas (wix), site — short site name from site_list, tool — tool name from site_tools, arguments — object per its inputSchema. The site id (siteId) is filled in automatically; a different siteId is refused. The call maps to an operation (read, pages, design, media, seo, publish, api) that security rules may deny. Returns the SaaS answer text."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000050",
+      "code": "AI2P.Site.Upload",
+      "tool": "site_upload",
+      "title": "Upload site files",
+      "hint": "Uploads a project folder to a files-only site of a SaaS editor (for Wix — a site at *.wix-site-host.com) in one request: all files of the folder replace the whole file set of the site and are published at once. Key and site come from the plugin form. Rule operation — publish, e.g. saas.wix:ai2p:publish (T-582-S0).",
+      "prompt": "Upload site files from a project folder. Parameters: saas (wix), site — short site name from site_list, dir — folder relative to the project root (e.g. site/wix). WARNING: the upload REPLACES ALL site files and publishes at once — the folder must hold the complete set with the home page (index.html); files missing from it disappear from the site. Call only when the task explicitly says to deploy or publish the site. Answer — HTTP status and the SaaS answer (for Wix — uploadId and siteUrl)."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000051",
+      "code": "AI2P.Chat.Push",
+      "tool": "send_chat_to_server",
+      "title": "Instant message to another server",
+      "hint": "The agent writes to a task chat (its own or one named by code) and delivers the message to the named cluster server RIGHT AWAY, without waiting for a replication session (T-590-S0). Needed by agents working as a pair on different servers (game server on one, client on the other). On the receiving server the message reaches the running agent as an interruption; regular replication does not duplicate it later. If the server cannot be reached, the message stays and travels with replication. A deny/confirm security rule on this code closes instant sending. The CLI agent has the same as the «ai2p push» command.",
+      "prompt": "Write to a chat and deliver the message to another cluster server RIGHT AWAY, without waiting for replication. Parameters: server — server code in the organization (S0, S1…) or its name; text — message text; code — code of the task whose chat to write to (empty — current task; a task of the same project that an agent on that server works on is fine). Use it when you work as a pair with an agent on another server and it must know now, not in minutes (e.g. «game server is up on port 7790, connect»). If immediate delivery fails, the message still travels with regular replication — the reply gives the reason."
     }
   ]
 }

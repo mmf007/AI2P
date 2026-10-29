@@ -202,7 +202,7 @@ public sealed class T191Tests : IDisposable
         Assert.Equal(skills, Refs().Skills("ru").Count);
         Assert.Equal(roles, Refs().Roles("ru").Count);
         Assert.Equal(formats, Refs().IoFormats("ru").Count);
-        Assert.Equal(94, skills);   // 89 + пять действий-режимов T-257
+        Assert.Equal(101, skills);  // 89 + пять действий-режимов T-257 + site-edit T-570-S0 + шесть marketing-* T-627-S0
     }
 
     /// <summary>Обновление НАПОЛНЕННОЙ базы (записи заведены прошлой версией по-русски):

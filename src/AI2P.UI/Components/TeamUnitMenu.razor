@@ -1,0 +1,121 @@
+@using AI2P.Core.Connectors
+@inject UiState State
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+@* Меню «…» оргединицы команды (T-637-S0): ВСЕ действия над записью в одном месте — и в
+   списке команд (таблица, иерархия), и на закладке «Команда» проекта. Состав пунктов
+   зависит от записи: «запустить»/«остановить» есть только у должности, занятой ИИ-участником
+   (человек не подключается, у вакансии запускать некого), и печатаются, только если
+   действие сейчас возможно; правка оргструктуры — только у того, кому можно править команды.
+   Нет ни одного пункта — нет и кнопки. Запуск и остановку делает родитель (у него статус
+   работы команды), правку единицы — сам компонент, после неё зовётся OnChanged. *@
+@if (HasStart || HasStop || CanEditTeams)
+{
+    <span class="ai2p-tree-menu" @onclick:stopPropagation="true">
+        <MudMenu Icon="@Icons.Material.Filled.MoreHoriz" Size="Size.Small" Dense="true"
+                 data-team-unit-menu="@Unit.Id">
+            @if (HasStart)
+            {
+                <MudMenuItem Icon="@Icons.Material.Filled.PlayArrow"
+                             data-team-unit-start="@Unit.Id"
+                             OnClick="@(() => OnStart.InvokeAsync(Status!.ExecutorId))">@L["teams.startMember"]</MudMenuItem>
+            }
+            @if (HasStop)
+            {
+                <MudMenuItem Icon="@Icons.Material.Filled.Stop"
+                             data-team-unit-stop="@Unit.Id"
+                             OnClick="@(() => OnStop.InvokeAsync(Status!.ExecutorId))">@L["teams.stopMember"]</MudMenuItem>
+            }
+            @if (CanEditTeams)
+            {
+                <MudMenuItem Icon="@Icons.Material.Filled.Add" data-team-unit-addchild="@Unit.Id"
+                             OnClick="@(() => EditAsync(null, Unit.Id))">@L["teams.unit.addChild"]</MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Edit"
+                             OnClick="@(() => EditAsync(Unit, null))">@L["common.edit"]</MudMenuItem>
+                <MudMenuItem Icon="@(Unit.IsActive ? Icons.Material.Filled.ToggleOff : Icons.Material.Filled.ToggleOn)"
+                             OnClick="ToggleAsync">@L["teams.unit.toggleActive"]</MudMenuItem>
+                <MudMenuItem Icon="@Icons.Material.Filled.Delete"
+                             OnClick="DeleteAsync">@L["common.delete"]</MudMenuItem>
+            }
+        </MudMenu>
+    </span>
+}
+
+@code {
+    [Parameter, EditorRequired] public Team Team { get; set; } = default!;
+
+    [Parameter, EditorRequired] public TeamUnit Unit { get; set; } = default!;
+
+    /// <summary>Статус работы исполнителя единицы; null — вакансия или статус ещё не загружен.</summary>
+    [Parameter] public MemberWorkStatusDto? Status { get; set; }
+
+    [Parameter] public EventCallback<string> OnStart { get; set; }
+
+    [Parameter] public EventCallback<string> OnStop { get; set; }
+
+    /// <summary>Единицу изменили (добавили подчинённого, правка, активность, удаление).</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+
+    /// <summary>Правка оргструктуры — роль раздела /api/teams (администратор проектов).</summary>
+    private bool CanEditTeams => State.CanManageProjects;
+
+    /// <summary>Запуск/остановка — только у ИИ-участника этой единицы (T-129); правила
+    /// «можно ли» те же, что были у кнопок TeamMemberWorkButtons.</summary>
+    private bool IsAi => Unit.ExecutorId is not null && Status is { Kind: ExecutorKind.Ai } && State.CanEdit;
+
+    private bool HasStart => IsAi
+        && Status!.State is not (ExecutorWorkState.Connecting or ExecutorWorkState.Inactive);
+
+    private bool HasStop => IsAi
+        && Status!.State is ExecutorWorkState.Connected or ExecutorWorkState.Connecting
+            or ExecutorWorkState.Error;
+
+    private async Task EditAsync(TeamUnit? unit, string? parentUnitId)
+    {
+        var parameters = new DialogParameters<TeamUnitDialog>
+        {
+            { d => d.Team, Team },
+            { d => d.Source, unit },
+            { d => d.ParentUnitId, parentUnitId },
+        };
+        var dialog = await Dialogs.ShowAsync<TeamUnitDialog>(
+            unit is null ? L["teams.unit.addChild"] : L["common.edit"], parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Small, FullWidth = true });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: TeamUnitEditDto dto })
+        {
+            await RunAsync(() => Api.SaveTeamUnitAsync(Team.Id, dto));
+        }
+    }
+
+    private Task ToggleAsync() =>
+        RunAsync(() => Api.SetTeamUnitActiveAsync(Team.Id, Unit.Id, !Unit.IsActive));
+
+    private async Task DeleteAsync()
+    {
+        var confirmed = await Dialogs.ShowMessageBoxAsync(L["common.delete"],
+            L["teams.unit.deleteConfirm", TeamUnits.Title(Unit, State, L)],
+            yesText: L["common.delete"], cancelText: L["common.cancel"]);
+        if (confirmed == true)
+        {
+            await RunAsync(() => Api.DeleteTeamUnitAsync(Team.Id, Unit.Id));
+        }
+    }
+
+    /// <summary>Ошибка — словами; после любого исхода родитель перечитывает список.</summary>
+    private async Task RunAsync(Func<Task> call)
+    {
+        try
+        {
+            await call();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await OnChanged.InvokeAsync();
+    }
+}

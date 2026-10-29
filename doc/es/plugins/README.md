@@ -16,6 +16,8 @@ programa externo y qué ajustes tiene el registro; el programa en sí y su ruta 
 * [editor.openshot](editor.openshot.md) — OpenShot — pasarela `editor.openshot` (de reserva)
 * [editor.resolve](editor.resolve.md) — DaVinci Resolve (OTIO)
 * [editor.shotcut](editor.shotcut.md) — Shotcut / Kdenlive (MLT XML)
+* [editor.vscode](editor.vscode.md) — Plugin VS Code
+* [saas.wix](saas.wix.md) — Wix — plugin `saas.wix`
 * [tool.ffmpeg](tool.ffmpeg.md) — Conversor de vídeo (ffmpeg) — complemento `tool.ffmpeg`
 * [trainer.musubi](trainer.musubi.md) — Musubi Tuner (LoRA) — el complemento `trainer.musubi`
 

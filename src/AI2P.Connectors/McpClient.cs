@@ -49,7 +49,8 @@ public static class McpClient
     /// → <c>tools/list</c> (со страницами по курсору). Транспорт выбирается по манифесту.
     /// </summary>
     public static async Task<IReadOnlyList<McpToolInfo>> ListToolsAsync(PluginConnection connection,
-        string? secret = null, CancellationToken ct = default)
+        string? secret = null, CancellationToken ct = default,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
         ArgumentNullException.ThrowIfNull(connection);
         if (!connection.IsComplete)
@@ -57,7 +58,7 @@ public static class McpClient
             throw new InvalidOperationException(Loc.T("msg.mcp.3", Describe(connection)));
         }
         Logger.Information("MCP: подключение {Connection}", Describe(connection));
-        using var transport = Open(connection, secret);
+        using var transport = Open(connection, secret, headers);
         return await ListToolsAsync(transport, ct);
     }
 
@@ -67,15 +68,73 @@ public static class McpClient
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(transport);
-        var id = 0;
-        // 1. рукопожатие: без него сервер вправе не отвечать ни на что
+        var id = await InitializeAsync(transport, ct);
+        return await ListPagesAsync(transport, id, ct);
+    }
+
+    /// <summary>
+    /// ВЫЗВАТЬ ИНСТРУМЕНТ СЕРВЕРА MCP (T-567-S0): <c>tools/call</c> поверх транспорта, на
+    /// котором уже прошло рукопожатие (<see cref="InitializeAsync"/>). Ответ — текст для
+    /// агента: текстовые части содержимого подряд, прочие части (картинка, ресурс) одной
+    /// строкой-пометкой. Ошибка инструмента (<c>isError</c>) — тоже текст, а не исключение:
+    /// её читает агент и решает, что делать дальше.
+    /// </summary>
+    public static async Task<string> CallToolAsync(IMcpTransport transport, int lastId,
+        string tool, string argumentsJson, CancellationToken ct = default)
+    {
+        var args = "{\"name\":" + JsonSerializer.Serialize(tool) + ",\"arguments\":"
+                   + (string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson) + "}";
+        using var answer = await CallAsync(transport, lastId + 1, "tools/call", args, ct);
+        if (!answer.RootElement.TryGetProperty("result", out var result)
+            || result.ValueKind != JsonValueKind.Object)
+        {
+            return answer.RootElement.GetRawText();
+        }
+        var text = new StringBuilder();
+        if (result.TryGetProperty("content", out var content) && content.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var part in content.EnumerateArray())
+            {
+                var type = JsonRead.Str(part, "type");
+                if (type == "text")
+                {
+                    text.AppendLine(JsonRead.Str(part, "text"));
+                }
+                else
+                {
+                    text.AppendLine("[" + type + " " + JsonRead.Str(part, "mimeType") + "]");
+                }
+            }
+        }
+        if (text.Length == 0 && result.TryGetProperty("structuredContent", out var structured))
+        {
+            text.Append(structured.GetRawText());
+        }
+        var isError = result.TryGetProperty("isError", out var err) && err.ValueKind == JsonValueKind.True;
+        return (isError ? "ERROR: " : "") + text.ToString().TrimEnd();
+    }
+
+    /// <summary>Рукопожатие <c>initialize</c> + <c>notifications/initialized</c>; возвращает
+    /// последний использованный номер запроса.</summary>
+    public static async Task<int> InitializeAsync(IMcpTransport transport, CancellationToken ct)
+    {
+        // рукопожатие: без него сервер вправе не отвечать ни на что
         var hello = "{\"protocolVersion\":\"" + ProtocolVersion + "\",\"capabilities\":{},"
                     + "\"clientInfo\":{\"name\":\"AI2P\",\"version\":\"" + AppInfo.Version + "\"}}";
-        await CallAsync(transport, ++id, "initialize", hello, ct);
+        using (await CallAsync(transport, 1, "initialize", hello, ct))
+        {
+        }
         await transport.SendAsync(
             """{"jsonrpc":"2.0","method":"notifications/initialized"}""", waitsAnswer: false, ct);
+        return 1;
+    }
 
-        // 2. список инструментов — страницами: у сервера с сотней инструментов он не влезает
+    /// <summary>Список инструментов страницами (после рукопожатия).</summary>
+    public static async Task<IReadOnlyList<McpToolInfo>> ListPagesAsync(IMcpTransport transport,
+        int lastId, CancellationToken ct)
+    {
+        var id = lastId;
+        // список инструментов — страницами: у сервера с сотней инструментов он не влезает
         // в один ответ, и пропущенная страница означала бы молча незарегистрированный
         // инструмент, то есть запрет там, где человек ждёт работы
         var tools = new List<McpToolInfo>();
@@ -97,9 +156,16 @@ public static class McpClient
     }
 
     /// <summary>Транспорт по описанию подключения: процесс (stdio) либо адрес (http).</summary>
-    public static IMcpTransport Open(PluginConnection connection, string? secret = null) =>
+    /// <param name="headers">Несекретные заголовки, уже с подставленными полями сайта
+    /// (T-567-S0); null — заголовки манифеста как есть.</param>
+    public static IMcpTransport Open(PluginConnection connection, string? secret = null,
+        IReadOnlyDictionary<string, string>? headers = null) =>
         connection.Transport == PluginConnection.Http
             ? new McpHttpTransport(connection.Url, connection.SecretHeader, secret)
+            {
+                Scheme = connection.SecretScheme,
+                Extra = headers ?? connection.Headers,
+            }
             : new McpStdioTransport(connection.Command, connection.Args);
 
     /// <summary>
@@ -168,7 +234,13 @@ public static class McpClient
                     continue;
                 }
                 tools.Add(new McpToolInfo(name, JsonRead.Str(tool, "title"),
-                    JsonRead.Str(tool, "description")));
+                    JsonRead.Str(tool, "description"))
+                {
+                    InputSchema = tool.TryGetProperty("inputSchema", out var schema)
+                                  && schema.ValueKind == JsonValueKind.Object
+                        ? schema.GetRawText()
+                        : "",
+                });
             }
         }
         return result.TryGetProperty("nextCursor", out var cursor)
@@ -294,6 +366,13 @@ public sealed class McpHttpTransport : IMcpTransport
     private readonly string _secret;
     private string _session = "";
 
+    /// <summary>Схема перед секретом (<see cref="PluginConnection.SecretScheme"/>): null —
+    /// «Bearer» к Authorization, как раньше; пусто — секрет как есть.</summary>
+    public string? Scheme { get; init; }
+
+    /// <summary>Несекретные заголовки (T-567-S0); пустые значения не отправляются.</summary>
+    public IReadOnlyDictionary<string, string>? Extra { get; init; }
+
     public McpHttpTransport(string url, string? secretHeader = null, string? secret = null,
         HttpClient? http = null)
     {
@@ -320,11 +399,22 @@ public sealed class McpHttpTransport : IMcpTransport
         {
             // «Authorization: <токен>» без схемы сервер не примет, а писать слово Bearer в
             // сам секрет — значит хранить в файле ключа то, что ключом не является
-            var value = _header.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
-                        && !_secret.Contains(' ')
-                ? "Bearer " + _secret
-                : _secret;
+            var value = Scheme is not null
+                ? (Scheme.Length > 0 ? Scheme + " " + _secret : _secret)
+                : _header.Equals("Authorization", StringComparison.OrdinalIgnoreCase)
+                  && !_secret.Contains(' ')
+                    ? "Bearer " + _secret
+                    : _secret;
             request.Headers.TryAddWithoutValidation(_header, value);
+        }
+        foreach (var (name, extra) in Extra ?? new Dictionary<string, string>())
+        {
+            // шаблон без подставленного значения («{accountId}» у сайта без аккаунта) не
+            // отправляется: пустой или сырой шаблон сервер прочёл бы как неверный аккаунт
+            if (extra.Trim().Length > 0 && !extra.Contains('{'))
+            {
+                request.Headers.TryAddWithoutValidation(name, extra.Trim());
+            }
         }
         using var response = await _http.SendAsync(request, ct);
         if (response.Headers.TryGetValues("Mcp-Session-Id", out var ids))
