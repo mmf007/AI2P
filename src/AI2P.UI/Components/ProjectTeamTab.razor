@@ -187,6 +187,8 @@ else
     {
         State.Changed += OnStateChanged;
         _viewState = State.ComponentState<TeamTabState>("projectTeamView:" + Project.Id);
+        // состав команды, правленный на соседнем сервере, приезжает репликацией мимо UI (T-766-S0)
+        await State.RefreshPeopleAsync();
         await RefreshWorkAsync();
         // подключение могло начаться до открытия вкладки (или страницу перезагрузили,
         // пока поднимался сервер модели) — тогда опрос нужен сразу (todo37_3)

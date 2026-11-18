@@ -107,6 +107,15 @@ public sealed class PluginManifest
     public RenderCommand? Render { get; set; }
 
     /// <summary>
+    /// КАК ИСПОЛНИТЬ СКРИПТ АГЕНТА (блок <c>script</c>, T-663-S0): у Blender — свой
+    /// <c>.py</c> агента из папки проекта (3D-модели, сцены, экспорт GLB/FBX). Аргументы
+    /// берутся из манифеста: <c>{script}</c> — скрипт, <c>{blend}</c> — открываемый файл
+    /// (пусто — аргумент выпадает), <c>{args}</c> — аргументы агента, каждый отдельным
+    /// элементом. null — исполнять чужие скрипты шлюз не умеет.
+    /// </summary>
+    public RenderCommand? Script { get; set; }
+
+    /// <summary>
     /// НАБОР ИМЕНОВАННЫХ ОПЕРАЦИЙ НАД ФАЙЛАМИ (блок <c>convert</c>, T-116-S0): перекодировать
     /// в промежуточный формат монтажа, извлечь звук, склеить по списку, привести к общему
     /// кадру. null — плагин файлов не перекодирует (так у всех четырёх шлюзов в редакторы).
@@ -172,6 +181,7 @@ public sealed class PluginManifest
                 Connection = PluginConnection.From(root, "connection"),
                 Export = TimelineFormat.From(root, "export"),
                 Render = RenderCommand.From(root, "render"),
+                Script = RenderCommand.From(root, "script"),
                 Convert = ConvertOps.From(root, "convert"),
                 Run = RunOps.From(root, "run"),
                 Saas = SaasSpec.From(root, "saas"),
@@ -199,6 +209,7 @@ public sealed class PluginManifest
                 // свои инструменты, и наш экспортёр к ним отношения не имеет
                 manifest.Export = null;
                 manifest.Render = null;
+                manifest.Script = null;
                 manifest.Convert = null;
                 manifest.Run = null;
             }
@@ -509,6 +520,14 @@ public sealed class PluginAction
     /// листом, а операций конвертора несколько и работают они с любым файлом.
     /// </summary>
     public const string RoleConvert = "convert";
+
+    /// <summary>
+    /// ИСПОЛНИТЬ СКРИПТ АГЕНТА внешней программой без окна (<see cref="PluginManifest.Script"/>,
+    /// T-663-S0): у Blender это свой <c>.py</c> агента — построить 3D-модель, сцену, экспорт.
+    /// Действие ОТДЕЛЬНОЕ от рендера и со своим кодом справочника: исполнение произвольного
+    /// Python правило безопасности закрывает целиком, не трогая сборку монтажа.
+    /// </summary>
+    public const string RoleScript = "script";
 
     /// <summary>
     /// ЧТО ЭТО ДЕЙСТВИЕ ДЕЛАЕТ НА САМОМ ДЕЛЕ (T-115-S0) — <see cref="RoleExport"/> или

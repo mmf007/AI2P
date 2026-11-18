@@ -253,7 +253,8 @@
             case "delete":
             {
                 var target = items.All(t => t.IsTemplate) ? ArchiveMoveTargets.Template : ArchiveMoveTargets.Task;
-                var names = string.Join(", ", items.Select(t => $"{t.DisplayId} {t.Title}"));
+                // по задаче на строку (T-661-S0): форма делит список по переводу строки
+                var names = string.Join("\n", items.Select(t => $"{t.DisplayId} {t.Title}"));
                 var choice = await ArchiveOrDeleteDialog.AskAsync(Dialogs, L["common.delete"],
                     target, items[0].Id, names, items.Select(t => t.Id).ToList());
                 if (choice is null)

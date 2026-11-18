@@ -36,6 +36,7 @@ blender --background --factory-startup --python ai2p_timeline.py -- ai2p_timelin
 |---|---|
 | `blender_timeline_write` | 根据项目媒体库生成 `ai2p_timeline.py`：一条 VSE 视频轨和一条音频轨，顺序与 `media_list` 相同。筛选：`scene`、`kind`、`tag`。文件名由 `file` 指定 |
 | `blender_render` | 在无窗口 Blender 中执行生成的脚本。`out` 以 `.blend` 结尾（默认）时得到带轨道的工程；其他扩展名则得到渲染成片（mp4，H.264 + AAC） |
+| `blender_run_script` | 执行智能体**自己的**脚本：`blender --background [blend] --python <script> -- <args>`。`script` 为项目文件夹中的 `.py`，`blend` 为可选的 `.blend`，`args` 为脚本参数（`--` 之后的 `sys.argv`）。返回退出码和最后 60 行输出。用于 3D 模型、场景、渲染以及 GLB/FBX 导出。这是任意代码执行：可用针对 `AI2P.Plugins.Blender.RunScript` 的安全规则关闭 |
 
 工作顺序：先把素材放进媒体库（`media_add`），再 `blender_timeline_write`，再
 `blender_render`。人工的 `.blend` 绝不会被改动：网关只写自己的 `ai2p_timeline.py` 和

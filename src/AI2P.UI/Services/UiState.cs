@@ -850,6 +850,26 @@ public sealed class UiState
         }
     }
 
+    /// <summary>
+    /// ПЕРЕЧИТАТЬ ИСПОЛНИТЕЛЕЙ И КОМАНДЫ (T-766-S0). Справочники читаются при входе и после
+    /// СВОИХ правок, а строки, приехавшие репликацией, мимо этого: исполнитель и член команды,
+    /// заведённые на соседнем сервере, были в базе, но на экране не появлялись до перезагрузки
+    /// страницы. Поэтому списки исполнителей и команд при открытии перечитывают их сами.
+    /// </summary>
+    public async Task RefreshPeopleAsync()
+    {
+        try
+        {
+            Executors = await _api.GetExecutorsAsync();
+            Teams = await _api.GetTeamsAsync();
+        }
+        catch (ApiException)
+        {
+            return;   // нет связи или прав — остаётся прежний список
+        }
+        NotifyChanged();
+    }
+
     /// <summary>Перечитать справочник состояний (после правок в настройках/смены языка, ТЗ v1.37).</summary>
     public async Task RefreshTaskStatusesAsync(string? lang = null)
     {

@@ -87,8 +87,10 @@ public sealed class T118S0Tests : IDisposable
         // minVersion обязателен: у сборок 2.7x другой Python и другой VSE API
         Assert.Equal("3.0", manifest.Software.System.MinVersion);
 
-        Assert.Equal(4, manifest.Experience.Count);
-        Assert.All(manifest.Experience, e => Assert.Equal("video-edit", e.Skill));
+        // четыре про монтаж и одна про 3D-модели своим скриптом (T-663-S0)
+        Assert.Equal(5, manifest.Experience.Count);
+        Assert.Equal(4, manifest.Experience.Count(e => e.Skill == "video-edit"));
+        Assert.Single(manifest.Experience, e => e.Skill == "3d-generate");
 
         Assert.NotNull(manifest.Export);
         Assert.Equal("ai2p_timeline.py", manifest.Export!.File);
@@ -106,17 +108,25 @@ public sealed class T118S0Tests : IDisposable
     }
 
     /// <summary>
-    /// ДЕЙСТВИЯ «ВЫПОЛНИТЬ ЭТОТ PYTHON» В МАНИФЕСТЕ НЕТ — и это главное требование задания.
-    /// Роль у каждого действия известная (движок делает работу сам), а <c>convert</c>
-    /// (именованные операции над произвольными файлами) шлюзу-скрипту не объявлен вовсе.
+    /// СВОЙ PYTHON АГЕНТА — ОТДЕЛЬНОЕ ДЕЙСТВИЕ со своим кодом справочника (T-663-S0): правило
+    /// безопасности закрывает его, не трогая монтаж, а рендер монтажа по-прежнему исполняет
+    /// только наш собранный файл. <c>convert</c> шлюзу-скрипту не объявлен вовсе.
     /// </summary>
     [Fact]
-    public void The_Manifest_Declares_No_Free_Script_Action()
+    public void The_Free_Script_Action_Is_Separate_From_The_Edit()
     {
         var manifest = Blender();
 
         Assert.All(manifest.Actions, a => Assert.Contains(a.Role,
-            new[] { PluginAction.RoleExport, PluginAction.RoleRender }));
+            new[] { PluginAction.RoleExport, PluginAction.RoleRender, PluginAction.RoleScript }));
+        var script = Assert.Single(manifest.Actions.Where(a => a.Role == PluginAction.RoleScript));
+        Assert.Equal("blender_run_script", script.Tool);
+        Assert.Equal("AI2P.Plugins.Blender.RunScript", script.Code);
+        Assert.True(script.NeedsSoftware);
+        Assert.All(Loc.Languages, lang => Assert.NotEqual("", script.Description.Text(lang)));
+        Assert.NotNull(manifest.Script);
+        Assert.Equal(["{blend}", "{script}", "{args}"], manifest.Script!.Args
+            .Where(a => a.Contains('{', StringComparison.Ordinal)).ToList());
         Assert.Null(manifest.Convert);
         // командная строка запуска целиком из манифеста, и подставляются в неё РОВНО два
         // пути — что исполнять и куда положить результат; ничего от агента больше не приходит
@@ -504,6 +514,30 @@ public sealed class T118S0Tests : IDisposable
         Assert.DoesNotContain("blender_render", without.Specs.Select(s => s.Name));
         Assert.Contains("blender_render", with.Specs.Select(s => s.Name));
         Assert.False(without.Handles("blender_render"));
+        Assert.DoesNotContain("blender_run_script", without.Specs.Select(s => s.Name));
+        Assert.Contains("blender_run_script", with.Specs.Select(s => s.Name));
+    }
+
+    /// <summary>
+    /// СКРИПТ АГЕНТА (T-663-S0): путь проверяется так же, как у остальных входных файлов
+    /// шлюза — за край папки проекта не выпускается, несуществующий файл и пустой параметр
+    /// дают внятный отказ ДО запуска программы.
+    /// </summary>
+    [Fact]
+    public void The_Script_Tool_Refuses_Bad_Paths_Before_Starting_Blender()
+    {
+        var (tools, _, _) = Stand(softwarePath: Path.Combine(_f.Dir, "blender.exe"));
+        string Run(string json) => tools.ExecuteAsync("blender_run_script", Args(json),
+            CancellationToken.None).GetAwaiter().GetResult();
+
+        var schema = Assert.Single(tools.Specs.Where(s => s.Name == "blender_run_script"))
+            .ParametersJson;
+        Assert.Contains("\"script\"", schema, StringComparison.Ordinal);
+        Assert.Contains("\"args\"", schema, StringComparison.Ordinal);
+
+        Assert.Contains("script", Run("{}"), StringComparison.Ordinal);
+        Assert.Contains("../вне.py", Run("""{"script": "../вне.py"}"""), StringComparison.Ordinal);
+        Assert.Contains("нет.py", Run("""{"script": "нет.py"}"""), StringComparison.Ordinal);
     }
 
     // ---------- 6. Пакет программы и файл манифеста ----------

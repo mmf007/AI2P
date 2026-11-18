@@ -34,9 +34,41 @@ public sealed class ImportSourceService
     public List<ImportSource> List(bool includeDeleted = false)
     {
         using var conn = _db.Open();
+        // встроенная запись «Публичный HTML» (T-691-S0) стоит в списке первой
         var sql = "SELECT * FROM import_sources" + (includeDeleted ? "" : " WHERE deleted_at IS NULL")
-                  + " ORDER BY name";
-        return Sql.Query(conn, null, sql, Map);
+                  + " ORDER BY (id=@builtin) DESC, name";
+        return Sql.Query(conn, null, sql, Map, ("@builtin", ImportKinds.PublicHtmlSourceId));
+    }
+
+    /// <summary>
+    /// Встроенные записи справочника (T-691-S0), идемпотентно на каждом сервере:
+    /// (1) «Публичный HTML» — импорт страницы по ссылке file: или http(s):, настроек и секретов
+    /// нет, поэтому запись заводится сразу активной и с одинаковым id везде — репликация
+    /// встречает её как ту же строку; удалённую человеком запись не возрождаем;
+    /// (2) записи снятого вида claude-artifact (T-676-S0) убираются из справочника.
+    /// </summary>
+    public void SeedBuiltIn()
+    {
+        using var conn = _db.Open();
+        var exists = Sql.Scalar<long>(conn, null, "SELECT COUNT(*) FROM import_sources WHERE id=@id",
+            ("@id", ImportKinds.PublicHtmlSourceId)) > 0;
+        if (!exists)
+        {
+            var now = Sql.ToDb(DateTime.UtcNow);
+            Sql.Exec(conn, null, """
+                INSERT OR IGNORE INTO import_sources (id, name, kind, params_json, is_active, created_at, updated_at)
+                VALUES (@id, @name, @kind, '{}', 1, @now, @now)
+                """,
+                ("@id", ImportKinds.PublicHtmlSourceId), ("@name", Loc.T("msg.importSource.5")),
+                ("@kind", ImportKinds.HtmlFile), ("@now", now));
+        }
+        var stale = Sql.Query(conn, null,
+            "SELECT * FROM import_sources WHERE kind=@kind AND deleted_at IS NULL", Map,
+            ("@kind", ImportKinds.ClaudeArtifact));
+        foreach (var source in stale)
+        {
+            Delete(source.Id, null);
+        }
     }
 
     public ImportSource? Get(string id)

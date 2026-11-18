@@ -1,5 +1,7 @@
 # Importación de tareas: cómo está hecho el catálogo de fuentes
 
+**Sitio web de AI2P:** [ai2p.org](https://ai2p.org)
+
 Carpeta con los documentos de los tipos de fuente: un archivo por cada **tipo**, y el nombre del
 archivo es el **código del tipo** (`trello.md`, `github.md`, `gitlab.md`). Se abre con el botón
 **«i»** que hay junto al campo «Tipo» del formulario de la fuente: **Ajustes → Catálogos →
@@ -14,6 +16,7 @@ que el registro esté guardado.
 * [figma](figma.md) — Importar un diseño de Figma — guía de conexión
 * [github](github.md) — Importación de tareas desde GitHub: instrucciones de conexión
 * [gitlab](gitlab.md) — Importación de tareas desde GitLab: instrucciones de conexión
+* [html-file](html-file.md) — Importar una página HTML («HTML público») — guía
 * [trello](trello.md) — Importación de tareas desde Trello: instrucciones de conexión
 
 ## Qué tienen en común todos los tipos

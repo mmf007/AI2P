@@ -465,7 +465,22 @@ public abstract class AiConnectorBase : IAgentConnector
         var agentLanguage = AgentLanguageOf(task);
         var tools = new AgentToolset(fileTools,
             new TaskToolset(_tasks, _chat, _executors, _files, task, _refData, _picker, job.ExecutorId,
-                _experience, Trello, project, _publicBaseUrl, GitLab, GitHub, Fetch, Figma),
+                _experience, Trello, project, _publicBaseUrl, GitLab, GitHub, Fetch, Figma)
+            {
+                // страница HTML с диска (T-680-S0): агенту — только под правилами каталогов задачи
+                HtmlFile = HtmlFile,
+                PathReadAllowed = abs => security.ForPath(abs, "read").Decision != SecurityDecision.Deny,
+                // обновление из локального пакета (T-756-S0): задание закрывается до остановки
+                ProjectFolder = folderPath,
+                AppUpdateFromFile = AppUpdateFromFile is not { } update
+                    ? null
+                    : package => update(package,
+                        new AppUpdate.Pending { TaskId = task.Id, JobId = job.Id, ExecutorId = job.ExecutorId },
+                        text => CloseJobForUpdate(job, task, slug, text)),
+                // задача и другой сервер кластера (T-769-S0)
+                ResolveServer = ResolveServer,
+                RequestRemoteRun = RequestRemoteRun,
+            },
             spec => ResolveSpec(spec, agentLanguage), security, _actions.CodeByTool,
             // медиатека проекта (T-113-S0): ролики, звук и титры складываются ССЫЛКАМИ
             // в объекты проекта — из неё потом собираются проекты видеоредакторов
@@ -636,6 +651,10 @@ public abstract class AiConnectorBase : IAgentConnector
 
             // токены накапливаются по сегментам работы (до/после вопросов, ТЗ v1.17)
             var current = _jobs.Get(job.Id) ?? job;
+            if (ClosedByUpdate(job))
+            {
+                return; // задание закрыто обновлением до перезапуска (T-756-S0)
+            }
 
             if (outcome.Question is { } question)
             {
@@ -818,6 +837,12 @@ public abstract class AiConnectorBase : IAgentConnector
             Logger.Information("Задание {JobDisplayId} отменено после {Elapsed} мс",
                 job.DisplayId, sw.ElapsedMilliseconds);
             _console.Write(job.Id, Loc.T("msg.comfyUiConnector.19", sw.Elapsed));
+        }
+        catch (Exception) when (ClosedByUpdate(job))
+        {
+            // агента оборвала остановка сервера ради обновления (T-756-S0): задание уже
+            // закрыто в своём «статусе при завершении», ошибкой его не делаем
+            Logger.Information("Задание {JobDisplayId}: агент оборван перезапуском обновления", job.DisplayId);
         }
         catch (Exception exRaw)
         {
@@ -1135,6 +1160,10 @@ public abstract class AiConnectorBase : IAgentConnector
     /// с node-id — экраны картинками и подписи под ними.</summary>
     public FigmaImporter? Figma { get; set; }
 
+    /// <summary>Импортёр «Публичный HTML» — страница с диска (file:///…htm, T-680-S0) или
+    /// с сайта по http(s) (T-691-S0) — для того же инструмента.</summary>
+    public HtmlFileImporter? HtmlFile { get; set; }
+
     /// <summary>
     /// Получение внешних файлов задания (fetch_file, T-255): картинка карточки лежит либо
     /// ссылкой в интернете, либо файлом хранилища — по этой ссылке сервис кладёт её в кэш
@@ -1173,6 +1202,43 @@ public abstract class AiConnectorBase : IAgentConnector
     /// <summary>Живые плагины SaaS-редакторов сайтов этого сервера (T-567-S0); не подставлен
     /// или пусто — действий site_* у задания нет.</summary>
     public Func<IReadOnlyList<SaasPlugin>>? Saas { get; set; }
+
+    /// <summary>Обновление AI2P из локального пакета (app_update_from_file, T-756-S0): путь
+    /// пакета, запись «кто позвал», закрытие задания. Подставляет контекст организации;
+    /// null — инструмент отказывает.</summary>
+    public Func<string, AppUpdate.Pending, Action<string>?, string>? AppUpdateFromFile { get; set; }
+
+    /// <summary>Сервер организации по коду, имени или ключу → ключ (move_task_to_server,
+    /// T-769-S0). Подставляет контекст организации; null — инструмент не публикуется.</summary>
+    public Func<string, string?>? ResolveServer { get; set; }
+
+    /// <summary>Заявка владельцу на запуск чужой задачи (run_task_on_server, T-769-S0):
+    /// ключ задачи, актор → заявка или null. Подставляет контекст организации.</summary>
+    public Func<string, string?, RunRequest?>? RequestRemoteRun { get; set; }
+
+    /// <summary>
+    /// ЗАКРЫТЬ ЗАДАНИЕ ДО ПЕРЕЗАПУСКА ради обновления (T-756-S0): результат — артефакт, задание
+    /// done, задача — в свой «статус при завершении». Сам коннектор потом, увидев закрытое
+    /// задание (агента оборвёт остановка сервера), состояния уже не трогает.
+    /// </summary>
+    private void CloseJobForUpdate(Job job, TaskItem task, string? slug, string text)
+    {
+        var resultPath = _files.WriteTaskArtifact(slug, task.DisplayId, $"{job.DisplayId}-result.md", text);
+        var current = _jobs.Get(job.Id) ?? job;
+        _jobs.SetState(job.Id, JobState.Done, actorId: job.ExecutorId, resultPath,
+            current.Cost, current.InputTokens, current.OutputTokens, "USD");
+        if (!task.IsTemplate)
+        {
+            _tasks.ChangeStatus(task.Id, _tasks.AiDoneStatusOf(task.Id), actorId: job.ExecutorId);
+        }
+        _console.Write(job.Id, text);
+        Logger.Information("Задание {JobDisplayId}: закрыто до перезапуска ради обновления (T-756-S0)",
+            job.DisplayId);
+    }
+
+    /// <summary>Задание уже закрыто обновлением (T-756-S0) — исход работы агента не применять.</summary>
+    private bool ClosedByUpdate(Job job) =>
+        AppUpdate.Restarting && _jobs.Get(job.Id)?.State == JobState.Done;
 
     /// <summary>Ключ + источник для диагностики (само значение ключа в логи не пишется, п. 6.3).
     /// Пустой secretRef — сервер без авторизации (локальный llama-server/Ollama): ключ не ищется.</summary>

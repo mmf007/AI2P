@@ -160,8 +160,10 @@ fi
 # копирует только более новое) с тех пор их не перезаписывал: полная выкладка Linux
 # весила 20 МБ, пакет .run — 7 МБ, а программа из него не запускалась. Пустой файл
 # выкладке не нужен никогда — убираем до публикации, publish положит настоящий.
-find "$OUT_DIR" \( -path "$OUT_DIR/data" -o -path "$OUT_DIR/logs" -o -path "$OUT_DIR/secrets" \) -prune \
-    -o -type f -size 0 -print -delete
+# -delete включает -depth, а при нём -prune не действует (find предупреждает) —
+# поэтому каталоги данных отсекаются условием на путь, а не -prune.
+find "$OUT_DIR" -type f -size 0 ! -path "$OUT_DIR/data/*" ! -path "$OUT_DIR/logs/*" \
+    ! -path "$OUT_DIR/secrets/*" -print -delete
 
 # 1. публикация сервера (тянет за собой Core/Storage/Connectors/UI и статику RCL)
 #    PublishDir вместо -o: ключ -o задаёт OutputPath и для проектов-ссылок,

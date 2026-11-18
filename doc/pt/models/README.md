@@ -1,5 +1,7 @@
 # Modelos do AI2P: como é organizado o catálogo
 
+**Site do AI2P:** [ai2p.org](https://ai2p.org)
+
 Este é o diretório com os documentos dos modelos: um arquivo para cada registro do catálogo de
 modelos de IA, e o nome do arquivo é o **nome do modelo** (`Claude-Sonnet-5.md`,
 `Qwen3.8-27B-Local.md`). Abre-se pelo botão **«i»** no formulário do modelo:
@@ -15,6 +17,7 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [Chatterbox-TTS](Chatterbox-TTS.md) — texto + amostra de voz → fala com esse timbre, habilidades `audio-speech` 88
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API do fornecedor Anthropic
 * [Claude-Fable-5](Claude-Fable-5.md) — API do fornecedor Anthropic
+* [Claude-Fable-5.2](Claude-Fable-5.2.md) — Anthropic, contexto de 1 000 000 tokens, 8,00 $ / 40,00 $ por 1 M, pontuações 94-99
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API da Anthropic
 * [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — API do fornecedor Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API do fornecedor Anthropic
@@ -34,6 +37,8 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, por uma camada compatível com OpenAI
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, por uma camada compatível com OpenAI
 * [Gemini-4-Argon](Gemini-4-Argon.md) — Google, por uma camada compatível com OpenAI
+* [Gemini-4-Carbon](Gemini-4-Carbon.md) — Google, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, pontuações 91-96
+* [Gemini-4-Hydrogen](Gemini-4-Hydrogen.md) — Google, contexto de 1 048 576 tokens, 1,50 $ / 7,50 $ por 1 M, pontuações 88-91
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — texto → vídeo com som, 8 segundos, habilidades `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Sber, Rússia; compatível com OpenAI
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, compatível com OpenAI
@@ -44,25 +49,27 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [GPT-6-Luna](GPT-6-Luna.md) — API da OpenAI, compatível com OpenAI
 * [GPT-6-Sol](GPT-6-Sol.md) — API da OpenAI, compatível com OpenAI
 * [GPT-6.1-Sol](GPT-6.1-Sol.md) — API da OpenAI, compatível com OpenAI
-* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI, contexto de 1 050 000 tokens, 1,00 $ / 5,00 $ por 1 M, pontuações 89-93
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — API da OpenAI, compatível com OpenAI
 * [GPT-Image-2.5](GPT-Image-2.5.md) — texto → imagem, cobrança por tokens, habilidades `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — texto → imagem, cobrança por tokens, habilidades `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — API da xAI, compatível com OpenAI
 * [Grok-4.7](Grok-4.7.md) — API da xAI, compatível com OpenAI
 * [Ideogram-4.5](Ideogram-4.5.md) — texto → imagem, a melhor tipografia no quadro do catálogo depois do Nano Banana, habilidades `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
+* [Inkling-2-Small](Inkling-2-Small.md) — Thinking Machines, contexto de 1 048 576 tokens, 0,30 $ / 1,00 $ por 1 M, pontuações 81-86
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, por meio do gateway OpenRouter
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — texto → vídeo de 5 segundos com som, habilidades `video-generate` 90
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, compatível com OpenAI
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, compatível com OpenAI
-* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, pontuações 87-92
 * [Kling-3.0](Kling-3.0.md) — imagem → vídeo com som, até 15 segundos, habilidades `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, por meio do gateway OpenRouter
 * [Meshy-7.1](Meshy-7.1.md) — texto → modelo 3D pronto para jogo, habilidades `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — texto → modelo 3D pronto para jogo, habilidades `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — texto → vídeo de até 15 segundos, habilidades `video-generate` 92
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, compatível com OpenAI
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, compatível com OpenAI
-* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, contexto de 1 048 576 tokens, 0,15 $ / 0,60 $ por 1 M, pontuações 80-84
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, França; compatível com OpenAI
 * [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, França; compatível com OpenAI
+* [Muse-Ember](Muse-Ember.md) — Meta, contexto de 1 048 576 tokens, 0,10 $ / 0,50 $ por 1 M, pontuações 80-85
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, por meio do gateway OpenRouter
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, por meio do gateway OpenRouter
 * [Muse-Wonder](Muse-Wonder.md) — Meta, por meio do gateway OpenRouter
@@ -74,6 +81,7 @@ chave, por que um modelo às vezes fica inativo e como criar um registro própri
 * [Qwen3.5-4B-Local](Qwen3.5-4B-Local.md) — trabalho leve com texto e análise de dados, pontuações 62-74
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, compatível com OpenAI
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, compatível com OpenAI
+* [Qwen4-Max](Qwen4-Max.md) — Alibaba, contexto de 1 000 000 tokens, 1,425 $ / 4,275 $ por 1 M, pontuações 88-94
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — imagem → vídeo com som, habilidades `video-animate` 95
 * [Seedance-2.5](Seedance-2.5.md) — texto → vídeo de até 30 segundos com som, habilidades `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — texto → imagem, habilidades `image-generate` 92, `image-concept` 90, `image-photo` 90

@@ -569,6 +569,10 @@ public sealed class AgentToolset
             "set_loop_result" => TaskFlow.IsLoop(Tasks.FlowType),
             "create_tasks_from_template" => Tasks.CanFromTemplate,
             "stop_hierarchy" => Tasks.CanStopHierarchy,
+            // задача и другой сервер кластера (T-769-S0): без кластера передавать некуда
+            "move_task_to_server" => Tasks.CanChangeServer,
+            "run_task_on_server" => Tasks.CanRunRemote,
+            "app_update_from_file" => Tasks.CanAppUpdate, // обновление из пакета (T-756-S0)
             _ => true,
         }))
         // медиатека проекта (T-113-S0): у задачи без проекта складывать ролик некуда,

@@ -46,8 +46,10 @@ public sealed class ActionCatalogTests : IDisposable
         // + T-567-S0 (v27): site_list, site_tools, site_call — сайты в SaaS-редакторах
         // + T-582-S0 (v28): site_upload — выкладка файлов сайта из папки проекта
         // + T-590-S0 (v29): send_chat_to_server — мгновенное сообщение на другой сервер
-        Assert.Equal(51, ru.Count);
-        Assert.Equal(51, en.Count);
+        // + T-756-S0 (v31): app_update_from_file — обновление AI2P из локального пакета
+        // + T-769-S0 (v32): move_task_to_server, run_task_on_server — задача и другой сервер
+        Assert.Equal(54, ru.Count);
+        Assert.Equal(54, en.Count);
         Assert.Null(ru.Single(a => a.Code == "AI2P.Archives.AutoRun").ToolName);
         // действие заданий-соседей есть на обоих языках и привязано к инструменту
         Assert.Equal("get_sibling_tasks", ru.Single(a => a.Code == "AI2P.Tasks.GetSiblings").ToolName);
@@ -154,7 +156,7 @@ public sealed class ActionCatalogTests : IDisposable
         actions.Seed();
 
         var de = actions.List("de");
-        Assert.Equal(51, de.Count); // все действия видны и на новом языке
+        Assert.Equal(54, de.Count); // все действия видны и на новом языке
         Assert.Equal("Projektdatei lesen", de.Single(a => a.Code == "AI2P.Files.Read").Title);
         // непереведённые — фолбэк на en
         Assert.Contains("List files", de.Single(a => a.Code == "AI2P.Files.List").Prompt);

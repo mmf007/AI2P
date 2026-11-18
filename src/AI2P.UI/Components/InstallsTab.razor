@@ -1,0 +1,392 @@
+@inject ApiClient Api
+@inject I18nService L
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject UiState State
+@implements IDisposable
+
+@* ЗАКЛАДКА «ХОД УСТАНОВОК» (T-728-S0): все установки моделей, пакетов и обновления ПО
+   ЭТОГО компьютера в одном списке — идущие и история, последние сверху. Пакеты, которые
+   ставятся внутри установки модели, идут под строкой модели (группа): пауза и удаление
+   такого пакета спрашивают «только этот пакет или всю группу». *@
+<div class="pa-4" data-installs-tab="1">
+    @if (_items is null)
+    {
+        <MudProgressLinear Indeterminate="true" />
+    }
+    else if (_items.Count == 0)
+    {
+        <MudText Typo="Typo.body2" data-installs-empty="1">@L["installs.empty"]</MudText>
+    }
+    else
+    {
+        @* свернуть/развернуть все группы — как у дерева задач (T-735-S0), без переноса *@
+        <div class="d-flex align-center" style="max-width: 1200px;">
+            <MudTooltip Text="@L["tasks.tree.collapseAll"]">
+                <MudIconButton Icon="@Icons.Material.Filled.UnfoldLess" Size="Size.Small"
+                               data-installs-collapse="1" OnClick="CollapseAll" />
+            </MudTooltip>
+            <MudTooltip Text="@L["tasks.tree.expandAll"]">
+                <MudIconButton Icon="@Icons.Material.Filled.UnfoldMore" Size="Size.Small"
+                               data-installs-expand="1" OnClick="@(() => _collapsed.Clear())" />
+            </MudTooltip>
+        </div>
+        <MudSimpleTable Dense="true" Style="max-width: 1200px;">
+            <thead>
+                <tr>
+                    <th>@L["installs.name"]</th>
+                    <th>@L["installs.kind"]</th>
+                    <th>@L["install.state"]</th>
+                    <th>@L["installs.started"]</th>
+                    <th>@L["installs.finished"]</th>
+                    <th style="width:1%;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in Ordered())
+                {
+                    var child = item.GroupId.Length > 0 && _items.Any(x => x.Id == item.GroupId);
+                    var hasKids = item.Parts is { Count: > 0 } || _items.Any(x => x.GroupId == item.Id);
+                    <tr data-installs-row="@item.Id" data-installs-state="@item.State">
+                        <td style="@(child ? "padding-left: 32px;" : "")">
+                            @Toggle(item.Id, hasKids)
+                            @item.Name
+                            @if (item.State == InstallLogStates.Running)
+                            {
+                                <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                     Class="ml-2" Style="vertical-align: middle;" />
+                            }
+                        </td>
+                        <td>@L["installs.kind." + item.Kind]</td>
+                        <td>
+                            <MudText Typo="Typo.body2" Color="@StateColor(item.State)">
+                                @L["installs.state." + item.State]
+                            </MudText>
+                            @if (item.State != InstallLogStates.Installed && item.Size > 0)
+                            {
+                                <MudProgressLinear Size="Size.Small" Rounded="true" Color="Color.Primary"
+                                                   Value="@(Math.Clamp(100.0 * item.Downloaded / item.Size, 0, 100))" />
+                                <MudText Typo="Typo.caption" Class="d-block">
+                                    @SizeText(item.Downloaded) / @SizeText(item.Size)
+                                </MudText>
+                            }
+                            @if (item.CurrentFile.Length > 0)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block" Style="word-break: break-all;">
+                                    @item.CurrentFile
+                                </MudText>
+                            }
+                            @if (item.State == InstallLogStates.Error && item.Error.Length > 0)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block"
+                                         data-installs-error="@item.Id">@item.Error</MudText>
+                            }
+                        </td>
+                        <td style="white-space:nowrap;">@Time(item.StartedAt)</td>
+                        <td style="white-space:nowrap;" data-installs-finished="@item.Id">@Time(item.FinishedAt)</td>
+                        <td style="text-align:right; white-space:nowrap;">
+                            @if (item.State == InstallLogStates.Running)
+                            {
+                                <MudTooltip Text="@L["installs.pause"]">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Pause" Size="Size.Small"
+                                                   Disabled="@(!CanEdit)" data-installs-pause="@item.Id"
+                                                   OnClick="@(() => PauseAsync(item))" />
+                                </MudTooltip>
+                            }
+                            else if (item.State != InstallLogStates.Installed)
+                            {
+                                <MudTooltip Text="@L["installs.resume"]">
+                                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                                                   Color="Color.Primary" Disabled="@(!CanEdit)"
+                                                   data-installs-resume="@item.Id"
+                                                   OnClick="@(() => ResumeAsync(item))" />
+                                </MudTooltip>
+                            }
+                            <MudTooltip Text="@L["installs.info"]">
+                                <MudIconButton Icon="@Icons.Material.Outlined.Info" Size="Size.Small"
+                                               data-installs-info="@item.Id"
+                                               OnClick="@(() => ToggleInfo(item.Id))" />
+                            </MudTooltip>
+                            <MudTooltip Text="@L["common.delete"]">
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small"
+                                               Color="Color.Error" Disabled="@(!CanEdit)"
+                                               data-installs-delete="@item.Id"
+                                               OnClick="@(() => DeleteAsync(item))" />
+                            </MudTooltip>
+                        </td>
+                    </tr>
+                    @if (_info.Contains(item.Id))
+                    {
+                        <tr data-installs-inforow="@item.Id">
+                            <td colspan="6">
+                                <MudText Typo="Typo.caption" Class="d-block" Style="word-break: break-all;">
+                                    @L["installs.target"]: @item.Target
+                                </MudText>
+                                @if (item.Dir.Length > 0)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block" Style="word-break: break-all;">
+                                        @L["installs.dir"]: @item.Dir
+                                    </MudText>
+                                }
+                                @if (child)
+                                {
+                                    <MudText Typo="Typo.caption" Class="d-block">
+                                        @L["installs.group"]: @(_items.FirstOrDefault(x => x.Id == item.GroupId)?.Name)
+                                    </MudText>
+                                }
+                                @if (item.Error.Length > 0)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block"
+                                             Style="white-space: pre-wrap;">@item.Error</MudText>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!_collapsed.Contains(item.Id))
+                    {
+                        @PartRows(item.Id, item.Id, item.Parts, child ? 2 : 1)
+                    }
+                }
+            </tbody>
+        </MudSimpleTable>
+        <MudText Typo="Typo.caption" Class="d-block mt-2" Style="opacity:.75;">@L["installs.hint"]</MudText>
+    }
+</div>
+
+@code {
+    private List<InstallLogEntryDto>? _items;
+    private readonly HashSet<string> _info = [];
+    private bool _disposed;
+
+    /// <summary>Установка ПО — дело администратора ЭТОГО компьютера (b26391b3).</summary>
+    private bool CanEdit => State.CanAdmin;
+
+    public void Dispose() => _disposed = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _ = PollAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _items = await Api.GetInstallsAsync();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+            _items ??= [];
+        }
+    }
+
+    /// <summary>Опрос раз в две секунды, пока закладка открыта: установку могли начать
+    /// из другого окна, ждать её конца для обновления списка нельзя.</summary>
+    private async Task PollAsync()
+    {
+        while (!_disposed)
+        {
+            await Task.Delay(_items?.Any(i => i.State == InstallLogStates.Running) == true ? 1000 : 3000);
+            if (_disposed)
+            {
+                return;
+            }
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    /// <summary>Последние сверху; пакеты группы — сразу под своей моделью.</summary>
+    private IEnumerable<InstallLogEntryDto> Ordered()
+    {
+        var all = _items ?? [];
+        var ids = all.Select(x => x.Id).ToHashSet();
+        foreach (var head in all.Where(x => x.GroupId.Length == 0 || !ids.Contains(x.GroupId)))
+        {
+            yield return head;
+            if (_collapsed.Contains(head.Id))
+            {
+                continue;
+            }
+            foreach (var c in all.Where(x => x.GroupId == head.Id))
+            {
+                yield return c;
+            }
+        }
+    }
+
+    private bool InGroup(InstallLogEntryDto item) =>
+        item.GroupId.Length > 0 && (_items ?? []).Any(x => x.Id == item.GroupId);
+
+    /// <summary>Пакет группы: true — только он, false — вся группа, null — передумали.</summary>
+    private async Task<bool?> AskScopeAsync(InstallLogEntryDto item, string title)
+    {
+        if (!InGroup(item))
+        {
+            return true;
+        }
+        var answer = await Dialogs.ShowMessageBoxAsync(title, L["installs.scope.ask"],
+            yesText: L["installs.scope.one"], noText: L["installs.scope.group"],
+            cancelText: L["common.cancel"]);
+        return answer;
+    }
+
+    private async Task PauseAsync(InstallLogEntryDto item)
+    {
+        if (await AskScopeAsync(item, L["installs.pause"]) is not { } one)
+        {
+            return;
+        }
+        await RunAsync(() => Api.PauseInstallAsync(item.Id, !one));
+    }
+
+    private Task ResumeAsync(InstallLogEntryDto item) => RunAsync(() => Api.ResumeInstallAsync(item.Id));
+
+    private async Task DeleteAsync(InstallLogEntryDto item)
+    {
+        if (await AskScopeAsync(item, L["common.delete"]) is not { } one)
+        {
+            return;
+        }
+        await RunAsync(() => Api.DeleteInstallAsync(item.Id, !one));
+    }
+
+    private async Task RunAsync(Func<Task<List<InstallLogEntryDto>>> call)
+    {
+        try
+        {
+            _items = await call();
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ToggleInfo(string id)
+    {
+        if (!_info.Remove(id))
+        {
+            _info.Add(id);
+        }
+    }
+
+    /// <summary>Участники группы (второй прогон T-728-S0): пакеты и файлы под строкой записи,
+    /// дистрибутивы пакета — уровнем ниже, как в окне установки модели. Действий у них нет —
+    /// действия у строки журнала.</summary>
+    private RenderFragment PartRows(string entryId, string key, List<InstallLogPartDto>? parts, int level) => __builder =>
+    {
+        foreach (var part in parts ?? [])
+        {
+            var partKey = key + "/" + part.Name;
+            var hasKids = part.Parts is { Count: > 0 };
+            <tr data-installs-part="@entryId" data-installs-part-level="@level" data-installs-part-state="@part.State">
+                <td style="@($"padding-left: {16 + 24 * level}px;")">
+                    <MudText Typo="Typo.caption" Style="word-break: break-all;">
+                        @Toggle(partKey, hasKids)
+                        @part.Name
+                        @if (part.Running)
+                        {
+                            <MudProgressCircular Size="Size.Small" Indeterminate="true"
+                                                 Class="ml-2" Style="vertical-align: middle;" />
+                        }
+                    </MudText>
+                </td>
+                <td><MudText Typo="Typo.caption">@(part.Kind == "file" ? L["install.file"] : L["installs.kind.package"])</MudText></td>
+                <td>
+                    <MudText Typo="Typo.caption" Color="@(part.State == "done" ? Color.Success : Color.Default)">
+                        @L["install.state." + part.State]
+                        @if (part.Size > 0)
+                        {
+                            <span> · @SizeText(part.State == "done" ? part.Size : part.Downloaded) / @SizeText(part.Size)</span>
+                        }
+                    </MudText>
+                </td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            @if (!_collapsed.Contains(partKey))
+            {
+                @PartRows(entryId, partKey, part.Parts, level + 1)
+            }
+        }
+    };
+
+    // --- СВОРАЧИВАНИЕ ГРУПП (T-735-S0): ключ строки журнала — её id, участника — путь
+    // имён под ней («id/ComfyUI/архив.7z») — имена не сбиваются при опросе списка; по умолчанию всё развёрнуто, как прежде ---
+    private readonly HashSet<string> _collapsed = [];
+
+    /// <summary>Стрелка как у дерева задач; у строки без содержимого — пустое место той же ширины.</summary>
+    private RenderFragment Toggle(string key, bool hasKids) => __builder =>
+    {
+        if (hasKids)
+        {
+            <MudIconButton Icon="@(_collapsed.Contains(key) ? Icons.Material.Filled.ChevronRight
+                                                            : Icons.Material.Filled.ExpandMore)"
+                           Size="Size.Small" Style="padding: 2px; vertical-align: middle;"
+                           data-installs-toggle="@key" OnClick="@(() => ToggleCollapsed(key))" />
+        }
+        else
+        {
+            <span style="display: inline-block; width: 24px;"></span>
+        }
+    };
+
+    private void ToggleCollapsed(string key)
+    {
+        if (!_collapsed.Remove(key))
+        {
+            _collapsed.Add(key);
+        }
+    }
+
+    /// <summary>Свернуть все строки с содержимым: группы моделей, записи с участниками, пакеты с дистрибутивами.</summary>
+    private void CollapseAll()
+    {
+        foreach (var item in _items ?? [])
+        {
+            if (item.Parts is { Count: > 0 } || (_items ?? []).Any(x => x.GroupId == item.Id))
+            {
+                _collapsed.Add(item.Id);
+            }
+            AddParts(item.Id, item.Parts);
+        }
+    }
+
+    private void AddParts(string key, List<InstallLogPartDto>? parts)
+    {
+        foreach (var part in parts ?? [])
+        {
+            var partKey = key + "/" + part.Name;
+            if (part.Parts is { Count: > 0 })
+            {
+                _collapsed.Add(partKey);
+            }
+            AddParts(partKey, part.Parts);
+        }
+    }
+
+    private static string Time(DateTime? utc) =>
+        utc is { } t ? DateTime.SpecifyKind(t, DateTimeKind.Utc).ToLocalTime().ToString("g") : "—";
+
+    private static string SizeText(long bytes) => bytes switch
+    {
+        >= 1L << 30 => $"{bytes / (double)(1L << 30):F1} GB",
+        >= 1L << 20 => $"{bytes / (double)(1L << 20):F1} MB",
+        >= 1L << 10 => $"{bytes / 1024.0:F0} KB",
+        _ => $"{bytes} B",
+    };
+
+    private static Color StateColor(string state) => state switch
+    {
+        InstallLogStates.Installed => Color.Success,
+        InstallLogStates.Error => Color.Error,
+        InstallLogStates.Running => Color.Info,
+        InstallLogStates.Paused => Color.Warning,
+        _ => Color.Default,
+    };
+}

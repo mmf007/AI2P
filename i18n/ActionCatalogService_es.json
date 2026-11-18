@@ -1,5 +1,5 @@
 {
-  "seedVersion": 30,
+  "seedVersion": 32,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -207,7 +207,7 @@
       "tool": "create_template",
       "title": "Crear un nodo de plantilla",
       "hint": "El agente crea un nodo de plantilla del proyecto (las plantillas son plantillas de trabajos repetitivos). Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la edición de plantillas por parte de los agentes. En el agente CLI es el marcador AI2P_TEMPLATE en la respuesta. Las plantillas sólo se editan en el director de la organización.",
-      "prompt": "Crear un nodo de plantilla del proyecto actual. Parámetros: title, el título; description, el enunciado del trabajo (Markdown); acceptance, los criterios de aceptación (opcional); parent, el código (o el título) del nodo padre, y sin él el nodo es raíz; skills, las habilidades, con los nombres del catálogo. Crea una plantilla sólo si el encargo pide expresamente crear una plantilla o describir un trabajo repetitivo."
+      "prompt": "Crear un nodo de plantilla del proyecto actual. Parámetros: title, el título; description, el enunciado del trabajo (Markdown); acceptance, los criterios de aceptación (opcional); parent, el código (o el título) del nodo padre, y sin él el nodo es raíz; skills, las habilidades, con los nombres del catálogo. Crea una plantilla sólo si el encargo pide expresamente crear una plantilla o describir un trabajo repetitivo. Además: blockers — códigos de nodos de la misma plantilla; executor, altExecutors, responsible — apodos; aiDoneStatus — estado al terminar review o done; timeQuality — tiempo/calidad 0.00–1.00 (vacío — valor por defecto del proyecto)."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000020",
@@ -215,7 +215,7 @@
       "tool": "update_template",
       "title": "Modificar un nodo de plantilla",
       "hint": "El agente edita un nodo de plantilla existente del proyecto. Una regla de seguridad deny/confirm sobre este código prohíbe o exige confirmar la edición de plantillas por parte de los agentes.",
-      "prompt": "Modificar un nodo de plantilla del proyecto actual. Parámetros: code, el código del nodo (o su título); title, description, acceptance, lo que se cambia; el campo que no se pase se queda como estaba. La lista de nodos es list_templates y el enunciado actual, get_task_by_code."
+      "prompt": "Modificar un nodo de plantilla del proyecto actual. Parámetros: code, el código del nodo (o su título); title, description, acceptance, lo que se cambia; el campo que no se pase se queda como estaba. La lista de nodos es list_templates y el enunciado actual, get_task_by_code. Además: blockers — códigos de nodos de la misma plantilla; executor, altExecutors, responsible — apodos; aiDoneStatus — estado al terminar review o done; timeQuality — tiempo/calidad 0.00–1.00 (vacío — valor por defecto del proyecto)."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000021",
@@ -405,6 +405,30 @@
       "title": "Mensaje instantáneo a otro servidor",
       "hint": "El agente escribe en el chat de una tarea (la suya o una indicada por código) y entrega el mensaje al servidor del clúster indicado DE INMEDIATO, sin esperar a una sesión de replicación (T-590-S0). Lo necesitan los agentes que trabajan en pareja en servidores distintos. En el servidor receptor el mensaje llega al agente en marcha como interrupción; la replicación normal no lo duplica después. Si no se alcanza el servidor, el mensaje se queda y viaja con la replicación. Una regla de seguridad deny/confirm sobre este código cierra el envío instantáneo. El agente CLI tiene lo mismo como comando «ai2p push».",
       "prompt": "Escribir en un chat y entregar el mensaje a otro servidor del clúster DE INMEDIATO, sin esperar a la replicación. Parámetros: server — código del servidor en la organización (S0, S1…) o su nombre; text — texto del mensaje; code — código de la tarea en cuyo chat escribir (vacío — la tarea actual). Úsalo cuando trabajas en pareja con un agente en otro servidor y debe saberlo ya. Si la entrega inmediata falla, el mensaje viaja igualmente con la replicación normal; la respuesta da el motivo."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000052",
+      "code": "AI2P.Update.FromFile",
+      "tool": "app_update_from_file",
+      "title": "Update AI2P from a local package",
+      "hint": "The agent installs an AI2P package already on disk (builds/packages/AI2P_v_1_NNN[_full]_<os>_<arch>.exe|run) on THIS server, and the server restarts. The package must fit the installation (kind, system, architecture) and be no older than the current version. The agent's job is closed in its completion status BEFORE the stop; after start-up the task chat gets \"was X, now Y\". CLI agents use \"ai2p app-update\" (T-756-S0).",
+      "prompt": "Update AI2P on this server from a local package and restart the server. Parameter path — the package path from the project root (e.g. AI2P_app/builds/packages/AI2P_v_1_209_full_windows_x64.exe) or a full path in a directory opened by the task rules. Call ONLY when the task explicitly says to update the server: after the call your job is already closed and the server stops in a few seconds — do nothing else and end your answer."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000053",
+      "code": "AI2P.Tasks.ChangeServer",
+      "tool": "move_task_to_server",
+      "title": "Transferir una tarea a otro servidor",
+      "hint": "El agente cambia el servidor propietario de una tarea de su proyecto, igual que el botón «cambiar servidor»: después la tarea se edita y se inicia en el nuevo servidor. Se necesita junto con la asignación de un ejecutor de otro servidor (T-769-S0: ahora es solo una advertencia, no una prohibición). El agente no transfiere su propia tarea; solo el propietario actual puede cederla. Para el agente CLI, el comando «ai2p server». Una regla de seguridad deny/confirm sobre este código cierra la posibilidad por completo.",
+      "prompt": "Transferir una tarea a otro servidor del clúster: después se edita y se inicia allí. Parámetros: code — código de la tarea (por ejemplo T-241); server — código del servidor en la organización (S0, S1…) o su nombre. Están disponibles las tareas del mismo proyecto, salvo la propia. Úsalo cuando el ejecutor de la tarea trabaja en otro servidor (su modelo o programa están allí) o una persona pidió mover la tarea; solo el servidor al que pertenece ahora la tarea puede cederla."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000054",
+      "code": "AI2P.Tasks.RunRemote",
+      "tool": "run_task_on_server",
+      "title": "Llamar una tarea en otro servidor",
+      "hint": "El agente presenta al servidor propietario una solicitud para iniciar su tarea (mecanismo T-196, como el botón «iniciar» en una tarea ajena). Se necesita solo cuando la tarea no está en una cola de jerarquía abierta: allí la cola la inicia cuando le toca, y la acción responde que la llamada no hace falta. Una tarea de este servidor no se inicia así. Para el agente CLI, el comando «ai2p run-remote» (T-769-S0). Una regla de seguridad deny/confirm sobre este código cierra la posibilidad por completo.",
+      "prompt": "Llamar (iniciar) una tarea en el servidor al que pertenece: allí va una solicitud de inicio y la tarea arranca cuando el servidor la procese. Parámetro code — código de una tarea del mismo proyecto. Solo hace falta si la tarea NO está en una cola de jerarquía abierta: en una jerarquía se inicia sola cuando le toca. Una tarea de este servidor no se inicia así (para ella, set_task_status con restart: true); una tarea transferida a otro servidor con move_task_to_server se llama luego con esta acción."
     }
   ]
 }

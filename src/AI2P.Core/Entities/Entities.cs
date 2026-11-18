@@ -1348,6 +1348,20 @@ public static class ImportKinds
     /// <summary>Область макета Figma: экраны картинками и подписи под ними — T-477-S0, версия 1.163.
     /// Импорт только по ссылке, массового импорта по записи справочника нет.</summary>
     public const string Figma = "figma";
+
+    /// <summary>Вид артефакта claude.ai (T-676-S0) — СНЯТ в T-691-S0: без браузерной cookie
+    /// claude.ai текста не отдаёт, а с cookie не пускает Cloudflare. Код оставлен только затем,
+    /// чтобы снять заведённые записи справочника (<c>ImportSourceService.SeedBuiltIn</c>).</summary>
+    public const string ClaudeArtifact = "claude-artifact";
+
+    /// <summary>«Публичный HTML» — страница HTML по ссылке: сохранённая на диске (file:///…htm,
+    /// T-680-S0) либо открытая страница сайта по http/https (T-691-S0). Секретов нет; запись
+    /// справочника встроенная (<see cref="PublicHtmlSourceId"/>) и заводится сама.</summary>
+    public const string HtmlFile = "html-file";
+
+    /// <summary>Id встроенной записи справочника «Публичный HTML» (T-691-S0): одинаковый на
+    /// всех серверах, поэтому репликация не плодит двойников.</summary>
+    public const string PublicHtmlSourceId = "import-public-html";
 }
 
 public sealed class ImportSource : Entity

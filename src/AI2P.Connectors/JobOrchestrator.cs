@@ -130,7 +130,9 @@ public sealed class JobOrchestrator : IDisposable
         // «любой переход в review / needs_fix / done» (todo22); повторные срабатывания
         // безопасны — уже запущенные потомки отфильтруются по статусу
         _ = oldStatus;
-        if (task.IsTemplate)
+        // идёт перезапуск ради обновления (T-756-S0): запущенное сейчас оборвалось бы
+        // остановкой — очередь иерархии продолжит сторож уже новой версии
+        if (task.IsTemplate || AppUpdate.Restarting)
         {
             return;
         }
@@ -470,6 +472,10 @@ public sealed class JobOrchestrator : IDisposable
         if (task.IsTemplate)
         {
             throw new InvalidOperationException(Loc.T("msg.jobOrchestrator.1"));
+        }
+        if (AppUpdate.Restarting)
+        {
+            throw new InvalidOperationException(Loc.T("msg.update.16")); // перезапуск обновления (T-756-S0)
         }
         // СОСТОЯНИЕ ЗАДАЧИ НА ВХОДЕ (T-292-S0): по нему решается, переделывать ли работу
         // суфлёра. Запоминается здесь, потому что ниже задача переводится «в работу»
@@ -3381,6 +3387,10 @@ public sealed class JobOrchestrator : IDisposable
     public void StartWatchdog() =>
         _watchdog ??= new Timer(_ =>
             {
+                if (AppUpdate.Restarting)
+                {
+                    return; // перезапуск обновления (T-756-S0): ничего нового не запускаем
+                }
                 WatchStalledOnce();
                 StartDeferredOnce();
                 RunHierarchiesOnce(); // очереди иерархических запусков (T-159)

@@ -1,5 +1,7 @@
 # Manual do usuário do AI2P — índice da seção
 
+**Site do AI2P:** [ai2p.org](https://ai2p.org)
+
 A seção `man/` é o **manual do usuário**: como fazer no AI2P aquilo para o que ele é instalado.
 Ao contrário das seções `models/` e `import/`, os documentos daqui não estão presos a registros
 de catálogos — é texto corrido por capítulos, e o nome do arquivo é livre.

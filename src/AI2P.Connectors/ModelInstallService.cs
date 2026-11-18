@@ -270,6 +270,9 @@ public sealed class ModelInstallService
         /// <summary>Код пакета, который ставится сейчас; пусто — качаются веса (ТЗ v1.43).</summary>
         public volatile string CurrentPackage = "";
         public volatile string Error = "";
+        /// <summary>Стадия установки пакета для окна обновления ПО (T-714-S0):
+        /// resolve — выясняется, что качать; download — скачивание; install — распаковка и настройка.</summary>
+        public volatile string Stage = "";
         public volatile bool Finished;
         /// <summary>Программу CLI ставить общей установкой (T-431-S0).</summary>
         public volatile bool Global;
@@ -279,7 +282,25 @@ public sealed class ModelInstallService
         public volatile bool Remote;
         /// <summary>Имена дистрибутивов, которыми ставится пакет: пишутся в отметку версии.</summary>
         public List<string> Dists = [];
+        /// <summary>Откуда скачаны дистрибутивы (по порядку <see cref="Dists"/>; пусто —
+        /// взят лежащий в каталоге дистрибутивов, источник неизвестен) — T-710-S0.</summary>
+        public List<string> Urls = [];
+        /// <summary>ОБНОВЛЕНИЕ (T-710-S0): прежние дистрибутивы пакета «имя → источник» из
+        /// отметки версии. Дистрибутив с тем же именем, но другим (или неизвестным) источником —
+        /// другая версия: лежащий файл удаляется и качается заново, а не докачивается.</summary>
+        public Dictionary<string, string> OldSources = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Запись журнала установок этого прогона (T-728-S0).</summary>
+        public InstallLogEntryDto? Log;
+        /// <summary>Отмена ОДНОГО пакета внутри установки модели («пауза только этого
+        /// пакета», T-728-S0): пакет пропускается, установка группы идёт дальше.</summary>
+        public volatile CancellationTokenSource? PackageCts;
+        /// <summary>Какой-то пакет группы поставлен на паузу — модель не доустановлена.</summary>
+        public volatile bool Skipped;
+        public CancellationToken Token => PackageCts?.Token ?? Cts.Token;
     }
+
+    /// <summary>Журнал установок этого компьютера (T-728-S0).</summary>
+    public InstallJournal Journal => InstallJournal.For(_repoDir());
 
     /// <param name="repoDir">Репозиторий моделей (config.storage.modelsRepo).</param>
     /// <param name="distDir">Каталог дистрибутивов пакетов (config.storage.distDir);
@@ -803,7 +824,9 @@ public sealed class ModelInstallService
     /// Запустить загрузку недостающих файлов в фоне; уже идущая загрузка не дублируется.
     /// Возвращает состояние на момент запуска.
     /// </summary>
-    public ModelInstallStatusDto Start(string modelId)
+    public ModelInstallStatusDto Start(string modelId) => Start(modelId, null);
+
+    private ModelInstallStatusDto Start(string modelId, InstallLogEntryDto? resume)
     {
         var manifest = Manifest(modelId)
             ?? throw new ArgumentException(Loc.T("msg.modelInstall.1"));
@@ -813,6 +836,11 @@ public sealed class ModelInstallService
             (_, existing) => existing.Finished ? run : existing);
         if (current == run)
         {
+            if (resume is not null)
+            {
+                Journal.Restart(resume);
+            }
+            run.Log = resume ?? Journal.Reuse("model", modelId, _models.Get(modelId)?.Name ?? modelId);
             _events.Append(new EventRecord
             {
                 EventType = EventTypes.ModelInstallStarted,
@@ -855,13 +883,14 @@ public sealed class ModelInstallService
                     PayloadJson = JsonSerializer.Serialize(new { cli = true, global = manifest.Global }),
                 });
                 Logger.Information("ПО CLI-агента модели {ModelId} установлено", modelId);
+                Journal.Finish(run.Log, run.Skipped ? InstallLogStates.Paused : InstallLogStates.Installed);
                 return;
             }
             Directory.CreateDirectory(dir);
             foreach (var file in manifest.Files)
             {
                 run.CurrentFile = file.Name;
-                await DownloadFileAsync(Path.Combine(dir, file.Name), file, run.Cts.Token);
+                await DownloadFileAsync(Path.Combine(dir, file.Name), file, run.Token);
             }
             run.CurrentFile = "";
             // донастройка после установки (ТЗ v1.41, todo36_4): файл путей весов для ComfyUI
@@ -869,7 +898,12 @@ public sealed class ModelInstallService
             WriteExtraModelPaths();
             // команда запуска локального сервера модели по шаблону манифеста (ТЗ v1.42)
             WriteLaunchCommand(modelId, manifest);
-            ActivateInstalled(modelId);
+            if (!run.Skipped)
+            {
+                // пакет группы поставлен на паузу (T-728-S0) — модель не доустановлена,
+                // включать её нельзя
+                ActivateInstalled(modelId);
+            }
             // ЗАПИСЬ ПЛАГИНА-ТРЕНЕРА (T-156-S0): установка модели поставила пакеты обучения —
             // значит на этом компьютере появилась программа, и в списке «Плагины и MCP» ей
             // положена запись. Отказ здесь установку не роняет: модель уже установлена, а
@@ -891,15 +925,18 @@ public sealed class ModelInstallService
                 PayloadJson = JsonSerializer.Serialize(new { group = manifest.Group }),
             });
             Logger.Information("Установка модели {ModelId} завершена: {Dir}", modelId, dir);
+            Journal.Finish(run.Log, run.Skipped ? InstallLogStates.Paused : InstallLogStates.Installed);
         }
         catch (OperationCanceledException)
         {
             run.Error = ""; // отмена пользователем — не ошибка, докачается при следующем запуске
             Logger.Information("Загрузка модели {ModelId} прервана пользователем", modelId);
+            Journal.Finish(run.Log, InstallLogStates.Paused);
         }
         catch (Exception ex)
         {
             run.Error = ex.Message;
+            Journal.Finish(run.Log, InstallLogStates.Error, ex.Message);
             _events.Append(new EventRecord
             {
                 EventType = EventTypes.ModelInstallFailed,
@@ -1268,19 +1305,25 @@ public sealed class ModelInstallService
     /// не бросается наружу (запрос уже ответил), а ложится в <see cref="PackageRunState"/> —
     /// иначе ошибка установки исчезла бы вместе с фоновой задачей.
     /// </summary>
-    public ModelPackageStatusDto StartPackageInstall(string packageId)
+    public ModelPackageStatusDto StartPackageInstall(string packageId) =>
+        StartPackageInstall(packageId, null);
+
+    private ModelPackageStatusDto StartPackageInstall(string packageId, InstallLogEntryDto? resume)
     {
         var id = packageId.Trim();
-        if (Packages().Find(id) is null)
-        {
-            throw new InvalidOperationException(
+        var package = Packages().Find(id)
+            ?? throw new InvalidOperationException(
                 Loc.T("msg.modelInstall.4", id, AiModelService.PackagesPath));
-        }
         var run = new InstallRun();
         var current = _runs.AddOrUpdate(PackageRunKey(id), run,
             (_, existing) => existing.Finished ? run : existing);
         if (current == run)
         {
+            if (resume is not null)
+            {
+                Journal.Restart(resume);
+            }
+            run.Log = resume ?? Journal.Reuse("package", id, package.Name);
             _ = Task.Run(() => InstallOnePackageAsync(id, run));
         }
         return PackageStatus(id);
@@ -1305,7 +1348,7 @@ public sealed class ModelInstallService
     public const string StampFile = "ai2p-package.json";
 
     /// <summary>Ответ последней проверки пакета: имена свежих дистрибутивов (у npm — версия).</summary>
-    private sealed record UpdateCheck(List<string> Latest, string Error, DateTime When);
+    private sealed record UpdateCheck(List<string> Latest, List<string> Urls, string Error, DateTime When);
 
     private readonly ConcurrentDictionary<string, UpdateCheck> _updateChecks = new();
 
@@ -1343,13 +1386,22 @@ public sealed class ModelInstallService
         var running = run is { Finished: false };
         var own = OwnInstall(package);
         var current = own ? CurrentDists(package) : [];
+        var currentUrls = own ? CurrentUrls(package) : [];
         _updateChecks.TryGetValue(package.Id, out var check);
         var latest = check?.Latest ?? [];
+        // версия, которой в имени и ссылке нет (ComfyUI, поставленный до 1.204), — из файлов пакета
+        var fileVersion = own && package.Npm.Length == 0 ? PackageFileVersion(package) : "";
+        var currentVersions = current.Select((n, i) =>
+        {
+            var v = VersionOf(n, UrlAt(currentUrls, i));
+            return v == n && fileVersion.Length > 0 ? fileVersion : v;
+        }).ToList();
         var state = running ? "running"
             : !own ? "system"
             : check is null ? "unchecked"
             : check.Error.Length > 0 ? "error"
             : current.Count == 0 || !SameNames(current, latest) ? "available"
+            : SourceChanged(current, currentUrls, currentVersions, latest, check.Urls) ? "available"
             : "current";
         var (size, downloaded) = package.Npm.Length > 0 ? (0L, 0L) : DistProgress(package);
         _updateResults.TryGetValue(package.Id, out var note);
@@ -1360,18 +1412,151 @@ public sealed class ModelInstallService
             Dir = own ? PackageDir(package) : SystemFile(package) ?? "",
             Kind = package.Npm.Length > 0 ? "npm" : "dist",
             CurrentDist = string.Join(", ", current),
-            CurrentVersion = string.Join(", ", current.Select(VersionOf)),
+            CurrentVersion = string.Join(", ", currentVersions),
             LatestDist = string.Join(", ", latest),
-            LatestVersion = string.Join(", ", latest.Select(VersionOf)),
+            LatestVersion = string.Join(", ", latest.Select((n, i) => VersionOf(n, UrlAt(check?.Urls ?? [], i)))),
+            Source = !own ? "" : currentUrls.Any(u => u.Length > 0)
+                ? string.Join(", ", currentUrls.Where(u => u.Length > 0).Distinct())
+                : DeclaredSource(package),
             State = state,
             Updatable = own,
             Running = running,
             CurrentFile = running ? run!.CurrentFile : "",
+            Stage = running ? run!.Stage : "",
             Size = size,
             Downloaded = downloaded,
             Error = check?.Error is { Length: > 0 } e ? e : run?.Error ?? "",
             Note = note ?? "",
         };
+    }
+
+    private static string UrlAt(List<string> urls, int i) => i < urls.Count ? urls[i] : "";
+
+    /// <summary>
+    /// ТО ЖЕ ИМЯ — ДРУГАЯ ВЕРСИЯ (T-710-S0). Некоторые дистрибутивы от версии к версии
+    /// называются одинаково (ComfyUI_windows_portable_nvidia.7z), и отличает их только
+    /// ссылка (у GitHub в ней тег релиза). Источник известен — сравниваем ссылки; неизвестен
+    /// (поставлено до 1.203) и в имени нет номера версии — считаем, что обновлять надо:
+    /// после обновления источник запомнится в отметке версии.
+    /// </summary>
+    private static bool SourceChanged(List<string> current, List<string> currentUrls,
+        List<string> currentVersions, List<string> latest, List<string> latestUrls)
+    {
+        for (var i = 0; i < latest.Count; i++)
+        {
+            var url = UrlAt(latestUrls, i);
+            if (url.Length == 0)
+            {
+                continue; // у npm ссылок нет — версия видна в номере
+            }
+            var at = current.FindIndex(n => string.Equals(n, latest[i], StringComparison.OrdinalIgnoreCase));
+            // ОБЕ ВЕРСИИ ИЗВЕСТНЫ (T-714-S0: тег в ссылке, номер в файлах пакета) — сравниваем
+            // их, а не ссылки: «…/latest/download/…» из старой отметки и ссылка с тегом того же
+            // релиза — одна и та же версия
+            var have = at >= 0 && at < currentVersions.Count ? currentVersions[at] : "";
+            var want = VersionOf(latest[i], url);
+            if (have.Length > 0 && have != current[at] && want != latest[i])
+            {
+                if (!string.Equals(have.TrimStart('v', 'V'), want.TrimStart('v', 'V'), StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                continue;
+            }
+            var old = at >= 0 ? UrlAt(currentUrls, at) : "";
+            if (old.Length > 0 ? !string.Equals(old, url, StringComparison.OrdinalIgnoreCase)
+                               : !NameHasVersion(latest[i]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool NameHasVersion(string name) => VersionOf(name) != name;
+
+    /// <summary>Файлы, в которых программа пакета пишет свой номер версии (T-714-S0).</summary>
+    private static readonly string[] VersionFiles = ["comfyui_version.py"];
+
+    private readonly ConcurrentDictionary<string, (string Version, DateTime At)> _fileVersions = new();
+
+    /// <summary>
+    /// НОМЕР ВЕРСИИ ИЗ ФАЙЛОВ ПАКЕТА (T-714-S0): у ComfyUI имя дистрибутива одно на все версии,
+    /// а у поставленного до 1.204 нет и ссылки с тегом — номер берётся из comfyui_version.py
+    /// (__version__ = "0.3.60") в каталоге пакета на глубине до двух уровней. Окно обновления
+    /// спрашивает раз в секунду, поэтому ответ живёт минуту. Пусто — не нашёлся.
+    /// </summary>
+    private string PackageFileVersion(ModelPackage package)
+    {
+        var dir = PackageDir(package);
+        if (_fileVersions.TryGetValue(dir, out var cached) && DateTime.UtcNow - cached.At < TimeSpan.FromMinutes(1))
+        {
+            return cached.Version;
+        }
+        var version = "";
+        try
+        {
+            var level = new List<string> { dir };
+            for (var depth = 0; depth < 3 && version.Length == 0 && level.Count > 0; depth++)
+            {
+                var next = new List<string>();
+                foreach (var d in level.Where(Directory.Exists))
+                {
+                    foreach (var name in VersionFiles)
+                    {
+                        var path = Path.Combine(d, name);
+                        if (File.Exists(path)
+                            && System.Text.RegularExpressions.Regex.Match(File.ReadAllText(path),
+                                @"__version__\s*=\s*[""']([^""']+)[""']") is { Success: true } m)
+                        {
+                            version = m.Groups[1].Value;
+                            break;
+                        }
+                    }
+                    if (version.Length > 0)
+                    {
+                        break;
+                    }
+                    next.AddRange(Directory.EnumerateDirectories(d));
+                }
+                level = next;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
+        _fileVersions[dir] = (version, DateTime.UtcNow);
+        return version;
+    }
+
+    /// <summary>Номер версии по имени дистрибутива, а если в имени его нет — по ссылке (тег
+    /// релиза GitHub/GitLab в пути): «…/releases/download/v0.3.60/ComfyUI_windows_portable_nvidia.7z» → v0.3.60.</summary>
+    public static string VersionOf(string name, string url)
+    {
+        var byName = VersionOf(name);
+        if (byName != name || url.Length == 0 || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return byName;
+        }
+        var path = uri.AbsolutePath;
+        var dir = path[..Math.Max(0, path.LastIndexOf('/'))];
+        var match = System.Text.RegularExpressions.Regex.Match(Uri.UnescapeDataString(dir),
+            @"(?<![A-Za-z0-9])(v?\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.]+)?|b\d{3,})(?![0-9A-Za-z])");
+        return match.Success ? match.Groups[1].Value : byName;
+    }
+
+    /// <summary>Источник по справочнику пакетов — пока отметки с источником нет (T-710-S0).</summary>
+    private string DeclaredSource(ModelPackage package)
+    {
+        if (package.Npm.Length > 0)
+        {
+            return $"https://www.npmjs.com/package/{package.Npm}";
+        }
+        var flavor = BuildFlavor();
+        return string.Join(", ", package.Files.Where(f => f.MatchesFlavor(flavor))
+            .Select(f => f.Url.Length > 0 ? f.Url
+                : f.GitHubRepo.Length > 0 ? $"https://github.com/{f.GitHubRepo}/releases" : "")
+            .Where(u => u.Length > 0).Distinct());
     }
 
     private static bool SameNames(List<string> a, List<string> b) =>
@@ -1447,12 +1632,39 @@ public sealed class ModelInstallService
         return names;
     }
 
-    private void WriteStamp(ModelPackage package, List<string> dists)
+    /// <summary>Источники дистрибутивов из отметки версии (по порядку имён); отметка старее
+    /// 1.203 источников не хранит — список пуст (T-710-S0).</summary>
+    private List<string> CurrentUrls(ModelPackage package)
+    {
+        if (package.Npm.Length > 0)
+        {
+            return [];
+        }
+        try
+        {
+            var stamp = Path.Combine(PackageDir(package), StampFile);
+            if (File.Exists(stamp))
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(stamp));
+                if (doc.RootElement.TryGetProperty("urls", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                {
+                    return arr.EnumerateArray()
+                        .Select(x => x.ValueKind == JsonValueKind.String ? x.GetString()! : "").ToList();
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+        return [];
+    }
+
+    private void WriteStamp(ModelPackage package, List<string> dists, List<string> urls)
     {
         try
         {
             File.WriteAllText(Path.Combine(PackageDir(package), StampFile),
-                JsonSerializer.Serialize(new { dists, installed = DateTime.UtcNow.ToString("O") }));
+                JsonSerializer.Serialize(new { dists, urls, installed = DateTime.UtcNow.ToString("O") }));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -1475,6 +1687,7 @@ public sealed class ModelInstallService
         try
         {
             var latest = new List<string>();
+            var urls = new List<string>();
             if (package.Npm.Length > 0)
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get,
@@ -1490,16 +1703,17 @@ public sealed class ModelInstallService
                 var flavor = BuildFlavor();
                 foreach (var file in package.Files.Where(f => f.MatchesFlavor(flavor)))
                 {
-                    var (_, name, _) = await ResolveDistAsync(file, flavor, ct, remote: true);
+                    var (url, name, _) = await ResolveDistAsync(file, flavor, ct, remote: true);
                     latest.Add(name);
+                    urls.Add(url);
                 }
             }
-            _updateChecks[package.Id] = new UpdateCheck(latest, "", DateTime.UtcNow);
+            _updateChecks[package.Id] = new UpdateCheck(latest, urls, "", DateTime.UtcNow);
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException
                                        or TaskCanceledException && !ct.IsCancellationRequested)
         {
-            _updateChecks[package.Id] = new UpdateCheck([], ex.Message, DateTime.UtcNow);
+            _updateChecks[package.Id] = new UpdateCheck([], [], ex.Message, DateTime.UtcNow);
         }
         return InstalledDto(package);
     }
@@ -1511,7 +1725,11 @@ public sealed class ModelInstallService
     /// установки удалить прежний дистрибутив из каталога дистрибутивов, если новый был
     /// СКАЧАН (его там не было до обновления).
     /// </summary>
-    public InstalledPackageDto StartPackageUpdate(string packageId, bool deleteOldDists)
+    public InstalledPackageDto StartPackageUpdate(string packageId, bool deleteOldDists) =>
+        StartPackageUpdate(packageId, deleteOldDists, null);
+
+    private InstalledPackageDto StartPackageUpdate(string packageId, bool deleteOldDists,
+        InstallLogEntryDto? resume)
     {
         var package = Packages().Find(packageId.Trim())
             ?? throw new InvalidOperationException(
@@ -1527,6 +1745,11 @@ public sealed class ModelInstallService
         if (current == run)
         {
             _updateResults.TryRemove(package.Id, out _);
+            if (resume is not null)
+            {
+                Journal.Restart(resume);
+            }
+            run.Log = resume ?? Journal.Reuse("update", package.Id, package.Name);
             _ = Task.Run(() => UpdateOnePackageAsync(package, run, deleteOldDists));
         }
         return InstalledDto(package);
@@ -1541,19 +1764,22 @@ public sealed class ModelInstallService
         try
         {
             run.CurrentPackage = package.Id;
-            await gate.WaitAsync(run.Cts.Token);
+            await gate.WaitAsync(run.Token);
             entered = true;
             if (package.Npm.Length > 0)
             {
+                run.Stage = "install"; // npm качает и ставит одним шагом — стадия одна
                 await InstallNpmAsync(package, run); // npm install …@latest поверх и есть обновление
             }
             else
             {
                 var oldDists = CurrentDists(package);
+                var oldUrls = CurrentUrls(package);
+                for (var i = 0; i < oldDists.Count; i++)
+                {
+                    run.OldSources[oldDists[i]] = UrlAt(oldUrls, i);
+                }
                 var distDir = DistRoot();
-                var before = Directory.Exists(distDir)
-                    ? Directory.EnumerateFileSystemEntries(distDir).Select(p => Path.GetFileName(p)).ToHashSet(StringComparer.OrdinalIgnoreCase)
-                    : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 if (Directory.Exists(target))
                 {
                     backup = target.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
@@ -1567,17 +1793,18 @@ public sealed class ModelInstallService
                     Directory.Move(target, backup);
                 }
                 await InstallPackageAsync(package, run);
+                _fileVersions.TryRemove(target, out _);
                 if (backup is not null)
                 {
                     TryDeleteDir(backup);
                     backup = null;
                 }
                 var fresh = run.Dists;
-                _updateChecks[package.Id] = new UpdateCheck(fresh, "", DateTime.UtcNow);
+                _updateChecks[package.Id] = new UpdateCheck(fresh, run.Urls, "", DateTime.UtcNow);
                 var deleted = new List<string>();
-                if (deleteOldDists && fresh.Any(n => !before.Contains(n)))
+                if (deleteOldDists)
                 {
-                    foreach (var old in oldDists.Where(o => !fresh.Contains(o, StringComparer.OrdinalIgnoreCase)))
+                    foreach (var old in OldDistsToDelete(package, oldDists, fresh, distDir))
                     {
                         var path = Path.Combine(distDir, old);
                         if (File.Exists(path))
@@ -1600,14 +1827,17 @@ public sealed class ModelInstallService
             // ответ проверки оставляем: поставлено то, что сервер раздачи назвал последним,
             // и строка сразу показывает «актуальна»
             Logger.Information("Пакет {Package} обновлён", package.Id);
+            Journal.Finish(run.Log, InstallLogStates.Installed);
         }
         catch (OperationCanceledException)
         {
             run.Error = "";
+            Journal.Finish(run.Log, InstallLogStates.Paused);
         }
         catch (Exception ex)
         {
             run.Error = ex.Message;
+            Journal.Finish(run.Log, InstallLogStates.Error, ex.Message);
             Logger.Warning(ex, "Ошибка обновления пакета {Package}", package.Id);
         }
         finally
@@ -1636,6 +1866,59 @@ public sealed class ModelInstallService
             run.Finished = true;
         }
     }
+
+    /// <summary>
+    /// ЧТО УДАЛИТЬ ФЛАЖКОМ «УДАЛЯТЬ СТАРЫЕ ДИСТРИБУТИВЫ» (T-714-S0). До 1.204 удалялось только
+    /// то, что названо в отметке версии, и только если новый дистрибутив был СКАЧАН — поэтому у
+    /// llama.cpp оставались и прежние сборки, накопленные до отметки, и всё, если новая сборка
+    /// уже лежала от прерванной попытки. Теперь берутся названные в отметке плюс всё, что в
+    /// каталоге дистрибутивов подходит под маску ассета этого пакета (llama-*-bin-…), архивом
+    /// или распакованным каталогом. Свежие дистрибутивы не трогаются никогда — в том числе
+    /// ОДНОИМЁННЫЙ (ComfyUI_windows_portable_nvidia.7z): это уже новая версия, а не старая.
+    /// </summary>
+    private List<string> OldDistsToDelete(ModelPackage package, List<string> oldDists,
+        List<string> fresh, string distDir)
+    {
+        var keep = fresh.Concat(fresh.Select(ArchiveStem)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var result = oldDists.Where(o => !keep.Contains(o)).ToList();
+        if (!Directory.Exists(distDir))
+        {
+            return result;
+        }
+        var flavor = BuildFlavor();
+        var masks = package.Files.Where(f => f.Url.Length == 0 && f.AssetPattern.Contains('*'))
+            .Select(f => f.AssetPattern.Replace("{flavor}", flavor)).ToList();
+        try
+        {
+            foreach (var entry in new DirectoryInfo(distDir).EnumerateFileSystemInfos())
+            {
+                var hit = masks.Any(m => MatchesMask(entry.Name, m)
+                    || entry is DirectoryInfo && ArchiveStem(m) != m && MatchesMask(entry.Name, ArchiveStem(m)));
+                if (hit && !keep.Contains(entry.Name)
+                    && !result.Contains(entry.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    result.Add(entry.Name);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Logger.Warning(ex, "Не удалось просмотреть каталог дистрибутивов {Dir}", distDir);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Качать дистрибутив не нужно: ФАЙЛ УЖЕ НА МЕСТЕ (T-185-S0) — дистрибутив, который
+    /// кладётся как есть, из временного каталога ПЕРЕНОСИТСЯ, и после обрыва на десятом файле
+    /// из четырнадцати его в каталоге дистрибутивов уже нет; либо в каталоге дистрибутивов
+    /// лежит РАСПАКОВАННЫЙ архив (T-417-S0), который копируется как есть.
+    /// </summary>
+    private static bool SkipDownload(ModelPackage.PackageFile file, ResolvedDist dist, string distDir,
+        string targetDir) =>
+        file.Unpack.Length == 0
+            ? dist.Size > 0 && LengthOf(Path.Combine(targetDir, Path.GetFileName(dist.Name))) == dist.Size
+            : FindLocalDist(distDir, dist.Name) is { IsDir: true };
 
     private static void TryDeleteDir(string path)
     {
@@ -1686,14 +1969,17 @@ public sealed class ModelInstallService
         try
         {
             await InstallPackagesAsync([packageId], run);
+            Journal.Finish(run.Log, InstallLogStates.Installed);
         }
         catch (OperationCanceledException)
         {
             run.Error = ""; // отмена человеком — не ошибка, докачается при следующем запуске
+            Journal.Finish(run.Log, InstallLogStates.Paused);
         }
         catch (Exception ex)
         {
             run.Error = ex.Message;
+            Journal.Finish(run.Log, InstallLogStates.Error, ex.Message);
             Logger.Warning(ex, "Ошибка установки пакета {Package}", packageId);
         }
         finally
@@ -1721,7 +2007,7 @@ public sealed class ModelInstallService
             }
             var gate = PackageLocks.GetOrAdd(package.Id, _ => new SemaphoreSlim(1, 1));
             run.CurrentPackage = package.Id; // окно установки показывает, какой пакет ставится
-            await gate.WaitAsync(run.Cts.Token);
+            await gate.WaitAsync(run.Token);
             try
             {
                 // ПРОГРАММА CLI ИЗ npm (T-431-S0) ставится и ОБНОВЛЯЕТСЯ: кнопка «Обновить»
@@ -1732,7 +2018,7 @@ public sealed class ModelInstallService
                 {
                     if (run.Global || File.Exists(UserCliBin(package)) || SystemFile(package) is null)
                     {
-                        await InstallNpmAsync(package, run);
+                        await GroupStepAsync(package, run, () => InstallNpmAsync(package, run));
                     }
                     continue;
                 }
@@ -1751,7 +2037,7 @@ public sealed class ModelInstallService
                     Logger.Information("Пакет {Package} уже установлен — пропуск", package.Id);
                     continue;
                 }
-                await InstallPackageAsync(package, run);
+                await GroupStepAsync(package, run, () => InstallPackageAsync(package, run));
             }
             finally
             {
@@ -1759,6 +2045,198 @@ public sealed class ModelInstallService
                 run.CurrentPackage = "";
             }
         }
+    }
+
+    /// <summary>
+    /// ПАКЕТ ВНУТРИ УСТАНОВКИ МОДЕЛИ (T-728-S0): своя запись журнала (ребёнок записи модели)
+    /// и свой токен отмены — «пауза только этого пакета» снимает его, а установка группы
+    /// идёт дальше без него (модель тогда остаётся не доустановленной). Установка одного
+    /// пакета или обновление идут как прежде — у них запись журнала одна.
+    /// </summary>
+    private async Task GroupStepAsync(ModelPackage package, InstallRun run, Func<Task> install)
+    {
+        if (run.Log is not { Kind: "model" } group)
+        {
+            await install();
+            return;
+        }
+        // продолженная группа ведёт прежние записи своих пакетов, а не заводит новые (T-732-S0)
+        var child = Journal.Reuse("package", package.Id, package.Name, group.Id);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(run.Cts.Token);
+        run.PackageCts = cts;
+        try
+        {
+            await install();
+            Journal.Finish(child, InstallLogStates.Installed);
+        }
+        catch (OperationCanceledException) when (!run.Cts.IsCancellationRequested)
+        {
+            Journal.Finish(child, InstallLogStates.Paused);
+            run.Skipped = true;
+        }
+        catch (OperationCanceledException)
+        {
+            Journal.Finish(child, InstallLogStates.Paused);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Journal.Finish(child, InstallLogStates.Error, ex.Message);
+            throw;
+        }
+        finally
+        {
+            run.PackageCts = null;
+        }
+    }
+
+    // --- ЖУРНАЛ УСТАНОВОК: список и действия закладки «Ход установок» (T-728-S0) ---
+
+    /// <summary>Все записи журнала, последние сверху; у идущих и прерванных — ход загрузки.</summary>
+    public List<InstallLogEntryDto> InstallLog()
+    {
+        var list = Journal.List();
+        foreach (var e in list)
+        {
+            try
+            {
+                if (e.Kind == "model")
+                {
+                    _runs.TryGetValue(e.Target, out var run);
+                    if (Manifest(e.Target) is not null)
+                    {
+                        var s = Status(e.Target);
+                        if (e.State != InstallLogStates.Installed)
+                        {
+                            e.Size = s.TotalSize + s.Packages.Sum(p => p.Size);
+                            e.Downloaded = s.DownloadedSize + s.Packages.Sum(p => p.Downloaded);
+                            e.Dir = s.TargetDir;
+                        }
+                        // участники группы как в окне установки; пакеты со своей строкой журнала
+                        // показываются ею (там и действия), здесь не повторяются
+                        var own = list.Where(c => c.GroupId == e.Id).Select(c => c.Target).ToHashSet();
+                        e.Parts = s.Packages.Where(p => !own.Contains(p.Id)).Select(PackagePart)
+                            .Concat(s.Files.Select(f => new InstallLogPartDto
+                            {
+                                Kind = "file", Name = f.Name, Size = f.Size, Downloaded = f.Downloaded,
+                                State = f.State,
+                                Running = run is { Finished: false } && run.CurrentFile == f.Name,
+                            }))
+                            .ToList();
+                    }
+                    if (e.State == InstallLogStates.Running && run is { Finished: false })
+                    {
+                        e.CurrentFile = run.CurrentPackage.Length > 0 ? run.CurrentPackage : run.CurrentFile;
+                    }
+                }
+                else
+                {
+                    var p = PackageStatus(e.Target);
+                    e.Dir = p.Dir;
+                    e.Parts = PackagePart(p).Parts;
+                    if (e.State != InstallLogStates.Installed)
+                    {
+                        e.Size = p.Size;
+                        e.Downloaded = p.Downloaded;
+                    }
+                    if (e.State == InstallLogStates.Running
+                        && _runs.TryGetValue(PackageRunKey(e.Target), out var run) && !run.Finished)
+                    {
+                        e.CurrentFile = run.CurrentFile;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                                           or InvalidOperationException or ArgumentException)
+            {
+                // модель или пакет пропали из справочника — запись истории остаётся без хода
+            }
+        }
+        return list;
+    }
+
+    /// <summary>Пакет как участник группы, дистрибутивы — его дети.</summary>
+    private static InstallLogPartDto PackagePart(ModelPackageStatusDto p) => new()
+    {
+        Kind = "package", Name = p.Name, Size = p.Size, Downloaded = p.Downloaded,
+        State = p.State, Running = p.Running,
+        Parts = p.Dists.Select(d => new InstallLogPartDto
+        {
+            Kind = "file", Name = d.Name, Size = d.Size, Downloaded = d.Downloaded,
+            State = d.Present && (d.Size == 0 || d.Downloaded >= d.Size) ? "done"
+                : d.Downloaded > 0 ? "partial" : "missing",
+        }).ToList(),
+    };
+
+    /// <summary>Прогон, в котором идёт запись журнала: свой либо прогон её группы.</summary>
+    private InstallRun? RunOf(InstallLogEntryDto entry) =>
+        _runs.Values.FirstOrDefault(r => !r.Finished && r.Log is { } log
+                                         && (log.Id == entry.Id || log.Id == entry.GroupId));
+
+    /// <summary>
+    /// ПАУЗА: <paramref name="group"/> — остановить всю группу (установку модели целиком),
+    /// иначе только этот пакет: внутри группы он пропускается, остальное ставится дальше.
+    /// Скачанное остаётся на диске — «продолжить» докачает.
+    /// </summary>
+    public void PauseInstall(string id, bool group)
+    {
+        var entry = Journal.Get(id) ?? throw new ArgumentException(Loc.T("msg.installs.1"));
+        if (RunOf(entry) is not { } run)
+        {
+            return;
+        }
+        var own = run.Log?.Id == entry.Id;
+        if (own || group)
+        {
+            run.Cts.Cancel();
+        }
+        else if (run.CurrentPackage == entry.Target)
+        {
+            run.PackageCts?.Cancel();
+        }
+    }
+
+    /// <summary>ПРОДОЛЖИТЬ прерванную или упавшую установку той же записью журнала.</summary>
+    public void ResumeInstall(string id)
+    {
+        var entry = Journal.Get(id) ?? throw new ArgumentException(Loc.T("msg.installs.1"));
+        if (entry.State == InstallLogStates.Running)
+        {
+            return;
+        }
+        switch (entry.Kind)
+        {
+            case "model":
+                Start(entry.Target, entry);
+                break;
+            case "update":
+                StartPackageUpdate(entry.Target, true, entry);
+                break;
+            default:
+                StartPackageInstall(entry.Target, entry);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// УДАЛИТЬ ЗАПИСЬ. Идущая установка сначала останавливается. <paramref name="group"/> —
+    /// удалить группу целиком (запись модели и все её пакеты), иначе одну запись (у пакета
+    /// группы идущая установка модели при этом пропускает только его).
+    /// </summary>
+    public void DeleteInstall(string id, bool group)
+    {
+        var entry = Journal.Get(id) ?? throw new ArgumentException(Loc.T("msg.installs.1"));
+        if (entry.State == InstallLogStates.Running)
+        {
+            PauseInstall(id, group);
+        }
+        var head = entry.GroupId.Length > 0 && group ? Journal.Get(entry.GroupId) ?? entry : entry;
+        var ids = new List<string> { entry.Id, head.Id };
+        if (group || head.Id == entry.Id && entry.Kind == "model")
+        {
+            ids.AddRange(Journal.Children(head.Id).Select(c => c.Id));
+        }
+        Journal.Remove(ids);
     }
 
     private async Task InstallPackageAsync(ModelPackage package, InstallRun run)
@@ -1771,27 +2249,55 @@ public sealed class ModelInstallService
 
         // разбор ссылок и размеров — сразу все, чтобы окно установки показывало размер пакета
         // и ход загрузки с первой же секунды (ТЗ v1.43)
+        run.Stage = "resolve";
         var dists = new List<ResolvedDist>();
         foreach (var file in package.Files.Where(f => f.MatchesFlavor(flavor)))
         {
-            var (url, name, size) = await ResolveDistAsync(file, flavor, run.Cts.Token, run.Remote);
+            var (url, name, size) = await ResolveDistAsync(file, flavor, run.Token, run.Remote);
             if (size <= 0)
             {
-                size = await RemoteLengthAsync(url, run.Cts.Token);
+                size = await RemoteLengthAsync(url, run.Token);
             }
             dists.Add(new ResolvedDist(name, url, size));
         }
         _distCache[DistCacheKey(package)] = dists;
         run.Dists = dists.Select(d => d.Name).ToList();
+        // заглушка «…/releases» — дистрибутив взят из каталога, откуда он, неизвестно
+        run.Urls = dists.Select(d => d.Url.EndsWith("/releases", StringComparison.Ordinal) ? "" : d.Url).ToList();
+        // СНАЧАЛА СКАЧАТЬ ВСЁ, ПОТОМ СТАВИТЬ (T-714-S0): окно обновления показывает две
+        // стадии раздельно, а обрыв сети посреди второго архива не оставляет пакет
+        // распакованным наполовину
+        run.Stage = "download";
+        foreach (var (file, dist) in package.Files.Where(f => f.MatchesFlavor(flavor)).Zip(dists))
+        {
+            var distPath = Path.Combine(distDir, dist.Name);
+            run.CurrentFile = dist.Name;
+            // ТО ЖЕ ИМЯ, ДРУГАЯ ВЕРСИЯ (T-710-S0): лежащий прежний файл не годится ни как
+            // готовый, ни для докачки — убираем и качаем начисто
+            if (run.Remote && run.OldSources.TryGetValue(dist.Name, out var oldUrl)
+                && !string.Equals(oldUrl, dist.Url, StringComparison.OrdinalIgnoreCase))
+            {
+                if (File.Exists(distPath))
+                {
+                    TryDelete(distPath);
+                }
+                else if (Directory.Exists(distPath))
+                {
+                    TryDeleteDir(distPath);
+                }
+            }
+            if (SkipDownload(file, dist, distDir, targetDir))
+            {
+                continue;
+            }
+            await DownloadDistAsync(distPath, dist.Url, dist.Size, run.Token);
+        }
+        run.Stage = "install";
 
         foreach (var (file, dist) in package.Files.Where(f => f.MatchesFlavor(flavor)).Zip(dists))
         {
             var distPath = Path.Combine(distDir, dist.Name);
             run.CurrentFile = dist.Name;
-            // ФАЙЛ УЖЕ НА МЕСТЕ (T-185-S0): дистрибутив, который кладётся как есть, из
-            // временного каталога ПЕРЕНОСИТСЯ — значит после обрыва на десятом файле из
-            // четырнадцати его в каталоге дистрибутивов уже нет, и без этой проверки
-            // повтор установки качал бы все 16 ГБ заново
             if (file.Unpack.Length == 0 && dist.Size > 0
                 && LengthOf(Path.Combine(targetDir, Path.GetFileName(dist.Name))) == dist.Size)
             {
@@ -1806,7 +2312,6 @@ public sealed class ModelInstallService
                     package.Id, unpacked.Name);
                 continue;
             }
-            await DownloadDistAsync(distPath, dist.Url, dist.Size, run.Cts.Token);
             // файл, который кладётся как есть (веса HuggingFace — T-185-S0), из ВРЕМЕННОГО
             // каталога переносится, а не копируется: на 18 ГБ копия это лишние минуты и
             // лишние 18 ГБ на диске
@@ -1826,7 +2331,7 @@ public sealed class ModelInstallService
                 Loc.T("msg.modelInstall.6", package.Name, targetDir, package.Check, package.Hint));
         }
         await RunSetupAsync(package, run);
-        WriteStamp(package, run.Dists);
+        WriteStamp(package, run.Dists, run.Urls);
         Logger.Information("Пакет {Package} установлен: {Dir}", package.Id, targetDir);
     }
 
@@ -1850,7 +2355,7 @@ public sealed class ModelInstallService
             workDir = PackageDir(package);
         }
         var idle = TimeSpan.FromMinutes(setup.IdleMinutes > 0 ? setup.IdleMinutes : 30);
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(run.Cts.Token);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(run.Token);
         limit.CancelAfter(TimeSpan.FromMinutes(setup.TimeoutMinutes > 0 ? setup.TimeoutMinutes : 120));
         // журнал ОДИН на всю настройку: у каждого шага свой файл затирал бы предыдущий,
         // а причина неудачи четвёртого шага обычно видна в выводе третьего
@@ -2037,7 +2542,7 @@ public sealed class ModelInstallService
         // npm запускает node по имени — свой Node.js обязан быть в PATH первым
         process.StartInfo.Environment["PATH"] = nodeDir + Path.PathSeparator
             + (Environment.GetEnvironmentVariable("PATH") ?? "");
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(run.Cts.Token);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(run.Token);
         limit.CancelAfter(TimeSpan.FromMinutes(30));
         process.Start();
         log.Attach(process);
@@ -2109,7 +2614,12 @@ public sealed class ModelInstallService
                 ? file.Name
                 : Path.GetFileName(new Uri(file.Url).LocalPath);
             // названный в справочнике размер избавляет от запроса HEAD на каждый файл (T-185-S0)
-            return (file.Url, name, file.Size);
+            // тег «последнего релиза» выясняется, только если файл будут качать: лежащий в
+            // каталоге дистрибутивов мог быть скачан и год назад, и чужой тег ему не приписываем
+            var url = remote || FindLocalDist(DistRoot(), name) is null
+                ? await PinLatestAsync(file.Url, ct)
+                : file.Url;
+            return (url, name, file.Size);
         }
 
         var pattern = file.AssetPattern.Replace("{flavor}", flavor);
@@ -2171,6 +2681,46 @@ public sealed class ModelInstallService
         throw new InvalidOperationException(lastStatus.Length > 0
             ? lastStatus
             : Loc.T("msg.modelInstall.9", file.GitHubRepo, pattern));
+    }
+
+    private static readonly HttpClient NoRedirectHttp = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(30),
+    };
+
+    /// <summary>
+    /// ССЫЛКА НА «ПОСЛЕДНИЙ РЕЛИЗ» → ССЫЛКА С ТЕГОМ (T-714-S0). У ComfyUI в справочнике стоит
+    /// …/releases/latest/download/ComfyUI_windows_portable_nvidia.7z: имя и ссылка одни на все
+    /// версии, поэтому ни версию, ни «вышла новая» по ним не узнать. GitHub отвечает на неё
+    /// переадресацией на …/releases/download/&lt;тег&gt;/…, её адрес и берём — по нему видна
+    /// версия, он пишется в отметку и сравнивается при проверке. Не вышло — ссылка как есть.
+    /// </summary>
+    private static async Task<string> PinLatestAsync(string url, CancellationToken ct)
+    {
+        if (!url.Contains("/releases/latest/download/", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Head, url);
+            request.Headers.UserAgent.ParseAdd("AI2P");
+            using var response = await NoRedirectHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            var location = response.Headers.Location;
+            if ((int)response.StatusCode is >= 300 and < 400 && location is not null)
+            {
+                var pinned = location.IsAbsoluteUri ? location : new Uri(new Uri(url), location);
+                if (pinned.AbsolutePath.Contains("/releases/download/", StringComparison.OrdinalIgnoreCase))
+                {
+                    return pinned.ToString();
+                }
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            Logger.Information("Тег релиза по ссылке {Url} не выяснен: {Error}", url, ex.Message);
+        }
+        return url;
     }
 
     /// <summary>Сопоставление имени файла с маской вида "llama-*-bin-win-cpu-x64.zip".</summary>

@@ -13,13 +13,16 @@
         {
             <MudProgressLinear Indeterminate="true" />
         }
-        else if (_sources.Count == 0)
-        {
-            <MudText Typo="Typo.body2">@L["imports.run.noSources"]</MudText>
-        }
         else
         {
             <MudStack Spacing="2">
+                @* сохранённая страница HTML с диска (T-680-S0) источника не требует, поэтому
+                   поле адреса есть и без источников — подсказка лишь говорит, что ещё можно *@
+                @if (_sources.Count == 0 && UrlKind != ImportKinds.HtmlFile)
+                {
+                    <MudText Typo="Typo.body2">@L["imports.run.noSources"]</MudText>
+                }
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">@L["imports.card.htmlFileHint"]</MudText>
                 <MudTextField T="string" @bind-Value="_url" Label="@L["imports.card.url"]"
                               Placeholder="@L["imports.card.urlPlaceholder"]" Immediate="true" />
                 @if (Matching.Count > 1)
@@ -71,7 +74,7 @@
         else
         {
             <MudButton Color="Color.Primary" Variant="Variant.Filled"
-                       Disabled="@(_sources.Count == 0 || _url.Trim().Length == 0 || _running)"
+                       Disabled="@((_sources.Count == 0 && UrlKind != ImportKinds.HtmlFile) || _url.Trim().Length == 0 || _running)"
                        OnClick="RunAsync">@L["imports.card.run"]</MudButton>
         }
     </DialogActions>
@@ -93,7 +96,7 @@
 
     /// <summary>Виды источников, из которых можно импортировать ОДНО задание по ссылке.</summary>
     private static readonly string[] UrlKinds =
-        [ImportKinds.Trello, ImportKinds.GitHub, ImportKinds.GitLab, ImportKinds.Figma];
+        [ImportKinds.HtmlFile, ImportKinds.Trello, ImportKinds.GitHub, ImportKinds.GitLab, ImportKinds.Figma];
 
     // выбор для Figma (T-477-S0): весь файл — только явно, элементы — по желанию
     private bool _wholeFile;
@@ -105,7 +108,9 @@
     /// НАРОЧНО грубый — по имени сервиса в адресе: точный разбор делает сервер, а форме
     /// нужно только понять, чьи ключи предлагать.
     /// </summary>
-    private string UrlKind => _url.Contains("figma.com/", StringComparison.OrdinalIgnoreCase)
+    private string UrlKind => IsHtmlFile(_url)
+        ? ImportKinds.HtmlFile
+        : _url.Contains("figma.com/", StringComparison.OrdinalIgnoreCase)
         ? ImportKinds.Figma
         : _url.Contains("trello.com/c/", StringComparison.OrdinalIgnoreCase)
         ? ImportKinds.Trello
@@ -113,7 +118,31 @@
             ? ImportKinds.GitHub
             : _url.Contains("/-/issues/", StringComparison.OrdinalIgnoreCase)
                 ? ImportKinds.GitLab
-                : "";
+                // «Публичный HTML» (T-691-S0): страница сайта, не похожая ни на один
+                // другой вид (старый вид адреса GitLab — «…/issues/<номер>» — остаётся ему)
+                : IsWebPage(_url)
+                    ? ImportKinds.HtmlFile
+                    : "";
+
+    private static bool IsWebPage(string url)
+    {
+        url = url.Trim();
+        return (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+               && url.Length > 8 && !url.Contains("/issues/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Локальная страница HTML (T-680-S0): file:… или полный путь к .htm/.html.</summary>
+    private static bool IsHtmlFile(string url)
+    {
+        url = url.Trim().Trim('"');
+        var path = url.Split('?', '#')[0];
+        return (url.StartsWith("file:", StringComparison.OrdinalIgnoreCase) || System.IO.Path.IsPathFullyQualified(url))
+               && (path.EndsWith(".htm", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".xhtml", StringComparison.OrdinalIgnoreCase)
+                   || path.EndsWith(".shtml", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>Источники, подходящие введённому адресу.</summary>
     private List<ImportSource> Matching =>

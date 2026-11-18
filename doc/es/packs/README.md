@@ -1,5 +1,7 @@
 # Conjuntos de experiencia: estilos de trabajo
 
+**Sitio web de AI2P:** [ai2p.org](https://ai2p.org)
+
 Documentos de los **conjuntos de experiencia** — un archivo por **código de conjunto**
 (`style.tdd.md`). El documento se abre con el botón **«i»** en la fila del conjunto:
 **Configuración → Experiencia → Conjuntos**.

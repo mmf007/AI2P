@@ -1,5 +1,7 @@
 # Modelos de AI2P: cómo está hecho el catálogo
 
+**Sitio web de AI2P:** [ai2p.org](https://ai2p.org)
+
 Carpeta con los documentos de los modelos: un archivo por cada registro del catálogo de modelos
 de IA, y el nombre del archivo es el **nombre del modelo** (`Claude-Sonnet-5.md`,
 `Qwen3.8-27B-Local.md`). Se abre con el botón **«i»** del formulario del modelo: **Ajustes →
@@ -15,6 +17,7 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Chatterbox-TTS](Chatterbox-TTS.md) — texto + muestra de voz → voz sintetizada con ese timbre, habilidades `audio-speech` 88
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API del proveedor Anthropic
 * [Claude-Fable-5](Claude-Fable-5.md) — API del proveedor Anthropic
+* [Claude-Fable-5.2](Claude-Fable-5.2.md) — Anthropic, contexto de 1 000 000 tokens, 8,00 $ / 40,00 $ por 1 M, puntuaciones 94-99
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API de Anthropic
 * [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — API del proveedor Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API del proveedor Anthropic
@@ -34,6 +37,8 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, a través de una capa compatible con OpenAI
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, a través de una capa compatible con OpenAI
 * [Gemini-4-Argon](Gemini-4-Argon.md) — Google, a través de una capa compatible con OpenAI
+* [Gemini-4-Carbon](Gemini-4-Carbon.md) — Google, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, puntuaciones 91-96
+* [Gemini-4-Hydrogen](Gemini-4-Hydrogen.md) — Google, contexto de 1 048 576 tokens, 1,50 $ / 7,50 $ por 1 M, puntuaciones 88-91
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — texto → vídeo con sonido, 8 segundos, habilidades `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Sber, Rusia; compatible con OpenAI
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, compatible con OpenAI
@@ -44,25 +49,27 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [GPT-6-Luna](GPT-6-Luna.md) — API de OpenAI, compatible con OpenAI
 * [GPT-6-Sol](GPT-6-Sol.md) — API de OpenAI, compatible con OpenAI
 * [GPT-6.1-Sol](GPT-6.1-Sol.md) — API de OpenAI, compatible con OpenAI
-* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI, contexto de 1 050 000 tokens, 1,00 $ / 5,00 $ por 1 M, puntuaciones 89-93
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — API de OpenAI, compatible con OpenAI
 * [GPT-Image-2.5](GPT-Image-2.5.md) — texto → imagen, cobro por tokens, habilidades `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — texto → imagen, cobro por tokens, habilidades `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — API de xAI, compatible con OpenAI
 * [Grok-4.7](Grok-4.7.md) — API de xAI, compatible con OpenAI
 * [Ideogram-4.5](Ideogram-4.5.md) — texto → imagen, la mejor tipografía en cuadro del catálogo después de Nano Banana, habilidades `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
+* [Inkling-2-Small](Inkling-2-Small.md) — Thinking Machines, contexto de 1 048 576 tokens, 0,30 $ / 1,00 $ por 1 M, puntuaciones 81-86
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, a través de la pasarela OpenRouter
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — texto → vídeo de 5 segundos con sonido, habilidades `video-generate` 90
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, compatible con OpenAI
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, compatible con OpenAI
-* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, contexto de 1 048 576 tokens, 2,00 $ / 10,00 $ por 1 M, puntuaciones 87-92
 * [Kling-3.0](Kling-3.0.md) — imagen → vídeo con sonido, hasta 15 segundos, habilidades `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, a través de la pasarela OpenRouter
 * [Meshy-7.1](Meshy-7.1.md) — texto → modelo 3D listo para el juego, habilidades `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — texto → modelo 3D listo para el juego, habilidades `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — texto → vídeo de hasta 15 segundos, habilidades `video-generate` 92
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, compatible con OpenAI
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, compatible con OpenAI
-* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, contexto de 1 048 576 tokens, 0,15 $ / 0,60 $ por 1 M, puntuaciones 80-84
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Francia; compatible con OpenAI
 * [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, Francia; compatible con OpenAI
+* [Muse-Ember](Muse-Ember.md) — Meta, contexto de 1 048 576 tokens, 0,10 $ / 0,50 $ por 1 M, puntuaciones 80-85
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, a través de la pasarela OpenRouter
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, a través de la pasarela OpenRouter
 * [Muse-Wonder](Muse-Wonder.md) — Meta, a través de la pasarela OpenRouter
@@ -73,6 +80,7 @@ clave, por qué un modelo puede estar no activo y cómo crear un registro propio
 * [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, a través de la pasarela OpenRouter
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, compatible con OpenAI
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, compatible con OpenAI
+* [Qwen4-Max](Qwen4-Max.md) — Alibaba, contexto de 1 000 000 tokens, 1,425 $ / 4,275 $ por 1 M, puntuaciones 88-94
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — imagen → vídeo con sonido, habilidades `video-animate` 95
 * [Seedance-2.5](Seedance-2.5.md) — texto → vídeo de hasta 30 segundos con sonido, habilidades `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — texto → imagen, habilidades `image-generate` 92, `image-concept` 90, `image-photo` 90

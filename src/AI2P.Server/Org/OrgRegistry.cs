@@ -170,6 +170,17 @@ public sealed class OrgRegistry : IDisposable
             context.Chat.Push = (messageId, server, ct) =>
                 (ChatPusher ?? throw new InvalidOperationException(Loc.T("msg.chat.7")))(
                     context, messageId, server, ct);
+            // сервер организации по коду, имени или ключу (T-769-S0): передача задачи агентом
+            context.ServerLookup = name =>
+            {
+                var wanted = name.Trim();
+                return Servers.ServersOf(context.Org.Id, includeRequests: false)
+                    .FirstOrDefault(s => s.Status == OrgServerStatus.Active
+                        && (string.Equals(s.Code, wanted, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(s.ServerName, wanted, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(s.ServerId, wanted, StringComparison.OrdinalIgnoreCase)))
+                    ?.ServerId;
+            };
             // общий каталог импорта моделей уровня сервера (туда пишут инсталляторы)
             context.SeedAndMigrate(Path.Combine(_dataDir, "models"));
             context.ScheduleRunner.Start();

@@ -1,5 +1,7 @@
 # The AI2P user guide — section contents
 
+**AI2P website:** [ai2p.org](https://ai2p.org)
+
 The `man/` section is the **user guide**: how to do in AI2P the things it is installed for.
 Unlike the `models/` and `import/` sections, the documents here are not tied to reference
 records — this is plain text split into chapters, and the file name can be anything.

@@ -1,5 +1,5 @@
 {
-  "seedVersion": 30,
+  "seedVersion": 32,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -207,7 +207,7 @@
       "tool": "create_template",
       "title": "Create a template node",
       "hint": "The agent creates a template node of the project (templates are blueprints of recurring work). A deny/confirm security rule on this code blocks/confirms template edits by agents. A CLI agent uses the AI2P_TEMPLATE marker. Templates are edited on the conductor server only.",
-      "prompt": "Create a template node of the current project. Parameters: title — the node title; description — the work statement (Markdown); acceptance — acceptance criteria (optional); parent — code (or title) of the parent node, without it the node is a root template; skills — skill names from the catalog. Create a template only when the task explicitly asks to set one up or to describe recurring work."
+      "prompt": "Create a template node of the current project. Parameters: title — the node title; description — the work statement (Markdown); acceptance — acceptance criteria (optional); parent — code (or title) of the parent node, without it the node is a root template; skills — skill names from the catalog. Create a template only when the task explicitly asks to set one up or to describe recurring work. Also: blockers — codes of nodes of the same template; executor, altExecutors, responsible — nicknames; aiDoneStatus — completion status review or done; timeQuality — time/quality 0.00–1.00 (empty — project default)."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000020",
@@ -215,7 +215,7 @@
       "tool": "update_template",
       "title": "Change a template node",
       "hint": "The agent edits an existing template node of the project. A deny/confirm security rule on this code blocks/confirms template edits by agents.",
-      "prompt": "Change a template node of the current project. Parameters: code — the node code (or its title); title, description, acceptance — what to change; an omitted field stays as it was. The node list is list_templates, the current text is get_task_by_code."
+      "prompt": "Change a template node of the current project. Parameters: code — the node code (or its title); title, description, acceptance — what to change; an omitted field stays as it was. The node list is list_templates, the current text is get_task_by_code. Also: blockers — codes of nodes of the same template; executor, altExecutors, responsible — nicknames; aiDoneStatus — completion status review or done; timeQuality — time/quality 0.00–1.00 (empty — project default)."
     },
     {
       "id": "ac710000-0000-4000-9000-000000000021",
@@ -405,6 +405,30 @@
       "title": "Instant message to another server",
       "hint": "The agent writes to a task chat (its own or one named by code) and delivers the message to the named cluster server RIGHT AWAY, without waiting for a replication session (T-590-S0). Needed by agents working as a pair on different servers (game server on one, client on the other). On the receiving server the message reaches the running agent as an interruption; regular replication does not duplicate it later. If the server cannot be reached, the message stays and travels with replication. A deny/confirm security rule on this code closes instant sending. The CLI agent has the same as the «ai2p push» command.",
       "prompt": "Write to a chat and deliver the message to another cluster server RIGHT AWAY, without waiting for replication. Parameters: server — server code in the organization (S0, S1…) or its name; text — message text; code — code of the task whose chat to write to (empty — current task; a task of the same project that an agent on that server works on is fine). Use it when you work as a pair with an agent on another server and it must know now, not in minutes (e.g. «game server is up on port 7790, connect»). If immediate delivery fails, the message still travels with regular replication — the reply gives the reason."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000052",
+      "code": "AI2P.Update.FromFile",
+      "tool": "app_update_from_file",
+      "title": "Update AI2P from a local package",
+      "hint": "The agent installs an AI2P package already on disk (builds/packages/AI2P_v_1_NNN[_full]_<os>_<arch>.exe|run) on THIS server, and the server restarts. The package must fit the installation (kind, system, architecture) and be no older than the current version. The agent's job is closed in its completion status BEFORE the stop; after start-up the task chat gets \"was X, now Y\". CLI agents use \"ai2p app-update\" (T-756-S0).",
+      "prompt": "Update AI2P on this server from a local package and restart the server. Parameter path — the package path from the project root (e.g. AI2P_app/builds/packages/AI2P_v_1_209_full_windows_x64.exe) or a full path in a directory opened by the task rules. Call ONLY when the task explicitly says to update the server: after the call your job is already closed and the server stops in a few seconds — do nothing else and end your answer."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000053",
+      "code": "AI2P.Tasks.ChangeServer",
+      "tool": "move_task_to_server",
+      "title": "Hand a task over to another server",
+      "hint": "The agent changes the owner server of a task of its project — the same as the «change server» button: afterwards the task is edited and started on the new server. Needed together with assigning an executor of another server (T-769-S0: that is now only a warning, not a ban). The agent does not hand over its own task; only the current owner can give a task away. For the CLI agent — the «ai2p server» command. A deny/confirm security rule on this code closes the capability entirely.",
+      "prompt": "Hand a task over to another cluster server: afterwards it is edited and started there. Parameters: code — task code (for example T-241); server — server code in the organization (S0, S1…) or its name. Tasks of the same project are available, except your own. Use it when the task executor works on another server (its model or program lives there) or a human told you to move the task; only the server that owns the task now can give it away."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000054",
+      "code": "AI2P.Tasks.RunRemote",
+      "tool": "run_task_on_server",
+      "title": "Call a task on another server",
+      "hint": "The agent files a run request with the owner server of its task (the T-196 mechanism, like the «start» button on a foreign task). Needed only when the task is not in an open hierarchy queue: there the queue starts it in its turn, and the action answers that no call is needed. A task of this server is not started this way. For the CLI agent — the «ai2p run-remote» command (T-769-S0). A deny/confirm security rule on this code closes the capability entirely.",
+      "prompt": "Call (start) a task on the server it belongs to: a run request goes there, and the task starts there once the server processes it. Parameter code — task code of the same project. Needed only if the task is NOT in an open hierarchy queue: in a hierarchy it starts by itself in its turn. A task of this server is not started this way (use set_task_status with restart: true for it); a task handed over to another server with move_task_to_server is then called with this action."
     }
   ]
 }

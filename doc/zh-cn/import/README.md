@@ -1,5 +1,7 @@
 # 导入任务：源名录是怎样组织的
 
+**AI2P 网站:** [ai2p.org](https://ai2p.org)
+
 这是存放各种源**类型**文档的目录：每个**类型**一个文件，文件名就是**类型代号**
 （`trello.md`、`github.md`、`gitlab.md`）。用源表单中「类型」字段旁的 **「i」** 按钮打开：
 **设置 → 名录 → 导入源**。
@@ -12,6 +14,7 @@
 * [figma](figma.md) — 从 Figma 导入设计——连接说明
 * [github](github.md) — 从 GitHub 导入任务 — 接入说明
 * [gitlab](gitlab.md) — 从 GitLab 导入任务 — 接入说明
+* [html-file](html-file.md) — 导入 HTML 页面（“公开 HTML”）— 说明
 * [trello](trello.md) — 从 Trello 导入任务 — 接入说明
 
 ## 所有类型的共同之处

@@ -368,7 +368,9 @@ public sealed class TaskService
     /// иерархии, узнав о голове раньше её потомков, запустила бы голову первой.</param>
     /// <param name="checkExecutorServer">Проверять ли, что исполнители привязаны к серверу
     /// задачи (T-446-S0). false — у копии шаблона: исполнитель переехал из узла, и сменить
-    /// его человек может только ПОСЛЕ создания; запуск всё равно проверит сервер сам.</param>
+    /// его человек может только ПОСЛЕ создания; запуск всё равно проверит сервер сам.
+    /// С T-769-S0 проверки при сохранении нет вовсе (только предупреждение
+    /// <see cref="ForeignExecutorWarning"/>), параметр оставлен ради прежних вызовов.</param>
     public TaskItem Create(TaskItem task, string descriptionMd, string acceptanceMd, string? actorId,
         bool notify = true, bool checkExecutorServer = true)
     {
@@ -1096,7 +1098,9 @@ public sealed class TaskService
                 // тип задачи и его параметры (T-298-S0) переезжают вместе с launch_json;
                 // ссылки ветвей условия указывают на узлы шаблона и ставятся ниже, когда
                 // заведены все копии (у новой задачи потомков ещё нет — проверка их не пустит)
-                LaunchJson = WithoutIfBranches(node.LaunchJson),
+                // сервер выполнения узла (T-759-S0) в задачу не переносится: он становится
+                // её сервером ниже, когда дерево достроено
+                LaunchJson = TaskFlow.WithRunServer(WithoutIfBranches(node.LaunchJson), null),
                 IsTemplate = false,
                 TemplateId = node.Id,
                 ExecutorIds = executorIds,
@@ -1125,20 +1129,143 @@ public sealed class TaskService
             newHead ??= copy;
         }
 
+        CopyNodeLinks(nodes, idMap, keepForeignBlockers: false);
+
+        // СЕРВЕР ВЫПОЛНЕНИЯ (T-759-S0): задача, у узла которой он указан, передаётся этому
+        // серверу — так же, как кнопкой «сменить сервер». Делается ПОСЛЕ связей: правка связей
+        // требует права записи, а у чужой задачи его здесь уже нет. Голова при этом может
+        // уехать тоже — её запись в newHead обновляется
+        foreach (var node in nodes)
+        {
+            if (TaskFlow.RunServer(node.LaunchJson) is { } runServer
+                && idMap.TryGetValue(node.Id, out var copyId))
+            {
+                var moved = ChangeServer(copyId, runServer, actorId);
+                if (copyId == newHead!.Id)
+                {
+                    newHead = moved;
+                }
+            }
+        }
+
+        using (var conn = _db.Open())
+        using (var tx = conn.BeginTransaction())
+        {
+            _events.Append(conn, tx, new EventRecord
+            {
+                ActorId = actorId,
+                ProjectId = newHead!.ProjectId,
+                TaskId = newHead.Id,
+                EventType = EventTypes.TemplateApplied,
+                EntityType = "task",
+                EntityId = newHead.Id,
+                PayloadJson = JsonSerializer.Serialize(new
+                {
+                    template = head.DisplayId,
+                    created = newHead.DisplayId,
+                    tasks = idMap.Count,
+                    baseDate = baseDate?.ToString("O"),
+                    pick = pickMode?.ToString(),
+                    parent = parent?.DisplayId,
+                }),
+            });
+            tx.Commit();
+        }
+        // дерево достроено целиком — теперь о нём можно рассказать очереди иерархии (T-16-S0):
+        // копия шаблона, заведённая подзадачей внутри идущей иерархии, тоже должна пойти в работу
+        NotifyCreated(newHead, actorId);
+        return newHead;
+    }
+
+    /// <summary>
+    /// КОПИЯ ШАБЛОНА ПОДЗАДАЧЕЙ УЗЛА ШАБЛОНА (T-744-S0): кнопка «новая подзадача» у шаблона
+    /// с выбором другого шаблона. Это ПРОСТОЕ копирование узлов как узлов шаблона — без
+    /// макроподстановок, автоподбора исполнителей, умолчаний проекта и сдвига сроков: всё
+    /// это делается при создании задачи из шаблона, а здесь шаблон только собирается.
+    /// Копия переезжает в проект родителя (то же правило, что у подзадачи, T-201). Блокирующие
+    /// на узлы вне копии сохраняются — это тоже узлы шаблонов. Очереди иерархии копия не
+    /// касается: шаблоны не запускаются.
+    /// </summary>
+    public TaskItem CopyTemplateUnder(string templateId, string parentTemplateId, string? actorId)
+    {
+        var head = Get(templateId) ?? throw new InvalidOperationException(Loc.T("msg.task.12", templateId));
+        if (!head.IsTemplate)
+        {
+            throw new ArgumentException(Loc.T("msg.task.14"));
+        }
+        var parent = Get(parentTemplateId) ?? throw new ArgumentException(Loc.T("msg.task.16", parentTemplateId));
+        if (!parent.IsTemplate)
+        {
+            throw new ArgumentException(Loc.T("msg.task.37"));
+        }
+
+        var nodes = TemplateNodes(head);
+        var idMap = new Dictionary<string, string>();
+        TaskItem? newHead = null;
+        foreach (var node in nodes)
+        {
+            var copy = new TaskItem
+            {
+                ProjectId = parent.ProjectId,
+                TeamId = node.TeamId ?? parent.TeamId,
+                ParentId = node.ParentId is not null && idMap.TryGetValue(node.ParentId, out var mapped)
+                    ? mapped
+                    : parent.Id,
+                Kind = node.Kind,
+                Title = node.Title,
+                Status = node.Status,
+                AiDoneStatus = node.AiDoneStatus,
+                ParentInPrompt = node.ParentInPrompt,
+                SiblingsInPrompt = node.SiblingsInPrompt,
+                TimeQuality = node.TimeQuality,
+                Priority = node.Priority,
+                PriorityNum = node.PriorityNum,
+                IsNotSplit = node.IsNotSplit,
+                DueDate = node.DueDate,
+                PlannedHours = node.PlannedHours,
+                ResponsibleId = node.ResponsibleId,
+                LaunchJson = WithoutIfBranches(node.LaunchJson),
+                IsTemplate = true,
+                TemplateId = node.TemplateId,
+                ExecutorIds = node.ExecutorIds.ToList(),
+                AltExecutorIds = node.AltExecutorIds.ToList(),
+                PrompterExecutorId = node.PrompterExecutorId,
+                PrompterAltExecutorIds = node.PrompterAltExecutorIds.ToList(),
+                SkillIds = node.SkillIds.ToList(),
+                Tags = node.Tags.ToList(),
+            };
+            copy = Create(copy, ReadDescription(node), ReadAcceptance(node), actorId, notify: false,
+                checkExecutorServer: false);
+            idMap[node.Id] = copy.Id;
+            newHead ??= copy;
+        }
+
+        CopyNodeLinks(nodes, idMap, keepForeignBlockers: true);
+        return Get(newHead!.Id) ?? newHead;
+    }
+
+    /// <summary>Связи копии узлов шаблона (общая часть InstantiateTemplate и
+    /// CopyTemplateUnder): блокирующие, ветви условия и правила безопасности.</summary>
+    private void CopyNodeLinks(IReadOnlyList<TaskItem> nodes, Dictionary<string, string> idMap,
+        bool keepForeignBlockers)
+    {
         // блокирующие задачи (ТЗ v1.35): ссылки на узлы шаблона заменяются на созданные
-        // из них задачи; ссылка на узел чужого шаблона (не скопирован) отбрасывается —
-        // иначе задача была бы заблокирована шаблоном навсегда
+        // из них задачи; ссылка на узел чужого шаблона (не скопирован) у копии-ЗАДАЧИ
+        // отбрасывается — иначе задача была бы заблокирована шаблоном навсегда; у копии-
+        // шаблона (T-744-S0) она законна и сохраняется
         using (var conn = _db.Open())
         {
             foreach (var node in nodes.Where(n => n.BlockerIds.Count > 0))
             {
                 foreach (var blockerId in node.BlockerIds)
                 {
-                    if (idMap.TryGetValue(blockerId, out var mappedBlocker))
+                    var target = idMap.TryGetValue(blockerId, out var mappedBlocker) ? mappedBlocker
+                        : keepForeignBlockers ? blockerId : null;
+                    if (target is not null)
                     {
                         Sql.Exec(conn, null,
                             "INSERT OR IGNORE INTO task_blockers (task_id, blocker_task_id) VALUES (@t, @b)",
-                            ("@t", idMap[node.Id]), ("@b", mappedBlocker));
+                            ("@t", idMap[node.Id]), ("@b", target));
                     }
                 }
             }
@@ -1192,34 +1319,6 @@ public sealed class TaskService
                     ("@now", Sql.ToDb(DateTime.UtcNow)));
             }
         }
-
-        using (var conn = _db.Open())
-        using (var tx = conn.BeginTransaction())
-        {
-            _events.Append(conn, tx, new EventRecord
-            {
-                ActorId = actorId,
-                ProjectId = newHead!.ProjectId,
-                TaskId = newHead.Id,
-                EventType = EventTypes.TemplateApplied,
-                EntityType = "task",
-                EntityId = newHead.Id,
-                PayloadJson = JsonSerializer.Serialize(new
-                {
-                    template = head.DisplayId,
-                    created = newHead.DisplayId,
-                    tasks = idMap.Count,
-                    baseDate = baseDate?.ToString("O"),
-                    pick = pickMode?.ToString(),
-                    parent = parent?.DisplayId,
-                }),
-            });
-            tx.Commit();
-        }
-        // дерево достроено целиком — теперь о нём можно рассказать очереди иерархии (T-16-S0):
-        // копия шаблона, заведённая подзадачей внутри идущей иерархии, тоже должна пойти в работу
-        NotifyCreated(newHead, actorId);
-        return newHead;
     }
 
     /// <summary>Смена статуса (drag-n-drop на доске).</summary>
@@ -2728,7 +2827,6 @@ public sealed class TaskService
     private void Validate(SqliteConnection conn, SqliteTransaction tx, TaskItem task,
         bool isNew = false, ISet<string>? serverCheckSkip = null)
     {
-        EnsureExecutorsOnSameServer(conn, tx, task, serverCheckSkip);
         if (task.Kind == TaskKind.Task && task.ExecutorIds.Count > 1)
         {
             throw new ArgumentException(Loc.T("msg.task.21"));
@@ -2811,20 +2909,28 @@ public sealed class TaskService
 
     /// <summary>
     /// ИИ-исполнитель с ЛОКАЛЬНОЙ моделью привязан к серверу физически: модель, её файлы и
-    /// команда запуска лежат на конкретном компьютере (ТЗ гл. 6, этап 42). Назначать такого
-    /// исполнителя задаче ДРУГОГО сервера бессмысленно — задача назначилась бы и не
-    /// запустилась. Отвечаем понятной ошибкой вместо тихого сбоя при запуске.
+    /// команда запуска лежат на конкретном компьютере (ТЗ гл. 6, этап 42). Задача ДРУГОГО
+    /// сервера с таким исполнителем здесь не запустится.
+    ///
+    /// С T-769-S0 это НЕ ошибка сохранения, а предупреждение: следующим шагом задачу часто
+    /// передают на сервер исполнителя (ChangeServer), и запрет назначения делал этот порядок
+    /// невозможным. Запуск по-прежнему отказывает сам (JobOrchestrator.EnsureSoftwareIsHere),
+    /// а форма задачи и инструменты агента показывают этот текст. Null — все исполнители
+    /// задачи могут взять её на её сервере.
     /// </summary>
-    /// <param name="skip">Исполнители, которых не проверять (T-446-S0): переехавшие из узла
-    /// шаблона и уже стоявшие у задачи до правки — их сервер проверит запуск.</param>
-    private void EnsureExecutorsOnSameServer(SqliteConnection conn, SqliteTransaction? tx, TaskItem task,
-        ISet<string>? skip = null)
+    public string? ForeignExecutorWarning(TaskItem task)
+    {
+        using var conn = _db.Open();
+        return ForeignExecutorWarning(conn, null, task);
+    }
+
+    private string? ForeignExecutorWarning(SqliteConnection conn, SqliteTransaction? tx, TaskItem task)
     {
         // запасные (T-221) проверяются наравне с основным: заменить занятого исполнителя
         // сможет только тот, кто физически способен взять работу на этом сервере
         if (task.IsTemplate || (task.ExecutorIds.Count == 0 && task.AltExecutorIds.Count == 0))
         {
-            return; // у шаблона сервера нет: он получит его при создании задачи
+            return null; // у шаблона сервера нет: он получит его при создании задачи
         }
         // задача без сервера выполняется на ДИРИЖЁРЕ (правит её только он), поэтому для
         // сравнения владельцем считается он же — иначе локальная модель самого дирижёра
@@ -2834,10 +2940,6 @@ public sealed class TaskService
             : _scope.IsConductor ? _scope.ServerId : null;
         foreach (var executorId in task.ExecutorIds.Concat(task.AltExecutorIds))
         {
-            if (skip?.Contains(executorId) == true)
-            {
-                continue;
-            }
             var executorServer = Sql.Scalar<string>(conn, tx,
                 "SELECT server_id FROM executors WHERE id=@id", ("@id", executorId));
             if (executorServer is not { Length: > 0 } || executorServer == owner)
@@ -2846,9 +2948,9 @@ public sealed class TaskService
             }
             var nick = Sql.Scalar<string>(conn, tx,
                 "SELECT nick FROM executors WHERE id=@id", ("@id", executorId)) ?? executorId;
-            throw new ArgumentException(
-                Loc.T("msg.task.31", nick, _scope.Describe(executorServer)));
+            return Loc.T("msg.task.31", nick, _scope.Describe(executorServer), _scope.Describe(owner));
         }
+        return null;
     }
 
     private void AppendStatusChanged(SqliteConnection conn, SqliteTransaction tx, TaskItem task,

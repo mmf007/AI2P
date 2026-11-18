@@ -882,7 +882,7 @@ else
              (таблица без колонки навыков, T-238) и «навыки» --- *@
         <MudTabPanel Text="@L["settings.tab.models"]">
             <div class="pa-4" data-models-view="@ModelsView">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2" Style="max-width: 1100px;">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
                     <MudText Typo="Typo.h6">@L["models.title"]</MudText>
                     <MudSpacer />
                     @* переключатель представления — «Вид: <выпадающий список>», как в списке
@@ -910,7 +910,7 @@ else
                     @* ПРЕДСТАВЛЕНИЕ «НАВЫКИ» (T-217): категория — навык из декларации
                        возможностей, внутри модели по убыванию оценки этого навыка.
                        При открытии вкладки все категории закрыты: их несколько десятков *@
-                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+                    <MudSimpleTable Dense="true" Hover="true">
                         <thead>
                             <tr>
                                 <th>@L["models.name"]</th>
@@ -973,7 +973,10 @@ else
                        кнопка установки убрана в форму модели.
                        «КРАТКИЙ» (T-238) — та же таблица БЕЗ колонки навыков: она самая
                        широкая, и на телефоне из-за неё не видно ничего остального *@
-                    <MudSimpleTable Dense="true" Hover="true" Style="max-width: 1100px;">
+                    @* без max-width (T-674-S0): с пределом 1100px окно прокрутки
+                       MudSimpleTable было уже экрана, и полоса прокрутки появлялась,
+                       хотя справа оставалось свободное место *@
+                    <MudSimpleTable Dense="true" Hover="true">
                         <thead>
                             <tr>
                                 <th>ID</th>
@@ -1409,6 +1412,12 @@ else
              и с пометкой владельца pack:<код>, по которой его потом и снимают --- *@
         <MudTabPanel Text="@L["settings.tab.packs"]">
             <PacksTab CanEdit="@State.CanAdmin" />
+        </MudTabPanel>
+
+        @* --- ХОД УСТАНОВОК (T-728-S0): установки моделей, пакетов и обновления ПО этого
+             компьютера в одном месте — идущие и история --- *@
+        <MudTabPanel Text="@L["settings.tab.installs"]">
+            <InstallsTab />
         </MudTabPanel>
 
         @* --- УВЕДОМЛЕНИЯ (T-272): список правил организации плюс почтовый сервер,

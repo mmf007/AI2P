@@ -10,7 +10,7 @@
 * **任何模型，包括本地模型。** 通过 API 使用 Claude、GPT、Gemini、DeepSeek、Qwen，通过订阅使用 Claude Code，在您自己的显卡上运行本地模型，还可以由多台计算机组成集群。
 * **人和 AI 在同一个队列里。** 不是“用 AI 代理取代团队”：AI 做它能做的，其余的等待人来做，和任何规划系统一样。
 
-**[快速开始](man/quickstart.md)** · **[网站](https://ai2p.org/ai2p)** · **[下载](https://github.com/mmf007/AI2P/releases)** · 没有 API 密钥时，AI2P 就是一个供人使用的普通任务规划系统。
+**[快速开始](man/quickstart.md)** · **[网站](https://ai2p.org)** · **[下载](https://github.com/mmf007/AI2P/releases)** · 没有 API 密钥时，AI2P 就是一个供人使用的普通任务规划系统。
 
 <sub>完整介绍见下方 ↓</sub>
 

@@ -218,6 +218,62 @@ public static class AppUpdate
         return dash > 0 && dash < rid.Length - 1 ? rid[(dash + 1)..].ToLowerInvariant() : ArchName();
     }
 
+    // --- обновление из ЛОКАЛЬНОГО пакета (T-756-S0) ---
+
+    /// <summary>
+    /// Идёт перезапуск ради обновления (T-756-S0): задание, позвавшее обновление, уже закрыто,
+    /// а до остановки сервера остаются секунды. Пока флаг стоит, оркестратор не запускает
+    /// новых заданий: запущенное сейчас оборвалось бы остановкой и после подъёма ушло бы
+    /// в «зависшие». Очередь иерархии продолжит сторож уже новой версии.
+    /// </summary>
+    public static volatile bool Restarting;
+
+    /// <summary>
+    /// Годится ли файл пакета ЭТОЙ установке (T-756-S0): имя по правилу (вид full/обычный,
+    /// система, архитектура — <see cref="Matches"/>) и билд в имени не ниже текущего.
+    /// Ответ — номер билда пакета и ключ словаря с причиной отказа (пусто — годится).
+    /// </summary>
+    public static (int Build, string ErrorKey) CheckLocal(string fileName, bool full, string os,
+        string arch, int currentBuild)
+    {
+        var name = Path.GetFileName((fileName ?? "").Trim());
+        if (!Matches(name, full, os, arch))
+        {
+            return (0, "msg.update.10");
+        }
+        var build = BuildOfAsset(name);
+        if (build == 0)
+        {
+            return (0, "msg.update.10");
+        }
+        return build < currentBuild ? (build, "msg.update.11") : (build, "");
+    }
+
+    /// <summary>Имя файла записи о начатом обновлении (лежит в каталоге данных сервера).</summary>
+    public const string PendingFile = "app_update_pending.json";
+
+    /// <summary>
+    /// ЗАПИСЬ О НАЧАТОМ ОБНОВЛЕНИИ (T-756-S0): кто его позвал и с какой версии на какую.
+    /// Пишется ДО остановки сервера, читается и удаляется при подъёме — по ней в чат задачи
+    /// уходит «было X, стало Y» либо понятная ошибка, если поднялась не та версия.
+    /// </summary>
+    public sealed class Pending
+    {
+        public string FromVersion { get; set; } = "";
+        public int FromBuild { get; set; }
+        public int ToBuild { get; set; }
+        public string Package { get; set; } = "";
+        public string OrgId { get; set; } = "";
+        public string TaskId { get; set; } = "";
+        public string JobId { get; set; } = "";
+        public string ExecutorId { get; set; } = "";
+        public string LogFile { get; set; } = "";
+        public DateTime StartedAt { get; set; }
+
+        /// <summary>Поднялась ли та версия, которую ставили.</summary>
+        public bool Succeeded(int currentBuild) => currentBuild >= ToBuild && currentBuild > 0;
+    }
+
     /// <summary>
     /// Время суточной проверки «ЧЧ:ММ» → период расписания (T-208): «каждый день в это время».
     /// Ежедневного вида у расписания нет вовсе — ежедневное это недельное со всеми семью днями.

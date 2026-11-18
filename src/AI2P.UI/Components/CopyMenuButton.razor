@@ -25,6 +25,10 @@
                      data-copy-md="1">
             @L["copy.markdown"]
         </MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Description" OnClick="@CopyRichAsync"
+                     data-copy-rich="1">
+            @L["copy.rich"]
+        </MudMenuItem>
     </MudMenu>
 }
 
@@ -49,6 +53,22 @@
             return;
         }
         await Js.InvokeVoidAsync("ai2p.copyText", text);
+        Snackbar.Add(L["common.copied"], Severity.Success);
+    }
+
+    /// <summary>Для текстового редактора (T-687-S0): HTML с картинками ВНУТРИ текста —
+    /// вставленный документ один файл, без ссылок на сервер. Простой текст кладётся рядом
+    /// вторым видом буфера: его берёт программа, которая HTML не понимает.</summary>
+    private async Task CopyRichAsync()
+    {
+        var parts = Parts();
+        var html = CopyText.BuildHtml(parts);
+        if (html.Length == 0)
+        {
+            Snackbar.Add(L["common.empty"], Severity.Info);
+            return;
+        }
+        await Js.InvokeVoidAsync("ai2p.copyHtml", html, CopyText.Build(parts, false));
         Snackbar.Add(L["common.copied"], Severity.Success);
     }
 }

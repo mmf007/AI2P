@@ -7119,6 +7119,288 @@ public sealed class AiModelService
               "cost":    { "in_per_1m": 0.15, "out_per_1m": 0.6 }
             }
             """),
+        // ---------------------------------------------------------------------------------
+        // T-736-S0 (актуализация 13.11.2026): записи …128–…132. Идентификаторы, цены и
+        // модальности сверены запросом к каталогу OpenRouter (без ключа), лицензия весов Inkling 2 —
+        // карточке HuggingFace (apache-2.0). Суфлёр не нужен ни одной: все записи облачные, а
+        // управляющий json суфлёра читает только ComfyUiConnector.
+        // ---------------------------------------------------------------------------------
+
+        // Claude-Fable-5.2 (каталог OpenRouter: anthropic/claude-fable-5.2, 09.11.2026), $8.0/$40.0 за миллион, контекст 1000000.
+        ("6f1a45e0-0d31-4c65-9a01-000000000128", "Claude-Fable-5.2",
+            """
+            {
+              "_seed": 22,
+              "provider": "anthropic",
+              "model": "claude-fable-5-2",
+              "baseUrl": "",
+              "secretRef": "anthropic.apiKey",
+              "params": { "maxTokens": 16000, "effort": "high", "fallbacks": ["claude-fable-5-1", "claude-fable-5"] },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "claude-fable-5-2",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 99 },
+                { "name": "code-review",         "score": 99 },
+                { "name": "code-debug",          "score": 99 },
+                { "name": "code-test",           "score": 97 },
+                { "name": "code-refactor",       "score": 98 },
+                { "name": "text-write",          "score": 96 },
+                { "name": "text-docs",           "score": 96 },
+                { "name": "text-edit",           "score": 95 },
+                { "name": "text-translate",      "score": 94 },
+                { "name": "text-summarize",      "score": 97 },
+                { "name": "analyze-requirements", "score": 98 },
+                { "name": "analyze-plan",        "score": 98 },
+                { "name": "analyze-data",        "score": 97 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 128000 },
+              "cost":    { "in_per_1m": 8.0, "out_per_1m": 40.0 }
+            }
+            """),
+
+        // Gemini-4-Carbon (каталог OpenRouter: google/gemini-4-carbon, 10.11.2026), $2.0/$10.0 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000129", "Gemini-4-Carbon",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gemini-4-carbon",
+              "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+              "secretRef": "google.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gemini-4-carbon",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 96 },
+                { "name": "code-review",         "score": 95 },
+                { "name": "code-debug",          "score": 95 },
+                { "name": "code-test",           "score": 93 },
+                { "name": "code-refactor",       "score": 94 },
+                { "name": "text-write",          "score": 92 },
+                { "name": "text-docs",           "score": 92 },
+                { "name": "text-edit",           "score": 91 },
+                { "name": "text-translate",      "score": 91 },
+                { "name": "text-summarize",      "score": 93 },
+                { "name": "analyze-requirements", "score": 95 },
+                { "name": "analyze-plan",        "score": 95 },
+                { "name": "analyze-data",        "score": 94 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 2.0, "out_per_1m": 10.0 }
+            }
+            """),
+
+        // Gemini-4-Hydrogen (каталог OpenRouter: google/gemini-4-hydrogen, 12.11.2026), $1.5/$7.5 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000130", "Gemini-4-Hydrogen",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "gemini-4-hydrogen",
+              "baseUrl": "https://generativelanguage.googleapis.com/v1beta/openai",
+              "secretRef": "google.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "gemini-4-hydrogen",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 91 },
+                { "name": "code-review",         "score": 90 },
+                { "name": "code-debug",          "score": 90 },
+                { "name": "code-test",           "score": 88 },
+                { "name": "code-refactor",       "score": 89 },
+                { "name": "text-write",          "score": 89 },
+                { "name": "text-docs",           "score": 88 },
+                { "name": "text-edit",           "score": 88 },
+                { "name": "text-translate",      "score": 89 },
+                { "name": "text-summarize",      "score": 91 },
+                { "name": "analyze-requirements", "score": 89 },
+                { "name": "analyze-plan",        "score": 89 },
+                { "name": "analyze-data",        "score": 89 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 1.5, "out_per_1m": 7.5 }
+            }
+            """),
+
+        // Inkling-2-Small (каталог OpenRouter: thinkingmachines/inkling-2-small, 09.11.2026), $0.3/$1.0 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000131", "Inkling-2-Small",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "thinkingmachines/inkling-2-small",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "secretRef": "openrouter.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "thinkingmachines/inkling-2-small",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 85 },
+                { "name": "code-review",         "score": 83 },
+                { "name": "code-debug",          "score": 83 },
+                { "name": "code-test",           "score": 81 },
+                { "name": "code-refactor",       "score": 83 },
+                { "name": "text-write",          "score": 83 },
+                { "name": "text-docs",           "score": 82 },
+                { "name": "text-edit",           "score": 82 },
+                { "name": "text-translate",      "score": 84 },
+                { "name": "text-summarize",      "score": 86 },
+                { "name": "analyze-requirements", "score": 84 },
+                { "name": "analyze-plan",        "score": 84 },
+                { "name": "analyze-data",        "score": 84 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 0.3, "out_per_1m": 1.0 }
+            }
+            """),
+
+        // Muse-Ember (каталог OpenRouter: meta/muse-ember, 09.11.2026), $0.1/$0.5 за миллион, контекст 1048576.
+        ("6f1a45e0-0d31-4c65-9a01-000000000132", "Muse-Ember",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "meta/muse-ember",
+              "baseUrl": "https://openrouter.ai/api/v1",
+              "secretRef": "openrouter.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "meta/muse-ember",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "application/pdf", "audio/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 84 },
+                { "name": "code-review",         "score": 82 },
+                { "name": "code-debug",          "score": 82 },
+                { "name": "code-test",           "score": 80 },
+                { "name": "code-refactor",       "score": 82 },
+                { "name": "text-write",          "score": 82 },
+                { "name": "text-docs",           "score": 81 },
+                { "name": "text-edit",           "score": 81 },
+                { "name": "text-translate",      "score": 82 },
+                { "name": "text-summarize",      "score": 85 },
+                { "name": "analyze-requirements", "score": 82 },
+                { "name": "analyze-plan",        "score": 82 },
+                { "name": "analyze-data",        "score": 82 }
+              ],
+              "limits":  { "context": 1048576, "max_output": 943718 },
+              "cost":    { "in_per_1m": 0.1, "out_per_1m": 0.5 }
+            }
+            """),
+        // ---------------------------------------------------------------------------------
+        // T-767-S0 (актуализация 17.11.2026): запись …133. Идентификаторы, цены и
+        // модальности сверены запросом к каталогу OpenRouter (без ключа); веса закрыты, условия —
+        // Alibaba Cloud Model Studio. Суфлёр не нужен ни одной: все записи облачные, а
+        // управляющий json суфлёра читает только ComfyUiConnector.
+        // ---------------------------------------------------------------------------------
+
+        // Qwen4-Max (каталог OpenRouter: qwen/qwen4-max, 16.11.2026), $1.425/$4.275 за миллион, контекст 1000000.
+        ("6f1a45e0-0d31-4c65-9a01-000000000133", "Qwen4-Max",
+            """
+            {
+              "_seed": 22,
+              "provider": "openai-compatible",
+              "model": "qwen4-max",
+              "baseUrl": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+              "secretRef": "qwen.apiKey",
+              "params": { "maxTokens": 32000 },
+              "lora": {
+                "supported": false,
+                "reason": "provider"
+              },
+              "refImage": {
+                "kind": "none"
+              }
+            }
+            """,
+            """
+            {
+              "_seed": 22,
+              "id": "qwen4-max",
+              "inputs":  ["text/markdown", "text/plain", "text/source-code", "image/*", "video/*"],
+              "outputs": ["text/markdown", "text/source-code"],
+              "skills":  [
+                { "name": "code-write",          "score": 94 },
+                { "name": "code-review",         "score": 92 },
+                { "name": "code-debug",          "score": 92 },
+                { "name": "code-test",           "score": 90 },
+                { "name": "code-refactor",       "score": 92 },
+                { "name": "text-write",          "score": 90 },
+                { "name": "text-docs",           "score": 89 },
+                { "name": "text-edit",           "score": 88 },
+                { "name": "text-translate",      "score": 91 },
+                { "name": "text-summarize",      "score": 91 },
+                { "name": "analyze-requirements", "score": 90 },
+                { "name": "analyze-plan",        "score": 89 },
+                { "name": "analyze-data",        "score": 91 }
+              ],
+              "limits":  { "context": 1000000, "max_output": 131072 },
+              "cost":    { "in_per_1m": 1.425, "out_per_1m": 4.275 }
+            }
+            """),
         .. KandinskyLiteVariants(),
         .. Kandinsky6Variants(),
         .. AceStep15Variants(),

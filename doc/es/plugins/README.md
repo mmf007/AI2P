@@ -1,5 +1,7 @@
 # Complementos y MCP: los documentos de los complementos
 
+**Sitio web de AI2P:** [ai2p.org](https://ai2p.org)
+
 El directorio con los documentos de los complementos: un archivo por **código de complemento**
 (`tool.ffmpeg.md`). El documento se abre con el botón **«i»** de la fila del complemento:
 **Ajustes → Complementos y MCP**.

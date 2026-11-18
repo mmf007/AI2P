@@ -40,6 +40,7 @@ Gerar o script funciona **sem** o Blender instalado — o programa só é precis
 |---|---|
 | `blender_timeline_write` | cria `ai2p_timeline.py` a partir da biblioteca de mídia do projeto: uma trilha de vídeo e uma de áudio do VSE, na ordem de `media_list`. Filtros: `scene`, `kind`, `tag`. O nome do arquivo é `file` |
 | `blender_render` | executa o script gerado no Blender sem janela. Um `out` com extensão `.blend` (padrão) dá o projeto com trilhas; outra extensão dá o vídeo renderizado (mp4, H.264 + AAC) |
+| `blender_run_script` | executa o **seu próprio** script: `blender --background [blend] --python <script> -- <args>`. `script` é um `.py` na pasta do projeto, `blend` um `.blend` opcional, `args` os argumentos (`sys.argv` após `--`). Retorna o código de saída e as últimas 60 linhas. Para modelos 3D, cenas, render e exportação GLB/FBX. É execução de código arbitrário: fecha-se com uma regra sobre `AI2P.Plugins.Blender.RunScript` |
 
 Ordem de trabalho: os recursos vão para a biblioteca (`media_add`), depois
 `blender_timeline_write`, depois `blender_render`. O `.blend` da pessoa nunca é tocado: o

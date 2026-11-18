@@ -10,7 +10,7 @@
 * **Any model, including local ones.** Claude, GPT, Gemini, DeepSeek, Qwen over an API, Claude Code by subscription, local models on your own video card — and a cluster of several computers.
 * **People and AI in one queue.** Not "an AI agent instead of the team": the AI takes what it can do, the rest waits for people, as in any planner.
 
-**[Quick start](man/quickstart.md)** · **[Website](https://ai2p.org/ai2p)** · **[Download](https://github.com/mmf007/AI2P/releases)** · Without an API key AI2P works as an ordinary planner for people.
+**[Quick start](man/quickstart.md)** · **[Website](https://ai2p.org)** · **[Download](https://github.com/mmf007/AI2P/releases)** · Without an API key AI2P works as an ordinary planner for people.
 
 <sub>Full description below ↓</sub>
 

@@ -126,6 +126,10 @@ public static class ApiEndpoints
         FigmaImporter Figma() => Ctx().Figma;
         bool IsFigmaSource(string sourceId) =>
             Imports().Get(sourceId) is { } s && FigmaImporter.IsFigma(s);
+        // встроенная запись «Публичный HTML» (T-691-S0): секретов нет, массового импорта нет
+        bool IsHtmlSource(string? sourceId) =>
+            sourceId is { Length: > 0 } && Imports().Get(sourceId) is { } s && ImportKeyService.NoSecrets(s.Kind);
+        HtmlFileImporter HtmlFile() => Ctx().HtmlFile;
         AccountService Accounts() => registry.Accounts;
         // вход в Claude CLI (todo96): процесс `claude auth login` живёт на КОМПЬЮТЕРЕ,
         // а не в организации — поэтому сервис общий, синглтон приложения
@@ -2174,6 +2178,10 @@ public static class ApiEndpoints
                 return Results.Ok(Tasks().InstantiateTemplate(id, dto.BaseDate, Actor(), pick, Picker(),
                     dto.ParentId, dto.Macros));
             }));
+        // копия шаблона под узел шаблона (T-744-S0): простое копирование, без макроподстановок
+        // и подбора исполнителей; из InstantiateTemplateDto читается только ParentId
+        api.MapPost("/tasks/{id}/copy-template", (string id, InstantiateTemplateDto dto) =>
+            Handle(() => Results.Ok(Tasks().CopyTemplateUnder(id, dto.ParentId ?? "", Actor()))));
         // --- расписания запуска задач (ТЗ п. 2.12, todo34) ---
         api.MapGet("/schedules", () => Results.Ok(Schedules().List()));
         api.MapPost("/schedules", (Core.Entities.Schedule dto) =>
@@ -3050,7 +3058,9 @@ public static class ApiEndpoints
                     ? await GitHub().CheckAsync(id)
                     : IsFigmaSource(id)
                         ? await Figma().CheckAsync(id)
-                        : await Trello().CheckAsync(id);
+                        : IsHtmlSource(id)
+                            ? (true, Loc.T("imports.publicHtml.byUrlOnly"))
+                            : await Trello().CheckAsync(id);
             return Results.Ok(new ImportCheckDto { Ok = ok, Message = message });
         });
         api.MapPost("/imports", (ImportSource source) =>
@@ -3083,6 +3093,11 @@ public static class ApiEndpoints
                 if (IsFigmaSource(dto.SourceId))
                 {
                     return Results.Problem(Loc.T("msg.figmaImporter.28"), statusCode: 400);
+                }
+                // у «Публичного HTML» (T-691-S0) тоже: страница импортируется только по ссылке
+                if (IsHtmlSource(dto.SourceId))
+                {
+                    return Results.Problem(Loc.T("imports.publicHtml.byUrlOnly"), statusCode: 400);
                 }
                 if (IsGitLabSource(dto.SourceId))
                 {
@@ -3145,7 +3160,24 @@ public static class ApiEndpoints
                 // GITHUB СПРАШИВАЕТСЯ ПЕРВЫМ: адрес задачи GitHub по форме пути
                 // (<владелец>/<репозиторий>/issues/<номер>) совпадает со СТАРЫМ видом
                 // адреса GitLab — без разделителя «/-/», — и разбору GitLab подходит тоже.
-                // Figma (T-477-S0) узнаётся по хосту figma.com и ни с кем не путается
+                // Figma (T-477-S0) узнаётся по хосту figma.com и ни с кем не путается.
+                // «Публичный HTML» (T-680-S0, T-691-S0) — сохранённая страница по схеме file:
+                // (или полному пути) либо страница сайта по http(s), которую НЕ узнал ни один
+                // другой импортёр (HtmlFileImporter.CanRefresh спрашивает их сам), либо любая
+                // ссылка, если в окне выбрана запись этого вида
+                if (HtmlFileImporter.CanRefresh(dto.Url)
+                    || (IsHtmlSource(dto.SourceId) && HtmlFileImporter.WebUriOf(dto.Url) is not null))
+                {
+                    var page = await HtmlFile().ImportContentAsync(project, dto.Url);
+                    return Results.Ok(new ImportedCardDto
+                    {
+                        Title = page.Title,
+                        Description = page.Description,
+                        ExternalRef = page.ExternalRef,
+                        ImportUrl = page.Url,
+                        Files = page.Files,
+                    });
+                }
                 if (FigmaImporter.CanRefresh(dto.Url))
                 {
                     FigmaImporter.ImportedDesign design;
@@ -3284,6 +3316,25 @@ public static class ApiEndpoints
                 var isGitLab = GitLabImporter.CanRefresh(url);
                 var isGitHub = GitHubImporter.CanRefresh(url);
                 var isFigma = FigmaImporter.CanRefresh(url);
+                if (HtmlFileImporter.CanRefresh(url))
+                {
+                    // «Публичный HTML»: страница с диска (T-680-S0) или сайта (T-691-S0),
+                    // картинки — в uploads/ проекта задачи
+                    var htmlProject = task.ProjectId is { Length: > 0 } hp ? Projects().Get(hp) : null;
+                    if (htmlProject is null)
+                    {
+                        return Results.Problem(Loc.T("msg.apiEndpoints.36", task.DisplayId), statusCode: 400);
+                    }
+                    var hf = await HtmlFile().RefreshTaskAsync(htmlProject, task, Actor());
+                    return Results.Ok(new ImportRefreshResultDto
+                    {
+                        DisplayId = hf.DisplayId,
+                        Title = hf.Title,
+                        Comments = 0,
+                        Files = hf.Files,
+                        Exported = 0,
+                    });
+                }
                 if (!isGitLab && !isGitHub && !isFigma && !TrelloImporter.CanRefresh(url))
                 {
                     return Results.Problem(Loc.T("msg.apiEndpoints.35", url), statusCode: 400);
@@ -4229,6 +4280,28 @@ public static class ApiEndpoints
         {
             ModelInstalls().CancelPackageInstall(id);
             return Results.Ok(WithUsers(ModelInstalls().InstalledPackage(id), PackageUsers()));
+        }));
+
+        // --- ХОД УСТАНОВОК (T-728-S0): журнал установок моделей и пакетов ЭТОГО компьютера,
+        // закладка «Настройки → Ход установок». Смотреть может каждый, действия — администратор
+        api.MapGet("/installs", () => Handle(() => Results.Ok(ModelInstalls().InstallLog())));
+        api.MapPost("/installs/{id}/pause", (string id, bool? group) => Handle(() =>
+        {
+            EnsureSoftwareAdmin();
+            ModelInstalls().PauseInstall(id, group ?? false);
+            return Results.Ok(ModelInstalls().InstallLog());
+        }));
+        api.MapPost("/installs/{id}/resume", (string id) => Handle(() =>
+        {
+            EnsureSoftwareAdmin();
+            ModelInstalls().ResumeInstall(id);
+            return Results.Ok(ModelInstalls().InstallLog());
+        }));
+        api.MapPost("/installs/{id}/delete", (string id, bool? group) => Handle(() =>
+        {
+            EnsureSoftwareAdmin();
+            ModelInstalls().DeleteInstall(id, group ?? false);
+            return Results.Ok(ModelInstalls().InstallLog());
         }));
 
         // --- настройки ПРИЛОЖЕНИЯ (гл. 10): изменение из UI пишет обратно в config.json ---

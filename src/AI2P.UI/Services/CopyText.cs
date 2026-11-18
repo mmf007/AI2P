@@ -52,4 +52,30 @@ public static class CopyText
         }
         return sb.ToString();
     }
+
+    /// <summary>
+    /// Третий вид (T-687-S0) — HTML для вставки в текстовый редактор (Word, LibreOffice,
+    /// Google Docs): та же отрисовка, что на экране, заголовки закладок — «h1». Картинки
+    /// здесь ещё ссылками; в сам текст (data URI) их встраивает <c>ai2p.copyHtml</c> в
+    /// браузере — только у него есть вход (cookie) к файлам и адрес страницы, от которого
+    /// считаются относительные ссылки. Правило пустой закладки то же, что у <see cref="Build"/>.
+    /// </summary>
+    public static string BuildHtml(IEnumerable<CopyPart> parts)
+    {
+        var sb = new StringBuilder();
+        foreach (var part in parts)
+        {
+            var body = Md.ToHtml(part.Text).Trim();
+            if (body.Length == 0)
+            {
+                continue;
+            }
+            if (part.Title.Length > 0)
+            {
+                sb.Append("<h1>").Append(System.Net.WebUtility.HtmlEncode(part.Title)).Append("</h1>\n");
+            }
+            sb.Append(body).Append('\n');
+        }
+        return sb.ToString();
+    }
 }

@@ -558,6 +558,12 @@ else
                                    поэтому колонка ещё и объясняет порядок строк *@
                                 <th style="white-space: nowrap;">@L["task.priorityNum"]</th>
                                 <th>@L["task.executor"]</th>
+                                @* сервер подзадачи (T-759-S0): у узла шаблона с сервером
+                                   выполнения — «S0->S2» *@
+                                @if (State.IsCluster)
+                                {
+                                    <th>@L["task.server"]</th>
+                                }
                                 <th>@L["task.dueDate"]</th>
                                 <th></th>
                             </tr>
@@ -574,6 +580,10 @@ else
                                     <td><span class="ai2p-status" style="@State.StatusStyle(subtask.Status)">@State.StatusName(subtask.Status)</span></td>
                                     <td style="white-space: nowrap;" data-subtask-prio="@subtask.PriorityNum">@subtask.PriorityNum</td>
                                     <td>@Nick(subtask.ExecutorIds.FirstOrDefault())</td>
+                                    @if (State.IsCluster)
+                                    {
+                                        <td style="white-space: nowrap;" data-subtask-server="1">@SubtaskServerTitle(subtask)</td>
+                                    }
                                     <td>@subtask.DueDate?.ToLocalTime().ToString("d")</td>
                                     @* вместо разрозненных кнопок строки — одно меню «…» (T-492-S0) *@
                                     <td style="white-space: nowrap;">
@@ -1284,8 +1294,28 @@ else
         }
         var code = task.ServerCode.Length > 0 ? task.ServerCode : State.ServerCodeOf(task.ServerId);
         var name = task.ServerName;
-        return name.Length > 0 && code.Length > 0 ? $"{code} ({name})" : code.Length > 0 ? code : name;
+        var title = name.Length > 0 && code.Length > 0 ? $"{code} ({name})" : code.Length > 0 ? code : name;
+        // узел шаблона с сервером выполнения (T-759-S0): «S0->S2» — правится на S0, задача
+        // из него выполняется на S2
+        return task.IsTemplate && TaskFlow.RunServer(task.LaunchJson) is { } run
+            ? $"{title}->{RunServerCode(run)}"
+            : title;
     }
+
+    /// <summary>Сервер подзадачи для колонки списка (T-759-S0): код, у узла шаблона
+    /// с сервером выполнения — «S0->S2».</summary>
+    private string SubtaskServerTitle(TaskItem task)
+    {
+        var code = task.ServerId is { Length: > 0 }
+            ? (task.ServerCode.Length > 0 ? task.ServerCode : State.ServerCodeOf(task.ServerId))
+            : L["task.server.none"];
+        return task.IsTemplate && TaskFlow.RunServer(task.LaunchJson) is { } run
+            ? $"{code}->{RunServerCode(run)}"
+            : code;
+    }
+
+    private string RunServerCode(string serverId) =>
+        State.ServerCodeOf(serverId) is { Length: > 0 } code ? code : serverId;
 
     private bool CanStart =>
         _details is { Task: { IsTemplate: false, Kind: TaskKind.Task } } details
@@ -2129,32 +2159,36 @@ else
     /// в списке задач проекта (T-201) — сначала выбор «пустая задача или шаблон», список
     /// шаблонов по проекту этой задачи. Пустая — прежняя форма ввода с проставленным
     /// родителем, шаблон — обычное создание из шаблона, но голова копии подцепляется
-    /// подзадачей. У ШАБЛОНА выбора нет: под узел шаблона можно завести только узел
-    /// шаблона, а копия шаблона — обычная задача.</summary>
+    /// подзадачей. У ШАБЛОНА (T-744-S0) окно выбора то же, но выбранный шаблон просто
+    /// копируется узлами шаблона под этот узел — без макроподстановок и подбора исполнителей.</summary>
     private async Task AddSubtaskAsync()
     {
         if (_details is null)
         {
             return;
         }
-        if (!_details.Task.IsTemplate)
+        var pickParameters = new DialogParameters<NewTaskDialog>
         {
-            var pickParameters = new DialogParameters<NewTaskDialog>
+            { d => d.ProjectId, _details.Task.ProjectId },
+        };
+        var pickDialog = await Dialogs.ShowAsync<NewTaskDialog>(L["task.form.new"], pickParameters,
+            new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
+        var picked = await pickDialog.Result;
+        if (picked is not { Canceled: false, Data: NewTaskDialog.Choice choice })
+        {
+            return;
+        }
+        if (choice.Template is { } template)
+        {
+            if (_details.Task.IsTemplate)
             {
-                { d => d.ProjectId, _details.Task.ProjectId },
-            };
-            var pickDialog = await Dialogs.ShowAsync<NewTaskDialog>(L["task.form.new"], pickParameters,
-                new DialogOptions { MaxWidth = MaxWidth.ExtraSmall, FullWidth = true });
-            var picked = await pickDialog.Result;
-            if (picked is not { Canceled: false, Data: NewTaskDialog.Choice choice })
-            {
-                return;
+                await CopyTemplateHereAsync(template);
             }
-            if (choice.Template is { } template)
+            else
             {
                 await AddSubtaskFromTemplateAsync(template);
-                return;
             }
+            return;
         }
         var parameters = new DialogParameters<TaskDialog> { { d => d.Parent, _details.Task } };
         var dialog = await Dialogs.ShowAsync<TaskDialog>(L["task.form.new"], parameters,
@@ -2236,6 +2270,23 @@ else
             await ReloadAsync();
             State.NotifyChanged();
             Snackbar.Add(L["task.instantiate.created"], Severity.Success);
+        }
+        catch (ApiException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    }
+
+    /// <summary>Копия шаблона под этот узел шаблона (T-744-S0): переспроса нет — даты,
+    /// макросы и исполнители копируются как есть.</summary>
+    private async Task CopyTemplateHereAsync(TaskItem template)
+    {
+        try
+        {
+            await Api.CopyTemplateUnderAsync(template.Id, TaskId);
+            await ReloadAsync();
+            State.NotifyChanged();
+            Snackbar.Add(L["task.instantiate.copied"], Severity.Success);
         }
         catch (ApiException ex)
         {

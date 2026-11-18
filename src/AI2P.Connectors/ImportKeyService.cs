@@ -53,6 +53,11 @@ public sealed class ImportKeyService
     private static readonly string[] TokenOnlyKinds =
         [GitLabImporter.Kind, GitHubImporter.Kind, FigmaImporter.Kind];
 
+    /// <summary>Вид без секретов вовсе (T-691-S0): «Публичный HTML» читает файл с диска или
+    /// открытую страницу сайта — ни ключа, ни токена ему не нужно, и активен он всегда.</summary>
+    public static bool NoSecrets(string kind) =>
+        string.Equals(kind.Trim(), HtmlFileImporter.Kind, StringComparison.OrdinalIgnoreCase);
+
     /// <summary>У вида источника есть отдельный ключ API (T-249): у Trello — да,
     /// у GitLab и GitHub — нет, там всё решает один токен.</summary>
     public static bool NeedsKey(string kind) =>
@@ -78,6 +83,10 @@ public sealed class ImportKeyService
         {
             return ("", FigmaImporter.SourceParams.Parse(source.ParamsJson).TokenRef);
         }
+        if (NoSecrets(source.Kind))
+        {
+            return ("", "");
+        }
         var p =TrelloImporter.SourceParams.Parse(source.ParamsJson);
         return (NeedsKey(source.Kind) ? p.KeyRef : "", p.TokenRef);
     }
@@ -95,7 +104,8 @@ public sealed class ImportKeyService
     {
         var (keyRef, tokenRef) = RefsOf(source);
         var (key, keySource) = keyRef.Length > 0 ? _keys.ResolveWithSource(keyRef) : (null, "");
-        var (token, tokenSource) = _keys.ResolveWithSource(tokenRef);
+        var (token, tokenSource) = tokenRef.Length > 0 ? _keys.ResolveWithSource(tokenRef) : (null, "");
+        var noSecrets = NoSecrets(source.Kind);
         // вид проверки формата свой у каждой внешней системы (T-134)
         var isTrello = string.Equals(source.Kind, "trello", StringComparison.OrdinalIgnoreCase);
         var isGitLab = string.Equals(source.Kind, GitLabImporter.Kind, StringComparison.OrdinalIgnoreCase);
@@ -108,13 +118,14 @@ public sealed class ImportKeyService
             TokenRef = tokenRef,
             // у источника с одним токеном ключа нет вовсе, и «не заполнен» здесь означало бы
             // «источник неисправен»: для него отсутствующий ключ — это заполненное состояние
-            HasKey = !needsKey || !string.IsNullOrWhiteSpace(key),
-            HasToken = !string.IsNullOrWhiteSpace(token),
+            HasKey = noSecrets || !needsKey || !string.IsNullOrWhiteSpace(key),
+            // у вида без секретов (T-691-S0) «токен» всегда в порядке
+            HasToken = noSecrets || !string.IsNullOrWhiteSpace(token),
             KeySource = keySource,
             TokenSource = tokenSource,
             HasOrgKey = HasOrgKey,
             IsActive = source.IsActive,
-            NeedsKey = needsKey,
+            NeedsKey = needsKey && !noSecrets,
             // значение не похоже на то, что просят (T-134): у Trello чаще всего ключ и токен
             // оказываются перепутаны местами, у GitLab — вместо токена копируют что-то ещё
             KeyHint = isTrello ? TrelloImporter.SecretHint(FieldKey, key ?? "") : "",
@@ -145,6 +156,9 @@ public sealed class ImportKeyService
             FieldKey when keyRef.Length == 0 => throw new ArgumentException(
                 Loc.T("msg.importKey.10", source.Kind)),
             FieldKey => keyRef,
+            // у вида без секретов (T-691-S0) класть токен некуда
+            FieldToken when tokenRef.Length == 0 => throw new ArgumentException(
+                Loc.T("msg.importKey.10", source.Kind)),
             FieldToken => tokenRef,
             _ => throw new ArgumentException(
                 Loc.T("msg.importKey.2", field, FieldKey, FieldToken)),

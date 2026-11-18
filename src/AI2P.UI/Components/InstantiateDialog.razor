@@ -34,7 +34,7 @@
                     <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" data-instantiate-macro="@key">
                         <MudText Typo="Typo.body2" Style="min-width:8em;white-space:nowrap">@key —</MudText>
                         <MudTextField T="string" Value="@MacroValue(key)" ValueChanged="@(v => _macros[key] = v ?? "")"
-                                      Immediate="true" Dense="true" Variant="Variant.Text" />
+                                      Immediate="true" Margin="Margin.Dense" Variant="Variant.Text" />
                     </MudStack>
                 }
             }

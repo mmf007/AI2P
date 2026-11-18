@@ -133,10 +133,16 @@ else
         key == "title" ? "width: 100%;" : "width: 1%; white-space: nowrap;";
 
     /// <summary>Код сервера задачи для колонки; пусто — сервера нет (ведёт дирижёр).</summary>
-    private string ServerTitle(TaskItem task) =>
-        task.ServerId is { Length: > 0 }
+    private string ServerTitle(TaskItem task)
+    {
+        var title = task.ServerId is { Length: > 0 }
             ? (task.ServerCode.Length > 0 ? task.ServerCode : State.ServerCodeOf(task.ServerId))
             : L["task.server.none"];
+        // узел шаблона с сервером выполнения (T-759-S0): «S0->S2»
+        return task.IsTemplate && TaskFlow.RunServer(task.LaunchJson) is { } run
+            ? $"{title}->{(State.ServerCodeOf(run) is { Length: > 0 } code ? code : run)}"
+            : title;
+    }
 
     [Parameter] public List<TaskItem> Tasks { get; set; } = [];
 

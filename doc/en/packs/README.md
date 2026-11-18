@@ -1,5 +1,7 @@
 # Experience packs: working styles
 
+**AI2P website:** [ai2p.org](https://ai2p.org)
+
 Documents of the **experience packs** — one file per **pack code** (`style.tdd.md`). The
 document is opened by the **«i»** button in the pack row: **Settings → Experience → Packs**.
 

@@ -68,6 +68,10 @@ public sealed class OrgContext : IDisposable
     public JobConsole JobConsole { get; }
     public ConnectorRegistry Connectors { get; }
     public JobOrchestrator Orchestrator { get; }
+
+    /// <summary>Подтверждённый сервер этой организации по коду (S1), имени или ключу → его
+    /// ключ; null — такого нет (T-769-S0). Ставит реестр организаций.</summary>
+    public Func<string, string?>? ServerLookup { get; set; }
     public ModelInstallService ModelInstalls { get; }
     public ModelKeyService ModelKeys { get; }
 
@@ -96,6 +100,9 @@ public sealed class OrgContext : IDisposable
     /// <summary>Импорт дизайна из Figma (T-477-S0, версия 1.163): область макета по ссылке —
     /// экраны картинками и подписи под ними. Только по ссылке, массового импорта нет.</summary>
     public FigmaImporter Figma { get; }
+
+    /// <summary>Импорт сохранённой страницы HTML с диска (T-680-S0).</summary>
+    public HtmlFileImporter HtmlFile { get; }
 
     /// <summary>Получение внешних файлов задания для агентов (T-255, ТЗ v1.90): картинка
     /// по ссылке — из кэша, из хранилища AI2P или из интернета.</summary>
@@ -370,6 +377,11 @@ public sealed class OrgContext : IDisposable
         claudeCli.GitLab = GitLab;
         claudeCli.GitHub = GitHub;
         claudeCli.Figma = Figma;
+        // сохранённая страница HTML (T-680-S0): секретов нет, картинки — в uploads/ проекта
+        HtmlFile = new HtmlFileImporter(Tasks, Events, Files);
+        anthropic.HtmlFile = HtmlFile;
+        text.HtmlFile = HtmlFile;
+        claudeCli.HtmlFile = HtmlFile;
         // МЕДИАТЕКА ПРОЕКТА (T-113-S0): инструменты media_add / media_list / media_remove
         // работают над объектами проекта — своего хранилища у медиатеки нет. Нужны ВСЕМ
         // ТРЁМ текстовым коннекторам: монтажный лист собирает тот же агент, что пишет сцены
@@ -465,6 +477,33 @@ public sealed class OrgContext : IDisposable
         // автообновление приложения (T-208): расписание умеет проверять и ставить новую
         // версию — работу делает сервер, расписание только назначает ей время
         ScheduleRunner.AppUpdate = deps.AppUpdate;
+        // обновление из локального пакета по вызову агента (T-756-S0): организация знает,
+        // чья это задача, сервер — как ставить пакет
+        if (deps.AppUpdateFromFile is { } fromFile)
+        {
+            var orgId = Org.Id;
+            Func<string, AI2P.Core.AppUpdate.Pending, Action<string>?, string> update =
+                (package, pending, closeJob) =>
+                {
+                    pending.OrgId = orgId;
+                    return fromFile(package, pending, closeJob);
+                };
+            anthropic.AppUpdateFromFile = update;
+            text.AppUpdateFromFile = update;
+            claudeCli.AppUpdateFromFile = update;
+        }
+        // ЗАДАЧА И ДРУГОЙ СЕРВЕР КЛАСТЕРА (T-769-S0): передать задачу и вызвать её там.
+        // Список серверов знает реестр (серверная база), он подставляет ServerLookup после
+        // создания контекста — поэтому делегат читает свойство в момент вызова
+        Func<string, string?> resolveServer = name => ServerLookup?.Invoke(name);
+        Func<string, string?, RunRequest?> requestRun = (taskId, actorId) =>
+            Orchestrator.RequestRun(taskId, RunRequestKinds.Task, withErrors: false, actorId, renew: true);
+        anthropic.ResolveServer = resolveServer;
+        text.ResolveServer = resolveServer;
+        claudeCli.ResolveServer = resolveServer;
+        anthropic.RequestRemoteRun = requestRun;
+        text.RequestRemoteRun = requestRun;
+        claudeCli.RequestRemoteRun = requestRun;
         // почта «из логина пользователя» (T-272): аккаунты живут в СЕРВЕРНОЙ базе, поэтому
         // связь делегатом — ровно так же, как участие аккаунта в организации
         Executors.AccountLookup = deps.Account;
@@ -605,6 +644,9 @@ public sealed class OrgContext : IDisposable
         {
             OrgKeys.Ensure(Org.Id);
         }
+        // встроенная запись справочника импортов «Публичный HTML» (T-691-S0) — с фиксированным
+        // id, поэтому её сеет каждый сервер сам; там же снимаются записи claude-artifact
+        Imports.SeedBuiltIn();
         // каталог хранилища проекта именуется его внешним кодом (todo37)
         Projects.MigrateSlugsToDisplayId();
         // каталог проекта переехал в пер-серверную строку (ТЗ гл. 6, этап 42): у проектов,
@@ -851,4 +893,8 @@ public sealed record OrgDeps(
     /// то есть уровень СЕРВЕРА, — организация о нём не знает, отсюда делегат.
     /// <para>null — расписание-действие обновления честно отказывается строкой в журнале
     /// (так контекст поднимают проверки).</para></summary>
-    Func<bool, string>? AppUpdate = null);
+    Func<bool, string>? AppUpdate = null,
+    /// <summary>ОБНОВЛЕНИЕ ИЗ ЛОКАЛЬНОГО ПАКЕТА (T-756-S0): полный путь пакета, запись «кто
+    /// позвал» и закрытие задания до остановки; ответ — ставящаяся версия, отказ — исключение.
+    /// <para>null — действие агента честно отказывает (так контекст поднимают проверки).</para></summary>
+    Func<string, AI2P.Core.AppUpdate.Pending, Action<string>?, string>? AppUpdateFromFile = null);

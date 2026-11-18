@@ -169,6 +169,58 @@ public static class TaskFlow
         }
     }
 
+    /// <summary>
+    /// СЕРВЕР ВЫПОЛНЕНИЯ узла шаблона (T-759-S0): внутренний ключ сервера, которому
+    /// передаётся задача, созданная из этого узла. Шаблон правится на своём сервере
+    /// (обычно дирижёре), а работа нужна на другом (сборка под Linux на S1, под macOS на S2).
+    /// Ключ launch_json, а не колонка: старый сервер его просто не читает, миграции схемы
+    /// не нужно, а репликация довозит его вместе с узлом. В копию-задачу ключ НЕ переносится —
+    /// у задачи сервер выполнения и есть её сервер.
+    /// </summary>
+    public const string RunServerKey = "runServerId";
+
+    /// <summary>Сервер выполнения узла шаблона; null — не задан (задача остаётся у
+    /// сервера, где её создали).</summary>
+    public static string? RunServer(string? launchJson)
+    {
+        if (string.IsNullOrWhiteSpace(launchJson))
+        {
+            return null;
+        }
+        try
+        {
+            using var doc = JsonDocument.Parse(launchJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Object ? Str(doc.RootElement, RunServerKey) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Записать (или снять пустым значением) сервер выполнения, не трогая остальных ключей.</summary>
+    public static string WithRunServer(string? launchJson, string? serverId)
+    {
+        JsonObject root;
+        try
+        {
+            root = JsonNode.Parse(string.IsNullOrWhiteSpace(launchJson) ? "{}" : launchJson) as JsonObject ?? [];
+        }
+        catch (JsonException)
+        {
+            root = [];
+        }
+        if (serverId is { Length: > 0 } id)
+        {
+            root[RunServerKey] = id;
+        }
+        else
+        {
+            root.Remove(RunServerKey);
+        }
+        return root.ToJsonString();
+    }
+
     private static string? Str(JsonElement root, string key) =>
         root.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String
             && v.GetString() is { Length: > 0 } s ? s : null;

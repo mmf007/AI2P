@@ -2459,6 +2459,9 @@ public sealed class InstalledPackageDto
     public string Name { get; set; } = "";
     /// <summary>Каталог пакета (или файл программы, найденной в системе).</summary>
     public string Dir { get; set; } = "";
+    /// <summary>Откуда пакет поставлен (T-710-S0): ссылки на дистрибутивы из отметки версии,
+    /// а пока отметки с ними нет — источник по справочнику пакетов; у системной программы пусто.</summary>
+    public string Source { get; set; } = "";
     /// <summary>Кем пакет нужен: модели, плагины, серверы MCP (имена через запятую).</summary>
     public string UsedBy { get; set; } = "";
     /// <summary>dist — архив/файлы с сервера раздачи, npm — программа из реестра npm.</summary>
@@ -2473,6 +2476,9 @@ public sealed class InstalledPackageDto
     public bool Updatable { get; set; }
     public bool Running { get; set; }
     public string CurrentFile { get; set; } = "";
+    /// <summary>Стадия идущего обновления (T-714-S0): resolve | download | install; пусто — не идёт
+    /// или ещё ждёт очереди пакета.</summary>
+    public string Stage { get; set; } = "";
     public long Size { get; set; }
     public long Downloaded { get; set; }
     public string Error { get; set; } = "";
@@ -2485,6 +2491,60 @@ public sealed class InstalledPackageDto
 /// медиа-моделей, llama.cpp для GGUF-моделей. Пакеты общие: один и тот же пакет разных
 /// моделей ставится один раз, дальше только проверяется.
 /// </summary>
+/// <summary>Состояния записи журнала установок (T-728-S0).</summary>
+public static class InstallLogStates
+{
+    public const string Running = "running";
+    public const string Paused = "paused";
+    public const string Installed = "installed";
+    public const string Error = "error";
+}
+
+/// <summary>
+/// ЗАПИСЬ ЖУРНАЛА УСТАНОВОК (T-728-S0, закладка «Ход установок»): установка модели (kind
+/// model), установка пакета (package) или обновление пакета (update). Пакет, поставленный
+/// в ходе установки модели, — запись-ребёнок: <see cref="GroupId"/> = Id записи модели.
+/// Поля хода (Size, Downloaded, CurrentFile) не хранятся, а считаются при выдаче списка.
+/// </summary>
+public sealed class InstallLogEntryDto
+{
+    public string Id { get; set; } = "";
+    public string GroupId { get; set; } = "";
+    public string Kind { get; set; } = "";
+    /// <summary>Идентификатор модели либо код пакета.</summary>
+    public string Target { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string State { get; set; } = InstallLogStates.Running;
+    public DateTime StartedAt { get; set; }
+    public DateTime? FinishedAt { get; set; }
+    public string Error { get; set; } = "";
+    public long Size { get; set; }
+    public long Downloaded { get; set; }
+    public string CurrentFile { get; set; } = "";
+    /// <summary>Куда ставится: каталог группы весов или каталог пакета.</summary>
+    public string Dir { get; set; } = "";
+    /// <summary>Участники группы (T-728-S0, второй прогон): пакеты и файлы весов модели, у пакета —
+    /// его дистрибутивы, как в окне установки. Считаются при выдаче списка, в файл журнала не пишутся.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public List<InstallLogPartDto>? Parts { get; set; }
+
+    public InstallLogEntryDto Clone() => (InstallLogEntryDto)MemberwiseClone();
+}
+
+/// <summary>Участник группы установки: kind package — пакет, file — файл весов или дистрибутив.</summary>
+public sealed class InstallLogPartDto
+{
+    public string Kind { get; set; } = "";
+    public string Name { get; set; } = "";
+    public long Size { get; set; }
+    public long Downloaded { get; set; }
+    /// <summary>done | partial | missing.</summary>
+    public string State { get; set; } = "missing";
+    public bool Running { get; set; }
+    /// <summary>Дистрибутивы пакета (третий уровень иерархии).</summary>
+    public List<InstallLogPartDto> Parts { get; set; } = [];
+}
+
 public sealed class ModelPackageStatusDto
 {
     /// <summary>Код пакета из справочника пакетов: comfyui, llama.cpp, …</summary>

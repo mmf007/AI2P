@@ -84,6 +84,11 @@ public static class AgentCliRunner
         ["loop"] = new("set_loop_result", "continue", "msg.agentCli.51"),
         ["from-template"] = new("create_tasks_from_template", "template", "msg.agentCli.52"),
         ["stop-hierarchy"] = new("stop_hierarchy", "reason", "msg.agentCli.53"),
+        // обновить AI2P из локального пакета и перезапуститься (T-756-S0)
+        ["app-update"] = new("app_update_from_file", "path", "msg.agentCli.57"),
+        // задача и другой сервер кластера (T-769-S0): передать и вызвать там
+        ["server"] = new("move_task_to_server", "code", "msg.agentCli.58"),
+        ["run-remote"] = new("run_task_on_server", "code", "msg.agentCli.59"),
     };
 
     /// <summary>Параметры-числа: в JSON вызова уходят числом, а не строкой.</summary>

@@ -54,6 +54,11 @@
                                     }
                                     <MudText Typo="Typo.caption" Class="d-block"
                                              Style="opacity:.6; word-break: break-all;">@item.Dir</MudText>
+                                    @if (item.Source.Length > 0)
+                                    {
+                                        <MudText Typo="Typo.caption" Class="d-block" data-software-source="@item.Id"
+                                                 Style="opacity:.6; word-break: break-all;">@L["software.source"]: @item.Source</MudText>
+                                    }
                                 </td>
                                 <td style="white-space:nowrap;" title="@item.CurrentDist"
                                     data-software-current="@item.Id">
@@ -67,10 +72,58 @@
                                     <MudText Typo="Typo.body2" Color="@StateColor(item.State)">
                                         @L["software.state." + item.State]
                                     </MudText>
-                                    @if (item.Running && item.Size > 0)
+                                    @if (item.Running)
                                     {
-                                        <MudProgressLinear Size="Size.Small" Rounded="true" Color="Color.Primary"
-                                                           Value="@(Math.Clamp(100.0 * item.Downloaded / item.Size, 0, 100))" />
+                                        @* ДВЕ СТАДИИ РАЗДЕЛЬНО (T-714-S0): скачивание с объёмом и переустановка *@
+                                        @if (item.Stage is "" or "resolve")
+                                        {
+                                            <MudText Typo="Typo.caption" Class="d-block" data-software-stage="resolve">
+                                                @L["software.stage.resolve"]
+                                            </MudText>
+                                        }
+                                        else
+                                        {
+                                            @if (item.Kind != "npm")
+                                            {
+                                                <MudText Typo="Typo.caption" Class="d-block" data-software-stage="download"
+                                                         data-software-stage-state="@(item.Stage == "download" ? "active" : "done")">
+                                                    @L["software.stage.download"]:
+                                                    @if (item.Stage != "download")
+                                                    {
+                                                        @L["software.stage.done"]
+                                                    }
+                                                    else if (item.Size > 0)
+                                                    {
+                                                        @(L["software.progress", Fmt(Math.Min(item.Downloaded, item.Size)), Fmt(item.Size)])
+                                                    }
+                                                    else
+                                                    {
+                                                        @(item.Downloaded > 0 ? Fmt(item.Downloaded) : L["software.stage.active"])
+                                                    }
+                                                </MudText>
+                                                @if (item.Stage == "download")
+                                                {
+                                                    @if (item.Size > 0)
+                                                    {
+                                                        <MudProgressLinear Size="Size.Small" Rounded="true" Color="Color.Primary"
+                                                                           Value="@(Math.Clamp(100.0 * item.Downloaded / item.Size, 0, 100))" />
+                                                    }
+                                                    else
+                                                    {
+                                                        <MudProgressLinear Size="Size.Small" Rounded="true" Color="Color.Primary" Indeterminate="true" />
+                                                    }
+                                                }
+                                            }
+                                            <MudText Typo="Typo.caption" Class="d-block" data-software-stage="install"
+                                                     data-software-stage-state="@(item.Stage == "install" ? "active" : "waiting")">
+                                                @L["software.stage.install"]:
+                                                @(item.Stage == "install" ? L["software.stage.active"] : L["software.stage.waiting"])
+                                            </MudText>
+                                            @if (item.Stage == "install")
+                                            {
+                                                <MudProgressLinear Size="Size.Small" Rounded="true" Color="Color.Secondary" Indeterminate="true" />
+                                            }
+                                        }
                                     }
                                     @if (item.Running && item.CurrentFile.Length > 0)
                                     {
@@ -119,6 +172,10 @@
                         }
                     </tbody>
                 </MudSimpleTable>
+                @if (_items.Any(i => i.Running))
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true" data-software-closehint="1">@L["software.closeHint"]</MudAlert>
+                }
                 <MudText Typo="Typo.caption" Style="opacity:.75;">@L["software.hint"]</MudText>
             }
         </MudStack>
@@ -291,6 +348,11 @@
         }
         await RedrawAsync();
     }
+
+    /// <summary>Размер по-человечески: ГБ с одним знаком, МБ целиком (как в окне установки модели).</summary>
+    private string Fmt(long bytes) => bytes >= 1L << 30
+        ? $"{bytes / (double)(1L << 30):0.#} {L["unit.gb"]}"
+        : $"{Math.Ceiling(bytes / (double)(1L << 20)):0} {L["unit.mb"]}";
 
     private static Color StateColor(string state) => state switch
     {

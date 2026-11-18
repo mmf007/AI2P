@@ -64,6 +64,14 @@
                             <MudSelectItem T="string" Value="@executor.Id">@executor.Nick</MudSelectItem>
                         }
                     </MudSelect>
+                    @* исполнитель другого сервера (T-769-S0): назначать можно — задачу потом
+                       передают туда, — но запуск отсюда невозможен, о чём и предупреждаем *@
+                    @if (ForeignExecutor is { } foreign)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" data-task-foreign-executor="1">
+                            @string.Format(L["task.foreignExecutor"], foreign.Nick, State.ServerCodeOf(foreign.ServerId))
+                        </MudAlert>
+                    }
                     @* СУФЛЁР ЗАДАЧИ (T-292-S0): исполнитель, который по описанию задачи
                        готовит управляющий json для медиа-модели основного исполнителя.
                        Пусто — берётся суфлёр, названный у самого исполнителя; нет и там —
@@ -312,6 +320,21 @@
                                        Color="Color.Primary" />
                             <MudSwitch T="bool" @bind-Value="_task.IsTemplate" Label="@L["task.isTemplate"]"
                                        Color="Color.Primary" />
+                            @* СЕРВЕР ВЫПОЛНЕНИЯ (T-759-S0) — только у шаблона и только в кластере:
+                               задача, созданная из узла, передаётся этому серверу. Пусто —
+                               остаётся на сервере, где её создали *@
+                            @if (_task.IsTemplate && State.IsCluster)
+                            {
+                                <MudSelect T="string" @bind-Value="_runServerId" Clearable="true"
+                                           Label="@L["task.runServer"]"
+                                           HelperText="@L["task.runServer.hint"]"
+                                           data-task-run-server="1">
+                                    @foreach (var server in State.OrgServers)
+                                    {
+                                        <MudSelectItem T="string" Value="@server.ServerId">@server.Code @server.Name</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            }
                         </MudStack>
                     </MudExpansionPanel>
                 </MudExpansionPanels>
@@ -443,6 +466,8 @@
     /// <summary>Тип задачи и его параметры (T-298-S0): правятся здесь, в launch_json уходят
     /// при сохранении (<see cref="TaskFlow.Write"/>), прочие ключи launch_json не трогаются.</summary>
     private TaskFlowDto _flow = new();
+    /// <summary>Сервер выполнения узла шаблона (T-759-S0); null — не задан.</summary>
+    private string? _runServerId;
 
     /// <summary>ПРЯМЫЕ потомки задачи (T-298-S0) — единственные кандидаты в задачи ветвей
     /// условия. У новой задачи потомков нет: ветви заводятся правкой.</summary>
@@ -877,6 +902,27 @@
         }
     }
 
+    /// <summary>
+    /// Первый выбранный исполнитель (основной или запасной), привязанный к ДРУГОМУ серверу,
+    /// чем сервер задачи (T-769-S0): ИИ с локальной моделью, агент по подписке CLI, «авто ПО».
+    /// У новой задачи сервер — этот; у шаблона сервера нет, и предупреждать не о чем.
+    /// </summary>
+    private Executor? ForeignExecutor
+    {
+        get
+        {
+            if (_task.IsTemplate)
+            {
+                return null;
+            }
+            var owner = _task.ServerId is { Length: > 0 } server ? server : State.ServerId;
+            var ids = _altExecutorIds.Prepend(_executorId ?? "");
+            return ids.Select(id => State.Executors.FirstOrDefault(e => e.Id == id))
+                .FirstOrDefault(e => e is not null && e.Kind != ExecutorKind.Human
+                                     && e.ServerId is { Length: > 0 } s && s != owner);
+        }
+    }
+
     /// <summary>Выбранные запасные исполнители в поле — ники вместо id (T-221).</summary>
     private string AltExecutorNames(IReadOnlyList<string> ids) =>
         string.Join(", ", ids.Select(ExecutorNick));
@@ -1017,6 +1063,7 @@
             _dueDate = src.DueDate?.ToLocalTime();
             _launchMode = ReadLaunchMode(src.LaunchJson);
             _flow = TaskFlow.Read(src.LaunchJson);   // тип задачи (T-298-S0)
+            _runServerId = TaskFlow.RunServer(src.LaunchJson);   // сервер выполнения узла шаблона (T-759-S0)
             // «время ↔ качество» (T-23-S0): у задачи поле может быть не заполнено (её завели
             // мимо формы) — тогда показываем то, с чем она и так работает, умолчание проекта
             _timeQuality = src.TimeQuality ?? DefaultTimeQualityOf(src.ProjectId);
@@ -1068,6 +1115,9 @@
             _flow.IfFalseTaskId = null;
         }
         _task.LaunchJson = TaskFlow.Write(_task.LaunchJson, _flow);
+        // сервер выполнения (T-759-S0) бывает только у шаблона: снятая галочка «шаблон»
+        // снимает и его
+        _task.LaunchJson = TaskFlow.WithRunServer(_task.LaunchJson, _task.IsTemplate ? _runServerId : null);
         _task.ExecutorIds = _executorId is null ? [] : [_executorId];
         // могут заменить исполнителя (T-221): основного из списка выбрасываем — он мог
         // попасть туда до того, как его же назначили исполнителем

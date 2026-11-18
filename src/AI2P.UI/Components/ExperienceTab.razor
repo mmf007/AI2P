@@ -29,10 +29,14 @@
         @if (HasSkillFilter)
         {
             @* навык записи — зачем он: медиа-модели незачем читать выводы кодировщиков.
-               Фильтр показывает записи выбранных навыков И общие записи (без навыка) *@
+               Фильтр показывает записи ТОЛЬКО выбранных навыков (T-666-S0): общие записи без
+               навыка подмешивались к любому выбору, и при сотнях таких записей фильтр выглядел
+               неработающим. Записи без навыка выбираются отдельным пунктом *@
             <MudSelect T="string" MultiSelection="true" @bind-SelectedValues="_filter"
                        Label="@L["exp.filter.skills"]" Clearable="true" Dense="true"
+                       data-exp-filter-skills="1"
                        MultiSelectionTextFunc="@SkillNames" Style="max-width: 420px;">
+                <MudSelectItem T="string" Value="@NoSkill">@L["exp.skill.any"]</MudSelectItem>
                 @foreach (var skill in State.Skills)
                 {
                     <MudSelectItem T="string" Value="@skill.Id">@SkillLabel(skill)</MudSelectItem>
@@ -255,8 +259,8 @@
 
     /// <summary>
     /// Фильтр применяется на клиенте: список опыта короткий, а лишний поход на сервер при
-    /// каждом щелчке в фильтре ничего не даёт. По НАВЫКАМ: записи без навыка показываются
-    /// всегда — они общие. По ТЭГАМ (T-24-S0): нужен хоть один из выбранных, запись без
+    /// каждом щелчке в фильтре ничего не даёт. По НАВЫКАМ: только выбранные навыки, записи
+    /// без навыка — отдельным пунктом <see cref="NoSkill"/> (T-666-S0). По ТЭГАМ (T-24-S0): нужен хоть один из выбранных, запись без
     /// тэгов в отбор не попадает. Оба фильтра действуют вместе.
     /// </summary>
     private List<ExperienceRecordDto> Visible
@@ -266,7 +270,7 @@
             IEnumerable<ExperienceRecordDto> visible = _records;
             if (_filter.Any())
             {
-                visible = visible.Where(r => r.SkillId.Length == 0 || _filter.Contains(r.SkillId));
+                visible = visible.Where(r => _filter.Contains(r.SkillId.Length == 0 ? NoSkill : r.SkillId));
             }
             if (_tagFilter.Any())
             {
@@ -546,7 +550,12 @@
             ? SkillLabel(skill)
             : record.SkillName;
 
+    /// <summary>Пункт фильтра «без навыка» (T-666-S0): у записи навыка нет — SkillId пуст,
+    /// а пустая строка значением пункта MudSelect не годится.</summary>
+    private const string NoSkill = "-";
+
     private string SkillNames(IReadOnlyList<string> ids) =>
         string.Join(", ", ids.Select(id =>
-            State.Skills.FirstOrDefault(s => s.Id == id) is { } skill ? SkillLabel(skill) : id));
+            id == NoSkill ? L["exp.skill.any"].ToString()
+            : State.Skills.FirstOrDefault(s => s.Id == id) is { } skill ? SkillLabel(skill) : id));
 }

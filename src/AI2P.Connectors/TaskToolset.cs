@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using AI2P.Core;
@@ -156,8 +157,51 @@ public sealed class TaskToolset
     /// один импортёр и проект текущей задачи (файлы вложений сохраняются в uploads/ проекта).
     /// Какой именно импортёр возьмётся за ссылку, решает её вид (T-249).</summary>
     public bool CanImport =>
-        (_importer is not null || _gitlab is not null || _github is not null || _figma is not null)
+        (_importer is not null || _gitlab is not null || _github is not null || _figma is not null
+         || HtmlFile is not null)
         && _project is not null;
+
+    /// <summary>Импорт «Публичный HTML»: страница с диска (T-680-S0) или с сайта по http(s) (T-691-S0).</summary>
+    public HtmlFileImporter? HtmlFile { get; init; }
+
+    /// <summary>Правила каталогов задачи для чтения файла страницы и её картинок (T-680-S0):
+    /// абсолютный путь → разрешено ли. null — запрещено всё (агенту без правил файл не читается).</summary>
+    public Func<string, bool>? PathReadAllowed { get; init; }
+
+    /// <summary>Папка проекта — от неё считается относительный путь пакета обновления (T-756-S0).</summary>
+    public string? ProjectFolder { get; init; }
+
+    /// <summary>
+    /// Обновить AI2P из локального пакета и перезапуститься (app_update_from_file, T-756-S0):
+    /// полный путь пакета → ставящаяся версия; отказ — исключение с понятным текстом.
+    /// Задание закрывается внутри вызова, до остановки сервера. null — инструмента нет.
+    /// </summary>
+    public Func<string, string>? AppUpdateFromFile { get; init; }
+
+    /// <summary>Инструмент обновления публикуется, когда сервер умеет обновляться (T-756-S0).</summary>
+    public bool CanAppUpdate => AppUpdateFromFile is not null;
+
+    /// <summary>
+    /// Сервер организации по коду (S1), имени или ключу → его ключ (T-769-S0); null — такого
+    /// подтверждённого сервера нет. Подставляет контекст организации; null — кластера нет,
+    /// и передавать задачу некуда.
+    /// </summary>
+    public Func<string, string?>? ResolveServer { get; init; }
+
+    /// <summary>
+    /// Заявка серверу-владельцу на запуск ЕГО задачи (T-769-S0, механизм T-196): ключ задачи,
+    /// актор → заявка; null — запускать нечего (задание уже идёт). Подставляет контекст
+    /// организации (JobOrchestrator.RequestRun); null — инструмента нет.
+    /// </summary>
+    public Func<string, string?, RunRequest?>? RequestRemoteRun { get; init; }
+
+    /// <summary>Передача задачи на другой сервер (move_task_to_server, T-769-S0) публикуется,
+    /// когда есть кластер и известно, от чьего имени менять владельца.</summary>
+    public bool CanChangeServer => _actorExecutorId is not null && ResolveServer is not null;
+
+    /// <summary>Вызов задачи на другом сервере (run_task_on_server, T-769-S0) — по тому же
+    /// условию: заявка пишется от имени исполнителя задания.</summary>
+    public bool CanRunRemote => _actorExecutorId is not null && RequestRemoteRun is not null;
 
     /// <summary>
     /// Получение внешнего файла задания (fetch_file, T-255) публикуется, когда сервис задан.
@@ -289,6 +333,19 @@ public sealed class TaskToolset
               "required": ["code"]
             }
             """),
+        new("move_task_to_server", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "code":   { "type": "string" },
+                "server": { "type": "string" }
+              },
+              "required": ["code", "server"]
+            }
+            """),
+        new("run_task_on_server", "",
+            """{ "type": "object", "properties": { "code": { "type": "string" } }, "required": ["code"] }"""),
         new("update_task", "",
             """
             {
@@ -409,7 +466,10 @@ public sealed class TaskToolset
                 "skills":      { "type": "array", "items": { "type": "string" } },
                 "blockers":    { "type": "array", "items": { "type": "string" } },
                 "executor":    { "type": "string" },
-                "responsible": { "type": "string" }
+                "altExecutors": { "type": "array", "items": { "type": "string" } },
+                "responsible": { "type": "string" },
+                "aiDoneStatus": { "type": "string" },
+                "timeQuality":  { "type": "string" }
               },
               "required": ["title", "description"]
             }
@@ -426,7 +486,10 @@ public sealed class TaskToolset
                 "skills":      { "type": "array", "items": { "type": "string" } },
                 "blockers":    { "type": "array", "items": { "type": "string" } },
                 "executor":    { "type": "string" },
-                "responsible": { "type": "string" }
+                "altExecutors": { "type": "array", "items": { "type": "string" } },
+                "responsible": { "type": "string" },
+                "aiDoneStatus": { "type": "string" },
+                "timeQuality":  { "type": "string" }
               },
               "required": ["code"]
             }
@@ -494,6 +557,9 @@ public sealed class TaskToolset
             """),
         new("stop_hierarchy", "",
             """{ "type": "object", "properties": { "reason": { "type": "string" } } }"""),
+        // обновление AI2P из локального пакета и перезапуск (T-756-S0)
+        new("app_update_from_file", "",
+            """{ "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] }"""),
     ];
 
     /// <summary>Имена инструментов заданий — для диспетчеризации в AgentToolset.</summary>
@@ -519,6 +585,8 @@ public sealed class TaskToolset
                 "get_task_chat" => GetTaskChat(OptionalString(args, "code")),
                 "create_task" => CreateTask(args),
                 "move_task" => MoveTask(args),
+                "move_task_to_server" => MoveTaskToServer(args),
+                "run_task_on_server" => RunTaskOnServer(args),
                 "update_task" => UpdateTask(args),
                 "create_experience" => CreateExperience(args),
                 "update_experience" => UpdateExperience(args),
@@ -540,6 +608,7 @@ public sealed class TaskToolset
                 "set_loop_result" => SetFlowDecision(args, "continue", loop: true),
                 "create_tasks_from_template" => CreateTasksFromTemplate(args),
                 "stop_hierarchy" => StopHierarchy(args),
+                "app_update_from_file" => AppUpdateFromFileTool(RequiredString(args, "path", Language)),
                 _ => Loc.In(Language, "prompt.tasks.1", name),
             };
             CallLog.Add($"{name}({args.GetRawText()}) → {Preview(result)}");
@@ -579,7 +648,17 @@ public sealed class TaskToolset
         DateTime? due;
         List<string> files;
         Func<string, int> importChat;
-        if (_figma is not null && FigmaImporter.ParseUrl(url) is { } figmaRef)
+        if (HtmlFile is not null && HtmlFileImporter.CanRefresh(url))
+        {
+            // «Публичный HTML»: страница с диска (T-680-S0) — только то, что открыто правилами
+            // каталогов задачи — либо страница сайта по http(s), которую не узнал ни один другой
+            // импортёр (T-691-S0); картинки переносятся в uploads/ проекта
+            var page = await HtmlFile.ImportContentAsync(_project!, url, PathReadAllowed ?? (_ => false), ct);
+            (title, description, due, externalRef, files, importUrl) =
+                (page.Title, page.Description, null, page.ExternalRef, page.Files, page.Url);
+            importChat = _ => 0;
+        }
+        else if (_figma is not null && FigmaImporter.ParseUrl(url) is { } figmaRef)
         {
             // два вопроса к человеку (T-477-S0) задаёт АГЕНТ, а не инструмент: без ответа
             // импорт не идёт, и агент получает внятную просьбу переспросить
@@ -728,6 +807,60 @@ public sealed class TaskToolset
         }
         _chat.Add(_current.Id, _actorExecutorId!, null, trimmed);
         return Loc.In(Language, "prompt.tasks.11", _current.DisplayId, trimmed.Length);
+    }
+
+    /// <summary>
+    /// app_update_from_file (T-756-S0): поставить на ЭТОТ сервер пакет AI2P, уже лежащий на
+    /// диске (<c>builds/packages/AI2P_v_1_NNN[_full]_&lt;ос&gt;_&lt;арх&gt;.exe|run</c>), и перезапуститься.
+    /// Путь — от папки проекта либо полный путь в каталоге, открытом правилами задачи на чтение.
+    /// Ответ приходит ДО остановки: задание к этому моменту уже закрыто, итог «было X, стало Y»
+    /// после подъёма появится в чате задачи.
+    /// </summary>
+    private string AppUpdateFromFileTool(string path)
+    {
+        if (AppUpdateFromFile is null)
+        {
+            return Loc.In(Language, "prompt.appupd.1");
+        }
+        var full = ResolvePackagePath(path.Trim(), ProjectFolder, PathReadAllowed);
+        if (full is null)
+        {
+            return Loc.In(Language, "prompt.appupd.2", path);
+        }
+        var version = AppUpdateFromFile(full);
+        return Loc.In(Language, "prompt.appupd.3", version, full);
+    }
+
+    /// <summary>
+    /// Полный путь пакета обновления (T-756-S0): относительный — внутри папки проекта (выход
+    /// «..» за её пределы не пускается), полный — только если он внутри папки проекта или
+    /// правила задачи открывают его на чтение. null — путь недоступен.
+    /// </summary>
+    public static string? ResolvePackagePath(string path, string? projectFolder, Func<string, bool>? readAllowed)
+    {
+        if (path.Length == 0)
+        {
+            return null;
+        }
+        var root = projectFolder is { Length: > 0 } folder ? Path.GetFullPath(folder) : null;
+        string full;
+        if (Path.IsPathFullyQualified(path))
+        {
+            full = Path.GetFullPath(path);
+        }
+        else
+        {
+            if (root is null)
+            {
+                return null;
+            }
+            full = Path.GetFullPath(Path.Combine(root, path));
+        }
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        var inProject = root is not null
+                        && full.StartsWith(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar,
+                            comparison);
+        return inProject || readAllowed?.Invoke(full) == true ? full : null;
     }
 
     /// <summary>Мгновенное сообщение на другой сервер (send_chat_to_server, T-590-S0)
@@ -2148,6 +2281,95 @@ public sealed class TaskToolset
             reason.Length == 0 ? "—" : reason);
     }
 
+    // --- задача и другой сервер кластера (T-769-S0) ---
+
+    /// <summary>
+    /// move_task_to_server (T-769-S0): ПЕРЕДАТЬ ЗАДАЧУ НА ДРУГОЙ СЕРВЕР — то же, что кнопка
+    /// «сменить сервер» (TaskService.ChangeServer): после неё задача правится и запускается
+    /// там. Нужна в паре с правкой исполнителя: назначив задаче исполнителя чужого сервера
+    /// (это теперь только предупреждение), её передают туда, где он может работать.
+    /// Свою задачу агент не передаёт: её задание идёт здесь. Права — как у кнопки: отдать
+    /// задачу может только её нынешний владелец, отказ приходит текстом исключения.
+    /// </summary>
+    private string MoveTaskToServer(JsonElement args)
+    {
+        if (!CanChangeServer)
+        {
+            return Loc.In(Language, "prompt.srv.1");
+        }
+        var code = RequiredString(args, "code", Language).Trim();
+        var server = RequiredString(args, "server", Language).Trim();
+        var task = ProjectTasks()
+            .FirstOrDefault(t => t.DisplayId.Equals(code, StringComparison.OrdinalIgnoreCase));
+        if (task is null)
+        {
+            return Loc.In(Language, "prompt.tasks.30", code);
+        }
+        if (string.Equals(task.Id, _current.Id, StringComparison.Ordinal))
+        {
+            return Loc.In(Language, "prompt.srv.2");
+        }
+        var serverId = ResolveServer!(server);
+        if (serverId is not { Length: > 0 })
+        {
+            return Loc.In(Language, "prompt.srv.3", server);
+        }
+        var where = _tasks.Scope.Describe(serverId);
+        if (serverId == task.ServerId)
+        {
+            return Loc.In(Language, "prompt.srv.4", task.DisplayId, where);
+        }
+        var moved = _tasks.ChangeServer(task.Id, serverId, _actorExecutorId);
+        return Loc.In(Language, "prompt.srv.5", moved.DisplayId, moved.Title, where)
+               + WarningSuffix(moved);
+    }
+
+    /// <summary>
+    /// run_task_on_server (T-769-S0): ВЫЗВАТЬ ЗАДАЧУ НА ДРУГОМ СЕРВЕРЕ — подать её владельцу
+    /// заявку на запуск (run_requests, T-196), как кнопка «запустить» на чужой задаче.
+    /// Нужна, только если задача не идёт в открытой очереди иерархии: там её в свой черёд
+    /// запустит сама очередь (на чужой подзадаче она подаёт ту же заявку), и вызов агента
+    /// только перебил бы порядок. Своя задача этого сервера так не запускается — для неё
+    /// есть set_task_status с restart.
+    /// </summary>
+    private string RunTaskOnServer(JsonElement args)
+    {
+        if (!CanRunRemote)
+        {
+            return Loc.In(Language, "prompt.srv.6");
+        }
+        var code = RequiredString(args, "code", Language).Trim();
+        var task = ProjectTasks()
+            .FirstOrDefault(t => t.DisplayId.Equals(code, StringComparison.OrdinalIgnoreCase));
+        if (task is null)
+        {
+            return Loc.In(Language, "prompt.tasks.30", code);
+        }
+        if (string.Equals(task.Id, _current.Id, StringComparison.Ordinal))
+        {
+            return Loc.In(Language, "prompt.srv.2");
+        }
+        if (_tasks.CanWrite(task))
+        {
+            return Loc.In(Language, "prompt.srv.7", task.DisplayId);
+        }
+        var where = _tasks.Scope.Describe(task.ServerId);
+        if (_tasks.HierarchyRootOf(task) is { } root)
+        {
+            return Loc.In(Language, "prompt.srv.8", task.DisplayId, root.DisplayId);
+        }
+        var request = RequestRemoteRun!(task.Id, _actorExecutorId);
+        return (request is null
+                   ? Loc.In(Language, "prompt.srv.9", task.DisplayId, where)
+                   : Loc.In(Language, "prompt.srv.10", task.DisplayId, task.Title, where))
+               + WarningSuffix(task);
+    }
+
+    /// <summary>Предупреждение «исполнитель задачи на другом сервере» отдельным абзацем
+    /// ответа (T-769-S0); пусто — предупреждать не о чем.</summary>
+    private string WarningSuffix(TaskItem task) =>
+        _tasks.ForeignExecutorWarning(task) is { } warning ? "\n" + warning : "";
+
     /// <summary>
     /// То же про перенос задачи для агента БЕЗ инструментов AI2P (CLI-агент, T-2-S0):
     /// перенос делается маркером в ответе, как подзадачи и опыт.
@@ -2760,9 +2982,10 @@ public sealed class TaskToolset
     /// <summary>Исполнитель и ответственный узла шаблона по никам (T-630-S0). null — поле
     /// не передано, пустой список / пустая строка — снять.</summary>
     private bool TryTemplateAssignment(JsonElement args, out List<string>? executorIds,
-        out string? responsibleId, out string error)
+        out List<string>? altExecutorIds, out string? responsibleId, out string error)
     {
         executorIds = null;
+        altExecutorIds = null;
         responsibleId = null;
         error = "";
         if (OptionalString(args, "executor") is { } executorNick)
@@ -2773,6 +2996,16 @@ public sealed class TaskToolset
             }
             executorIds = found;
         }
+        // запасные исполнители (T-755-S0): узел, привязанный к серверу, подстраховывается
+        // исполнителем того же сервера; пустой список — снять
+        if (StringList(args, "altExecutors") is { } altNicks)
+        {
+            if (!TryResolveExecutors(altNicks, out var found, out error))
+            {
+                return false;
+            }
+            altExecutorIds = found;
+        }
         if (OptionalString(args, "responsible") is { } responsibleNick)
         {
             if (!TryResolveExecutors([responsibleNick], out var found, out error))
@@ -2780,6 +3013,56 @@ public sealed class TaskToolset
                 return false;
             }
             responsibleId = found.Count == 0 ? "" : found[0];
+        }
+        return true;
+    }
+
+    /// <summary>«Статус при завершении» и «время/качество» узла шаблона (T-755-S0).
+    /// null — поле не передано; пустая строка — снять (статус — к умолчанию «проверка»,
+    /// время/качество — к умолчанию проекта: <paramref name="timeQuality"/> = null при
+    /// <paramref name="timeQualitySet"/> = true). Время/качество принимается и числом, и
+    /// строкой — у клиента ai2p все значения строки.</summary>
+    private bool TryTemplateRunFields(JsonElement args, out string? doneStatus,
+        out bool timeQualitySet, out double? timeQuality, out string error)
+    {
+        doneStatus = null;
+        timeQualitySet = false;
+        timeQuality = null;
+        error = "";
+        if (OptionalString(args, "aiDoneStatus")?.Trim() is { } status)
+        {
+            if (status.Length > 0
+                && !status.Equals(TaskStatuses.Review, StringComparison.OrdinalIgnoreCase)
+                && !status.Equals(TaskStatuses.Done, StringComparison.OrdinalIgnoreCase))
+            {
+                error = Loc.In(Language, "prompt.tasks.191", status);
+                return false;
+            }
+            doneStatus = status.Length == 0 ? TaskStatuses.Review : status.ToLowerInvariant();
+        }
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("timeQuality", out var tq)
+            && tq.ValueKind is JsonValueKind.Number or JsonValueKind.String or JsonValueKind.Null)
+        {
+            timeQualitySet = true;
+            if (tq.ValueKind == JsonValueKind.Number)
+            {
+                timeQuality = tq.GetDouble();
+            }
+            else if (tq.ValueKind == JsonValueKind.String && tq.GetString()!.Trim() is { Length: > 0 } text)
+            {
+                if (!double.TryParse(text.Replace(',', '.'), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out var parsed))
+                {
+                    error = Loc.In(Language, "prompt.tasks.192", text);
+                    return false;
+                }
+                timeQuality = parsed;
+            }
+            if (timeQuality is { } value && (double.IsNaN(value) || value < 0 || value > 1))
+            {
+                error = Loc.In(Language, "prompt.tasks.192", value.ToString(CultureInfo.InvariantCulture));
+                return false;
+            }
         }
         return true;
     }
@@ -2874,9 +3157,14 @@ public sealed class TaskToolset
         {
             return skillError;
         }
-        if (!TryTemplateAssignment(args, out var executorIds, out var responsibleId, out var assignError))
+        if (!TryTemplateAssignment(args, out var executorIds, out var altExecutorIds, out var responsibleId,
+                out var assignError))
         {
             return assignError;
+        }
+        if (!TryTemplateRunFields(args, out var doneStatus, out _, out var timeQuality, out var runError))
+        {
+            return runError;
         }
         // блокирующие (T-630-S0) — только узлы ТОГО ЖЕ шаблона: InstantiateTemplate ссылку
         // на не скопированный узел отбрасывает, и связь молча пропала бы у копии
@@ -2898,8 +3186,11 @@ public sealed class TaskToolset
             IsTemplate = true,
             SkillIds = skillIds,
             ExecutorIds = executorIds ?? [],
+            AltExecutorIds = altExecutorIds ?? [],
             ResponsibleId = string.IsNullOrEmpty(responsibleId) ? null : responsibleId,
             BlockerIds = blockerIds,
+            AiDoneStatus = doneStatus ?? TaskStatuses.Review,
+            TimeQuality = timeQuality,
         }, description, acceptance, _actorExecutorId);
         return Loc.In(Language, "prompt.tasks.73", node.DisplayId, node.Title)
                + (parentId is null ? Loc.In(Language, "prompt.tasks.74") : Loc.In(Language, "prompt.tasks.75", CodeOf(parentId)));
@@ -2926,13 +3217,31 @@ public sealed class TaskToolset
         }
         // исполнитель, ответственный, навыки и блокирующие (T-630-S0): не переданное поле
         // не меняется, пустая строка или пустой список — снять
-        if (!TryTemplateAssignment(args, out var executorIds, out var responsibleId, out var assignError))
+        if (!TryTemplateAssignment(args, out var executorIds, out var altExecutorIds, out var responsibleId,
+                out var assignError))
         {
             return assignError;
+        }
+        if (!TryTemplateRunFields(args, out var doneStatus, out var timeQualitySet, out var timeQuality,
+                out var runError))
+        {
+            return runError;
         }
         if (executorIds is not null)
         {
             node.ExecutorIds = executorIds;
+        }
+        if (altExecutorIds is not null)
+        {
+            node.AltExecutorIds = altExecutorIds;
+        }
+        if (doneStatus is not null)
+        {
+            node.AiDoneStatus = doneStatus;
+        }
+        if (timeQualitySet)
+        {
+            node.TimeQuality = timeQuality;
         }
         if (responsibleId is not null)
         {

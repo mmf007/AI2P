@@ -128,6 +128,7 @@ public sealed class GatewayToolset
                 PluginAction.RoleExport => Export(plugin, args),
                 PluginAction.RoleRender => await RenderAsync(plugin, args, ct),
                 PluginAction.RoleConvert => await ConvertAsync(plugin, action, args, ct),
+                PluginAction.RoleScript => await ScriptAsync(plugin, args, ct),
                 _ => Loc.In(Language, "prompt.gateway.2", name, action.Role),
             };
             CallLog.Add($"{name}({args.GetRawText()}) → {Preview(result)}");
@@ -341,6 +342,120 @@ public sealed class GatewayToolset
         }
         return Loc.In(Language, "prompt.gateway.14", ProjectFiles.Rel(_projectFolder!, target),
             new FileInfo(target).Length);
+    }
+
+    // --- СКРИПТ АГЕНТА (T-663-S0) ---
+
+    /// <summary>
+    /// ИСПОЛНИТЬ СВОЙ СКРИПТ АГЕНТА программой плагина без окна: у Blender —
+    /// <c>blender --background [файл.blend] --python скрипт.py -- аргументы</c>. Так строятся
+    /// 3D-модели, сцены и экспорт в GLB/FBX.
+    ///
+    /// <para>ЭТО ИСПОЛНЕНИЕ ПРОИЗВОЛЬНОГО КОДА, и это сказано честно: Python внутри Blender
+    /// открывает любой файл через <c>open()</c>. Поэтому действие СВОЁ, со своим кодом
+    /// справочника — правило безопасности закрывает его целиком, не трогая сборку монтажа, —
+    /// а пути, которые проверить МОЖНО (скрипт, открываемый .blend, рабочий каталог), держатся
+    /// папки проекта и каталогов из правил задачи. Командной строки у агента по-прежнему нет:
+    /// ключи берутся из манифеста, от агента — пути и аргументы ПОСЛЕ «--», которые Blender
+    /// отдаёт скрипту в <c>sys.argv</c> и сам не разбирает.</para>
+    /// </summary>
+    private async Task<string> ScriptAsync(GatewayPlugin plugin, JsonElement args,
+        CancellationToken ct)
+    {
+        var command = plugin.Manifest.Script;
+        if (command is null)
+        {
+            return Loc.In(Language, "prompt.gateway.18", plugin.Manifest.Code);
+        }
+        if (plugin.SoftwarePath.Length == 0)
+        {
+            return Loc.In(Language, "prompt.gateway.9", plugin.Manifest.Code);
+        }
+        var wanted = (Str(args, "script") ?? "").Trim();
+        if (wanted.Length == 0)
+        {
+            return Loc.In(Language, "prompt.gateway.19");
+        }
+        var script = Source(wanted, out var refusal);
+        if (script is null)
+        {
+            return refusal;
+        }
+        var blend = "";
+        if ((Str(args, "blend") ?? "").Trim() is { Length: > 0 } open)
+        {
+            blend = Source(open, out refusal) ?? "";
+            if (blend.Length == 0)
+            {
+                return refusal;
+            }
+        }
+        var extra = new List<string>();
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("args", out var list)
+            && list.ValueKind == JsonValueKind.Array)
+        {
+            extra.AddRange(list.EnumerateArray()
+                .Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.GetRawText()));
+        }
+        var info = new ProcessStartInfo
+        {
+            FileName = plugin.SoftwarePath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            // рабочий каталог — ПАПКА ПРОЕКТА: относительные пути в аргументах скрипта
+            // считаются от неё так же, как в остальных инструментах агента
+            WorkingDirectory = _projectFolder!,
+        };
+        foreach (var arg in command.Args)
+        {
+            if (arg == "{args}")
+            {
+                extra.ForEach(info.ArgumentList.Add);
+                continue;
+            }
+            if (arg == "{blend}" && blend.Length == 0)
+            {
+                continue;
+            }
+            info.ArgumentList.Add(arg.Replace("{script}", script).Replace("{blend}", blend));
+        }
+        if (command.EnvHere())
+        {
+            foreach (var (name, value) in command.Env)
+            {
+                info.Environment[name] = value;
+            }
+        }
+        var seconds = command.TimeoutSec;
+        if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty("timeoutSec", out var t)
+            && t.ValueKind == JsonValueKind.Number && t.TryGetInt32(out var asked) && asked > 0)
+        {
+            // агент вправе только СОКРАТИТЬ ожидание: предел манифеста — потолок
+            seconds = Math.Min(seconds, asked);
+        }
+        using var process = Process.Start(info)
+                            ?? throw new InvalidOperationException(
+                                Loc.In(Language, "prompt.gateway.11", plugin.SoftwarePath));
+        var output = process.StandardOutput.ReadToEndAsync(ct);
+        var errors = process.StandardError.ReadToEndAsync(ct);
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(TimeSpan.FromSeconds(seconds));
+        try
+        {
+            await process.WaitForExitAsync(limit.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            Kill(process);
+            return Loc.In(Language, "prompt.gateway.12", seconds);
+        }
+        // вывод скрипта — главный канал ответа агенту (print в скрипте), поэтому хвост длиннее,
+        // чем у рендера
+        var tail = Tail(await output + "\n" + await errors, 60);
+        return Loc.In(Language, process.ExitCode == 0 ? "prompt.gateway.20" : "prompt.gateway.21",
+            process.ExitCode, ProjectFiles.Rel(_projectFolder!, script), plugin.SoftwarePath, tail);
     }
 
     // --- ИМЕНОВАННЫЕ ОПЕРАЦИИ КОНВЕРТОРА (T-116-S0) ---
@@ -741,11 +856,28 @@ public sealed class GatewayToolset
             // быть названа: «сделать что-нибудь конвертором» — это произвольная команда
             PluginAction.RoleConvert => plugin.Manifest.Convert?.Find(action.Op) is not null
                                         && plugin.SoftwarePath.Length > 0,
+            PluginAction.RoleScript => plugin.Manifest.Script is not null
+                                       && plugin.SoftwarePath.Length > 0,
             _ => false,
         };
 
     private static string SchemaOf(GatewayPlugin plugin, PluginAction action)
     {
+        if (action.Role == PluginAction.RoleScript)
+        {
+            return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "script":     { "type": "string" },
+                    "blend":      { "type": "string" },
+                    "args":       { "type": "array", "items": { "type": "string" } },
+                    "timeoutSec": { "type": "integer" }
+                  },
+                  "required": ["script"]
+                }
+                """;
+        }
         if (action.Role == PluginAction.RoleConvert)
         {
             return plugin.Manifest.Convert?.Find(action.Op)?.IsList == true
@@ -814,10 +946,10 @@ public sealed class GatewayToolset
 
     /// <summary>Хвост вывода программы — в отказ агенту: причина отказа melt печатается
     /// последними строками, а весь его вывод в контекст агента не нужен.</summary>
-    private static string Tail(string text)
+    private static string Tail(string text, int count = 12)
     {
         var lines = text.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        return string.Join("\n", lines.TakeLast(12));
+        return string.Join("\n", lines.TakeLast(count));
     }
 
     private static string Preview(string text) => text.Length <= 200 ? text : text[..200] + "…";

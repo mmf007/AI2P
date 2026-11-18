@@ -1,5 +1,7 @@
 # Plugins and MCP: the plugin documents
 
+**AI2P website:** [ai2p.org](https://ai2p.org)
+
 The directory of plugin documents: one file per **plugin code** (`tool.ffmpeg.md`). The
 document is opened by the **«i»** button in the plugin row: **Settings → Plugins and MCP**.
 

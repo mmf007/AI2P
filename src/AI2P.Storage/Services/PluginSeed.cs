@@ -939,7 +939,9 @@ public static class PluginSeed
     /// AI2P этого не видит. Реально ограничивает не путь, а то, что СКРИПТ ПИШЕМ МЫ. Отсюда
     /// два следствия, и оба сделаны:</para>
     /// <list type="number">
-    /// <item>Действия «выполни этот Python» в справочнике НЕТ и быть не может. Сборка — это
+    /// <item>Монтаж своего Python не исполняет. (С T-663-S0 свой скрипт агента — для 3D-моделей
+    /// — исполняет ОТДЕЛЬНОЕ действие <c>blender_run_script</c>, роль <c>script</c>, со своим
+    /// кодом справочника: правило безопасности закрывает его, не трогая монтаж.) Сборка — это
     /// наш шаблон (<c>export.document</c>) плюс подстановки, а модель заполняет только
     /// параметры: отбор клипов (<c>scene</c>, <c>kind</c>, <c>tag</c>) и имя выходного файла.
     /// Все подстановки экранируются как строковый литерал Python
@@ -962,7 +964,7 @@ public static class PluginSeed
         {
           "code": "editor.blender",
           "kind": "gateway",
-          "version": 1,
+          "version": 2,
           "name": "Blender VSE (скрипт Python)",
           "description": {
             "ru": "Сборка монтажа в Blender Video Sequence Editor скриптом Python: мы генерируем .py по своему шаблону, Blender исполняет его без окна и сам сохраняет проект (или считает ролик). В .blend напрямую не пишем — это бинарный дамп.",
@@ -1030,6 +1032,26 @@ public static class PluginSeed
                 "pt": "Executa blender --background --python sobre o script que NOS geramos: um out com extensao .blend da o projeto com trilhas, outra extensao da o video (mp4, H.264 + AAC). Nao da para escolher o que executar: apenas o nosso arquivo.",
                 "zh-cn": "对我们生成的脚本执行 blender --background --python：out 以 .blend 结尾则得到带轨道的工程（默认 ai2p_timeline.blend），其他扩展名则渲染成片（mp4，H.264 + AAC）。执行对象不可选择：只运行我们自己的文件，也没有任意命令行。"
               }
+            },
+            {
+              "code": "AI2P.Plugins.Blender.RunScript",
+              "tool": "blender_run_script",
+              "role": "script",
+              "needsSoftware": true,
+              "title": {
+                "ru": "Исполнить свой скрипт Python в Blender",
+                "en": "Run your own Python script in Blender",
+                "es": "Ejecutar su propio script de Python en Blender",
+                "pt": "Executar o seu proprio script Python no Blender",
+                "zh-cn": "在 Blender 中执行自己的 Python 脚本"
+              },
+              "description": {
+                "ru": "Запустить blender.exe этого сервера без окна на ВАШЕМ скрипте: blender --background [blend] --python <script> -- <args>. script — путь к .py в папке проекта (сначала запишите его инструментом записи файлов), blend — необязательный .blend, который открыть перед скриптом, args — аргументы скрипта (sys.argv после «--»), timeoutSec — сократить ожидание. Рабочий каталог — папка проекта. Ответ — код возврата и хвост вывода (print). Так строятся 3D-модели (меши, арматура, материалы), сцены, рендер и экспорт в GLB/FBX.",
+                "en": "Run this server's blender.exe headlessly on YOUR script: blender --background [blend] --python <script> -- <args>. script is a path to a .py in the project folder (write it with the file tool first), blend is an optional .blend to open before the script, args are the script arguments (sys.argv after '--'), timeoutSec shortens the wait. The working directory is the project folder. The answer is the exit code and the tail of the output (print). Use it for 3D models (meshes, armatures, materials), scenes, renders and GLB/FBX export.",
+                "es": "Ejecuta el blender.exe de este servidor sin ventana con SU script: blender --background [blend] --python <script> -- <args>. script: ruta a un .py en la carpeta del proyecto; blend: .blend opcional; args: argumentos del script (sys.argv tras '--'). Devuelve el codigo de salida y el final de la salida. Sirve para modelos 3D, escenas, render y exportacion GLB/FBX.",
+                "pt": "Executa o blender.exe deste servidor sem janela com o SEU script: blender --background [blend] --python <script> -- <args>. script: caminho de um .py na pasta do projeto; blend: .blend opcional; args: argumentos do script (sys.argv apos '--'). Retorna o codigo de saida e o final da saida. Serve para modelos 3D, cenas, render e exportacao GLB/FBX.",
+                "zh-cn": "在本服务器无窗口运行 blender.exe 执行你的脚本：blender --background [blend] --python <script> -- <args>。script 为项目文件夹中 .py 的路径；blend 为可选的 .blend；args 为脚本参数（'--' 之后的 sys.argv）。返回退出码和输出末尾。用于 3D 模型、场景、渲染以及 GLB/FBX 导出。"
+              }
             }
           ],
 
@@ -1047,11 +1069,21 @@ public static class PluginSeed
             {
               "skill": "video-edit",
               "text": {
-                "ru": "Скрипт для Blender — ЭТО НАШ ШАБЛОН, а вы заполняете только параметры: отбор клипов (scene, kind, tag) и имя выходного файла. Действия «выполни этот Python» в системе нет и не будет: Python внутри Blender открывает любой файл через open(), и ограничение путём там иллюзорно — реально ограничивает то, что текст скрипта пишем мы. Просить произвольный скрипт бесполезно.",
-                "en": "The Blender script IS OUR TEMPLATE, and you fill in the parameters only: clip filters (scene, kind, tag) and the output file name. There is no 'run this Python' action and there never will be: Python inside Blender can open any file with open(), so a path restriction there is illusory — what really limits it is that we write the script text. Asking for an arbitrary script is pointless.",
-                "es": "El script de Blender ES NUESTRA PLANTILLA y usted solo rellena parametros: filtros (scene, kind, tag) y el nombre del archivo. No existe la accion «ejecuta este Python»: dentro de Blender, Python abre cualquier archivo con open() y limitar por ruta es ilusorio.",
-                "pt": "O script do Blender E O NOSSO MODELO e voce preenche apenas parametros: filtros (scene, kind, tag) e o nome do arquivo. Nao existe a acao «execute este Python»: dentro do Blender o Python abre qualquer arquivo com open(), e limitar por caminho e ilusorio.",
-                "zh-cn": "Blender 脚本就是我们的模板，你只填参数：片段筛选（scene、kind、tag）和输出文件名。系统没有也不会有「执行这段 Python」的动作：Blender 里的 Python 能用 open() 打开任何文件，按路径限制是假的——真正的限制是脚本文本由我们编写。索要任意脚本没有意义。"
+                "ru": "Монтажный скрипт Blender (blender_timeline_write / blender_render) — НАШ ШАБЛОН, вы заполняете только отбор клипов (scene, kind, tag) и имя выходного файла. Свой Python исполняется ДРУГИМ действием — blender_run_script; его правило безопасности закрывается отдельно от монтажа.",
+                "en": "The Blender edit script (blender_timeline_write / blender_render) is OUR TEMPLATE: you fill in only the clip filters (scene, kind, tag) and the output file name. Your own Python runs through a DIFFERENT action, blender_run_script, whose security rule is closed separately from editing.",
+                "es": "El script de montaje de Blender (blender_timeline_write / blender_render) es NUESTRA PLANTILLA: solo rellena filtros (scene, kind, tag) y nombre de archivo. Su propio Python se ejecuta con OTRA accion, blender_run_script.",
+                "pt": "O script de edicao do Blender (blender_timeline_write / blender_render) e o NOSSO MODELO: voce preenche apenas filtros (scene, kind, tag) e nome do arquivo. O seu proprio Python roda por OUTRA acao, blender_run_script.",
+                "zh-cn": "Blender 剪辑脚本（blender_timeline_write / blender_render）是我们的模板，你只填片段筛选（scene、kind、tag）和输出文件名。自己的 Python 用另一个动作 blender_run_script 执行，其安全规则与剪辑分开。"
+              }
+            },
+            {
+              "skill": "3d-generate",
+              "text": {
+                "ru": "3D-модель в Blender делается СВОИМ скриптом Python: запишите .py в папку проекта (например 3d/<имя>/build.py) инструментом записи файлов и исполните его действием blender_run_script (script, args). В скрипте: bpy строит меши, арматуру (кости) и группы вершин, материалы Principled BSDF; сохраняйте .blend (bpy.ops.wm.save_as_mainfile) и экспортируйте bpy.ops.export_scene.gltf (GLB) и/или bpy.ops.export_scene.fbx. Пути в скрипте — от его каталога (__file__) или из аргументов, результат кладите в папку проекта. Имена входов узлов меняются между версиями Blender — печатайте bpy.app.version_string и проверяйте вывод; превью — bpy.ops.render.render(write_still=True). Код возврата ≠ 0 и хвост вывода приходят в ответе действия.",
+                "en": "A 3D model in Blender is made with YOUR OWN Python script: write a .py into the project folder (e.g. 3d/<name>/build.py) with the file tool and run it with the blender_run_script action (script, args). In the script bpy builds meshes, the armature (bones) and vertex groups, Principled BSDF materials; save the .blend (bpy.ops.wm.save_as_mainfile) and export with bpy.ops.export_scene.gltf (GLB) and/or bpy.ops.export_scene.fbx. Resolve paths from the script folder (__file__) or from arguments and put results into the project folder. Node input names change between Blender versions — print bpy.app.version_string and check the output; a preview is bpy.ops.render.render(write_still=True). A non-zero exit code and the output tail come back in the action answer.",
+                "es": "Un modelo 3D en Blender se hace con SU PROPIO script de Python: escriba un .py en la carpeta del proyecto y ejecutelo con blender_run_script (script, args). En el script bpy crea mallas, armadura y grupos de vertices, materiales; guarde el .blend y exporte con bpy.ops.export_scene.gltf (GLB) o bpy.ops.export_scene.fbx.",
+                "pt": "Um modelo 3D no Blender e feito com o SEU PROPRIO script Python: escreva um .py na pasta do projeto e execute-o com blender_run_script (script, args). No script o bpy cria malhas, armadura e grupos de vertices, materiais; salve o .blend e exporte com bpy.ops.export_scene.gltf (GLB) ou bpy.ops.export_scene.fbx.",
+                "zh-cn": "在 Blender 中用自己的 Python 脚本制作 3D 模型：把 .py 写入项目文件夹，再用 blender_run_script（script、args）执行。脚本中用 bpy 创建网格、骨架和顶点组、材质；保存 .blend，并用 bpy.ops.export_scene.gltf（GLB）或 bpy.ops.export_scene.fbx 导出。"
               }
             },
             {
@@ -1212,6 +1244,12 @@ public static class PluginSeed
                      "--python", "{file}", "--", "{out}"],
             "outExt": ".blend",
             "ownFileOnly": true,
+            "timeoutSec": 3600
+          },
+
+          "script": {
+            "args": ["--background", "{blend}", "--factory-startup", "--python-exit-code", "1",
+                     "--python", "{script}", "--", "{args}"],
             "timeoutSec": 3600
           },
 

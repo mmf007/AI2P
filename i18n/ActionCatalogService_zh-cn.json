@@ -1,5 +1,5 @@
 {
-  "seedVersion": 30,
+  "seedVersion": 32,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -207,7 +207,7 @@
       "tool": "create_template",
       "title": "创建模板节点",
       "hint": "代理创建项目的模板节点（模板是重复性工作的样板）。针对该代号的 deny/confirm 安全规则会禁止/需确认代理修改模板。CLI 代理用回复中的 AI2P_TEMPLATE 标记。模板只能在组织的指挥服务器上修改。",
-      "prompt": "创建当前项目的模板节点。参数：title — 标题；description — 工作的表述（Markdown）；acceptance — 验收标准（可选）；parent — 父节点的代号（或标题），不填则为根节点；skills — 技能，取自名录中的名称。只有在任务直接要求建立模板或描述重复性工作时才创建模板。"
+      "prompt": "创建当前项目的模板节点。参数：title — 标题；description — 工作的表述（Markdown）；acceptance — 验收标准（可选）；parent — 父节点的代号（或标题），不填则为根节点；skills — 技能，取自名录中的名称。只有在任务直接要求建立模板或描述重复性工作时才创建模板。 另外：blockers — 同一模板中节点的代号；executor、altExecutors、responsible — 昵称；aiDoneStatus — 完成时状态 review 或 done；timeQuality — 时间/质量 0.00–1.00（为空 — 项目默认值）。"
     },
     {
       "id": "ac710000-0000-4000-9000-000000000020",
@@ -215,7 +215,7 @@
       "tool": "update_template",
       "title": "修改模板节点",
       "hint": "代理修改项目中已有的模板节点。针对该代号的 deny/confirm 安全规则会禁止/需确认代理修改模板。",
-      "prompt": "修改当前项目的模板节点。参数：code — 节点代号（或其标题）；title、description、acceptance — 要更改的内容；未传的字段保持原样。节点列表用 list_templates，当前表述用 get_task_by_code。"
+      "prompt": "修改当前项目的模板节点。参数：code — 节点代号（或其标题）；title、description、acceptance — 要更改的内容；未传的字段保持原样。节点列表用 list_templates，当前表述用 get_task_by_code。 另外：blockers — 同一模板中节点的代号；executor、altExecutors、responsible — 昵称；aiDoneStatus — 完成时状态 review 或 done；timeQuality — 时间/质量 0.00–1.00（为空 — 项目默认值）。"
     },
     {
       "id": "ac710000-0000-4000-9000-000000000021",
@@ -405,6 +405,30 @@
       "title": "即时消息发往另一台服务器",
       "hint": "智能体在任务聊天（自己的任务或按代码指定的任务）中写消息，并立即送达指定的集群服务器，无需等待复制会话（T-590-S0）。适用于在不同服务器上结对工作的智能体。在接收服务器上，消息以插话方式送达正在运行的智能体；之后的常规复制不会产生重复。服务器无法连通时，消息保留并随复制送达。对该代码的 deny/confirm 安全规则会关闭即时发送。CLI 智能体对应命令为 «ai2p push»。",
       "prompt": "在聊天中写消息并立即送达集群中的另一台服务器，无需等待复制。参数：server — 组织内的服务器代码（S0、S1…）或其名称；text — 消息文本；code — 要写入其聊天的任务代码（为空 — 当前任务）。当你与另一台服务器上的智能体结对工作且对方需要立刻知道时使用。若即时送达失败，消息仍会随常规复制送达，回复中给出原因。"
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000052",
+      "code": "AI2P.Update.FromFile",
+      "tool": "app_update_from_file",
+      "title": "Update AI2P from a local package",
+      "hint": "The agent installs an AI2P package already on disk (builds/packages/AI2P_v_1_NNN[_full]_<os>_<arch>.exe|run) on THIS server, and the server restarts. The package must fit the installation (kind, system, architecture) and be no older than the current version. The agent's job is closed in its completion status BEFORE the stop; after start-up the task chat gets \"was X, now Y\". CLI agents use \"ai2p app-update\" (T-756-S0).",
+      "prompt": "Update AI2P on this server from a local package and restart the server. Parameter path — the package path from the project root (e.g. AI2P_app/builds/packages/AI2P_v_1_209_full_windows_x64.exe) or a full path in a directory opened by the task rules. Call ONLY when the task explicitly says to update the server: after the call your job is already closed and the server stops in a few seconds — do nothing else and end your answer."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000053",
+      "code": "AI2P.Tasks.ChangeServer",
+      "tool": "move_task_to_server",
+      "title": "把任务转到其他服务器",
+      "hint": "智能体更改本项目任务的所属服务器 — 与「更换服务器」按钮相同：此后任务在新服务器上编辑和启动。与指派其他服务器的执行者配合使用（T-769-S0：现在这只是警告，不再禁止）。智能体不转交自己的任务；只有任务当前的所属服务器能转出。CLI 智能体使用「ai2p server」命令。对此代码设置 deny/confirm 安全规则即可完全关闭该能力。",
+      "prompt": "把任务转到集群中的其他服务器：此后在那里编辑和启动。参数：code — 任务代码（例如 T-241）；server — 组织中的服务器代码（S0、S1…）或其名称。可用于同一项目的任务，自己的任务除外。当任务执行者在其他服务器上工作（其模型或程序在那里）或有人要求转移任务时使用；只有任务当前所属的服务器能转出。"
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000054",
+      "code": "AI2P.Tasks.RunRemote",
+      "tool": "run_task_on_server",
+      "title": "在其他服务器上调用任务",
+      "hint": "智能体向任务所属服务器提交启动请求（T-196 机制，与他人任务上的「启动」按钮相同）。仅当任务不在开放的层级队列中时才需要：在队列中，轮到时由队列启动，此操作会答复无需调用。本服务器的任务不这样启动。CLI 智能体使用「ai2p run-remote」命令（T-769-S0）。对此代码设置 deny/confirm 安全规则即可完全关闭该能力。",
+      "prompt": "在任务所属的服务器上调用（启动）任务：启动请求会发往那里，服务器处理后任务即在那里启动。参数 code — 同一项目中任务的代码。仅当任务不在开放的层级队列中时才需要：在层级中轮到时会自行启动。本服务器的任务不这样启动（请用 set_task_status 加 restart: true）；用 move_task_to_server 转到其他服务器的任务，随后用此操作调用。"
     }
   ]
 }

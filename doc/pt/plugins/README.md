@@ -1,5 +1,7 @@
 # Plugins e MCP: os documentos dos plugins
 
+**Site do AI2P:** [ai2p.org](https://ai2p.org)
+
 O diretório com os documentos dos plugins: um arquivo por **código de plugin**
 (`tool.ffmpeg.md`). O documento é aberto pelo botão **«i»** na linha do plugin:
 **Configurações → Plugins e MCP**.

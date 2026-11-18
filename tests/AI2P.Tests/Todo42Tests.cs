@@ -481,7 +481,7 @@ public sealed class Todo42Tests : IDisposable
     // --- ИИ-исполнитель с локальной моделью привязан к серверу (ТЗ гл. 6, разд. 4) ---
 
     [Fact]
-    public void An_Ai_Executor_With_A_Local_Model_Cannot_Take_A_Task_Of_Another_Server()
+    public void An_Ai_Executor_With_A_Local_Model_On_A_Task_Of_Another_Server_Is_Only_A_Warning()
     {
         // модель локальная — значит принадлежит серверу, на котором стоит
         var model = _f.Models.Create(new AiModel { Name = "Локальная" }, null);
@@ -495,13 +495,24 @@ public sealed class Todo42Tests : IDisposable
         }, null);
         Assert.Equal("local", _f.Executors.Get(executor.Id)!.ServerId);
 
-        // задача второго сервера с таким исполнителем не заводится: она бы не запустилась
-        var error = Assert.Throws<ArgumentException>(() => Tasks(OtherScope).Create(new TaskItem
+        // T-769-S0: задача второго сервера с таким исполнителем ЗАВОДИТСЯ (дальше её можно
+        // передать на сервер исполнителя), а запуск здесь невозможен — об этом предупреждение
+        var tasks = Tasks(OtherScope);
+        var task = tasks.Create(new TaskItem
         {
             Title = "чужая задача",
             ExecutorIds = [executor.Id],
-        }, "", "", null));
-        Assert.Contains("модели сервера", error.Message);
+        }, "", "", null);
+        Assert.Contains(executor.Id, task.ExecutorIds);
+        Assert.Contains("модели сервера", tasks.ForeignExecutorWarning(task));
+
+        // переданная на сервер исполнителя задача предупреждения уже не даёт
+        Assert.Null(_f.Tasks.ForeignExecutorWarning(new TaskItem
+        {
+            Title = "своя задача",
+            ServerId = "local",
+            ExecutorIds = [executor.Id],
+        }));
     }
 
     /// <summary>

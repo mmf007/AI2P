@@ -307,7 +307,11 @@ try
         {
             Environment.Exit(0);
         }
-    });
+    })
+    {
+        // запись о начатом обновлении (T-756-S0) — в каталоге данных: он переживает установку
+        StateDir = dataDir,
+    };
     var orgDeps = new OrgDeps(
         DbFile: config.Storage.DbFile,
         I18nDir: Path.Combine(AppContext.BaseDirectory, "i18n"),
@@ -399,7 +403,10 @@ try
         },
         // автообновление приложения (T-208): расписание-действие назначает ему время,
         // а работу делает сервер — обновляется установка целиком, а не организация
-        AppUpdate: install => appUpdate.RunAuto(install));
+        AppUpdate: install => appUpdate.RunAuto(install),
+        // обновление из локального пакета по вызову агента (T-756-S0)
+        AppUpdateFromFile: (package, pending, closeJob) =>
+            appUpdate.StartFromFile(package, pending, closeJob).Version);
     // реестр организаций (ТЗ п. 2.15): серверная БД (аккаунты, организации, серверы) и
     // живые контексты организаций. Аккаунт и организация при старте НЕ создаются — их
     // заводит экран первого старта (гл. 11); до входа UI недоступен
@@ -740,6 +747,30 @@ try
             var summary = appUpdate.RunAuto(config.Update.AutoUpdate);
             app.Logger.LogInformation("AI2P: проверка обновлений — {Summary}", summary);
         }));
+    }
+
+    // ИТОГ ОБНОВЛЕНИЯ ИЗ ЛОКАЛЬНОГО ПАКЕТА (T-756-S0): задание, позвавшее обновление, закрыто
+    // ещё до остановки; здесь в чат его задачи уходит «было X, стало Y» либо понятная ошибка,
+    // если поднялась не та версия. Очередь иерархии продолжает сторож оркестратора сам
+    if (appUpdate.TakePending() is { } pendingUpdate)
+    {
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            var text = AppUpdateService.PendingOutcome(pendingUpdate, AI2P.Core.AppInfo.Build);
+            app.Logger.LogInformation("AI2P: обновление из файла — {Text}", text);
+            try
+            {
+                if (orgs.ById(pendingUpdate.OrgId) is { } context
+                    && context.Tasks.Get(pendingUpdate.TaskId) is not null)
+                {
+                    context.Chat.Add(pendingUpdate.TaskId, pendingUpdate.ExecutorId, null, text);
+                }
+            }
+            catch (Exception ex)
+            {
+                app.Logger.LogWarning("AI2P: итог обновления в чат задачи не записан: {Error}", ex.Message);
+            }
+        });
     }
 
     // РАСШИРЕНИЕ VS CODE (T-511-S0): запомненные копии VS Code с отставшим расширением

@@ -145,8 +145,12 @@
 
     private TableSortState _sort = new();
 
-    protected override void OnInitialized() =>
+    protected override async Task OnInitializedAsync()
+    {
         _sort = State.ComponentState<TableSortState>("executorsTable");
+        // исполнитель, заведённый на соседнем сервере, приезжает репликацией мимо UI (T-766-S0)
+        await State.RefreshPeopleAsync();
+    }
 
     private void SortBy(string key)
     {

@@ -1,5 +1,7 @@
 # AI2P 的模型：名录是怎样组织的
 
+**AI2P 网站:** [ai2p.org](https://ai2p.org)
+
 这是存放模型文档的目录：AI 模型名录中每条记录一个文件，文件名就是**模型名称**
 （`Claude-Sonnet-5.md`、`Qwen3.8-27B-Local.md`）。用模型表单中的 **「i」** 按钮打开：
 **设置 → 名录 → AI 模型**。
@@ -14,6 +16,7 @@
 * [Chatterbox-TTS](Chatterbox-TTS.md) — 文本 + 语音样本 → 该音色的语音，技能 `audio-speech` 88
 * [Claude-Fable-5.1](Claude-Fable-5.1.md)
 * [Claude-Fable-5](Claude-Fable-5.md)
+* [Claude-Fable-5.2](Claude-Fable-5.2.md) — Anthropic，上下文 1 000 000 令牌，每百万 8,00 $ / 40,00 $，技能评分 94–99
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md)
 * [Claude-Haiku-5.5](Claude-Haiku-5.5.md)
 * [Claude-Opus-5.0](Claude-Opus-5.0.md)
@@ -33,6 +36,8 @@
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md)
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md)
 * [Gemini-4-Argon](Gemini-4-Argon.md)
+* [Gemini-4-Carbon](Gemini-4-Carbon.md) — Google，上下文 1 048 576 令牌，每百万 2,00 $ / 10,00 $，技能评分 91–96
+* [Gemini-4-Hydrogen](Gemini-4-Hydrogen.md) — Google，上下文 1 048 576 令牌，每百万 1,50 $ / 7,50 $，技能评分 88–91
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — 文本 → 带声音的视频，8 秒，技能 `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md)
 * [GLM-5.2](GLM-5.2.md)
@@ -43,25 +48,27 @@
 * [GPT-6-Luna](GPT-6-Luna.md)
 * [GPT-6-Sol](GPT-6-Sol.md)
 * [GPT-6.1-Sol](GPT-6.1-Sol.md)
-* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI，上下文 1 050 000 令牌，每百万 1,00 $ / 5,00 $，技能评分 89–93
+* [GPT-6.1-Terra](GPT-6.1-Terra.md)
 * [GPT-Image-2.5](GPT-Image-2.5.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 97、`image-text` 96、`image-photo` 95、`image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — 文本 → 图像，按令牌计费，技能 `image-generate` 96、`image-text` 95、`image-photo` 94、`image-concept` 90
 * [Grok-4.6](Grok-4.6.md)
 * [Grok-4.7](Grok-4.7.md)
 * [Ideogram-4.5](Ideogram-4.5.md) — 文本 → 图像，画面内排版在目录中仅次于 Nano Banana，技能 `image-text` 96、`image-generate` 92、`image-concept` 91、`image-photo` 87
+* [Inkling-2-Small](Inkling-2-Small.md) — Thinking Machines，上下文 1 048 576 令牌，每百万 0,30 $ / 1,00 $，技能评分 81–86
 * [Inkling-975B](Inkling-975B.md)
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — 文本 → 带声音的 5 秒视频，技能 `video-generate` 90
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md)
 * [Kimi-K3](Kimi-K3.md)
-* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI，上下文 1 048 576 令牌，每百万 2,00 $ / 10,00 $，技能评分 87–92
 * [Kling-3.0](Kling-3.0.md) — 图片 → 带声音的视频，最长 15 秒，技能 `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md)
 * [Meshy-7.1](Meshy-7.1.md) — 文本 → 可直接进游戏的 3D 模型，技能 `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — 文本 → 可直接进游戏的 3D 模型，技能 `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — 文本 → 最长 15 秒的视频，技能 `video-generate` 92
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md)
 * [MiniMax-M3](MiniMax-M3.md)
-* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax，上下文 1 048 576 令牌，每百万 0,15 $ / 0,60 $，技能评分 80–84
 * [Mistral-Large-3](Mistral-Large-3.md)
 * [Mistral-Large-4](Mistral-Large-4.md)
+* [Muse-Ember](Muse-Ember.md) — Meta，上下文 1 048 576 令牌，每百万 0,10 $ / 0,50 $，技能评分 80–85
 * [Muse-Spark-1.2](Muse-Spark-1.2.md)
 * [Muse-Spark-1.3](Muse-Spark-1.3.md)
 * [Muse-Wonder](Muse-Wonder.md)
@@ -72,6 +79,7 @@
 * [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md)
 * [Qwen3.8-Max](Qwen3.8-Max.md)
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md)
+* [Qwen4-Max](Qwen4-Max.md) — Alibaba，上下文 1 000 000 令牌，每百万 1,425 $ / 4,275 $，技能评分 88–94
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — 图片 → 带声视频，技能 `video-animate` 95
 * [Seedance-2.5](Seedance-2.5.md) — 文本 → 最长 30 秒的带声视频，技能 `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — 文本 → 图像，技能 `image-generate` 92、`image-concept` 90、`image-photo` 90

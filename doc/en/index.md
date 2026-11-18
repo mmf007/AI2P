@@ -3,6 +3,7 @@
 # Contents
 
 * [About the system in brief](README.md)
+* [AI2P website — ai2p.org](https://ai2p.org)
 
 ## [The guide](man/README.md)
 

@@ -41,6 +41,7 @@ Building the script works **without** an installed Blender — the program is ne
 |---|---|
 | `blender_timeline_write` | build `ai2p_timeline.py` from the project media library: one VSE video track and one audio track, ordered as in `media_list`. Filters: `scene`, `kind`, `tag`. The file name is `file` |
 | `blender_render` | run the built script in headless Blender. An `out` ending in `.blend` (the default) gives a project with tracks, any other extension gives a rendered movie (mp4, H.264 + AAC) |
+| `blender_run_script` | run **your own** agent script: `blender --background [blend] --python <script> -- <args>`. `script` is a `.py` in the project folder, `blend` an optional `.blend` to open, `args` the script arguments (`sys.argv` after `--`), `timeoutSec` shortens the wait (capped at 3600 s by the manifest). The working directory is the project folder; the answer is the exit code and the last 60 output lines. For 3D models (meshes, bones, materials), scenes, renders and GLB/FBX export. This is arbitrary code execution: close it with a security rule on `AI2P.Plugins.Blender.RunScript` if needed; after updating to 1.198 press Initialize in the plugin form again |
 
 The order of work: put resources into the media library (`media_add`), then
 `blender_timeline_write`, then `blender_render`. The human's own `.blend` is never touched: the

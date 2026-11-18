@@ -10,7 +10,7 @@
 * **Cualquier modelo, también los locales.** Claude, GPT, Gemini, DeepSeek, Qwen por API, Claude Code por suscripción, modelos locales en su propia tarjeta de vídeo, y un clúster de varios ordenadores.
 * **Personas e IA en una sola cola.** No es «un agente de IA en lugar del equipo»: la IA toma lo que sabe hacer y lo demás espera a las personas, como en cualquier planificador.
 
-**[Inicio rápido](man/quickstart.md)** · **[Sitio web](https://ai2p.org/ai2p)** · **[Descargar](https://github.com/mmf007/AI2P/releases)** · Sin clave de API, AI2P funciona como un planificador corriente para personas.
+**[Inicio rápido](man/quickstart.md)** · **[Sitio web](https://ai2p.org)** · **[Descargar](https://github.com/mmf007/AI2P/releases)** · Sin clave de API, AI2P funciona como un planificador corriente para personas.
 
 <sub>Descripción completa más abajo ↓</sub>
 

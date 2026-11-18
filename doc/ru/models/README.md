@@ -1,5 +1,7 @@
 # Модели AI2P: как устроен справочник
 
+**Сайт AI2P:** [ai2p.org](https://ai2p.org)
+
 Каталог с документами моделей: по файлу на каждую запись справочника ИИ-моделей, имя
 файла — **название модели** (`Claude-Sonnet-5.md`, `Qwen3.8-27B-Local.md`). Открывается
 кнопкой **«i»** в форме модели: **Настройки → Справочники → ИИ-модели**.
@@ -14,6 +16,7 @@
 * [Chatterbox-TTS](Chatterbox-TTS.md) — текст + образец голоса → речь этим голосом, навыки `audio-speech` 88
 * [Claude-Fable-5.1](Claude-Fable-5.1.md) — API провайдера Anthropic
 * [Claude-Fable-5](Claude-Fable-5.md) — API провайдера Anthropic
+* [Claude-Fable-5.2](Claude-Fable-5.2.md) — Anthropic, контекст 1 000 000 токенов, 8,00 $ / 40,00 $ за 1 млн, оценки навыков 94–99
 * [Claude-Haiku-4.5](Claude-Haiku-4.5.md) — API Anthropic
 * [Claude-Haiku-5.5](Claude-Haiku-5.5.md) — API провайдера Anthropic
 * [Claude-Opus-5.0](Claude-Opus-5.0.md) — API провайдера Anthropic
@@ -33,6 +36,8 @@
 * [Gemini-3.7-Flash](Gemini-3.7-Flash.md) — Google, через OpenAI-совместимый слой
 * [Gemini-3.8-Flash](Gemini-3.8-Flash.md) — Google, через OpenAI-совместимый слой
 * [Gemini-4-Argon](Gemini-4-Argon.md) — Google, через OpenAI-совместимый слой
+* [Gemini-4-Carbon](Gemini-4-Carbon.md) — Google, контекст 1 048 576 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 91–96
+* [Gemini-4-Hydrogen](Gemini-4-Hydrogen.md) — Google, контекст 1 048 576 токенов, 1,50 $ / 7,50 $ за 1 млн, оценки навыков 88–91
 * [Gemini-Omni-Flash](Gemini-Omni-Flash.md) — текст → видео со звуком, 8 секунд, навыки `video-generate` 91
 * [GigaChat-3.5-Ultra](GigaChat-3.5-Ultra.md) — Сбер, Россия; OpenAI-совместимый
 * [GLM-5.2](GLM-5.2.md) — Z.ai / Zhipu, OpenAI-совместимый
@@ -43,25 +48,27 @@
 * [GPT-6-Luna](GPT-6-Luna.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6-Sol](GPT-6-Sol.md) — API OpenAI, OpenAI-совместимый
 * [GPT-6.1-Sol](GPT-6.1-Sol.md) — API OpenAI, OpenAI-совместимый
-* [GPT-6.1-Terra](GPT-6.1-Terra.md) — OpenAI, контекст 1 050 000 токенов, 1,00 $ / 5,00 $ за 1 млн, оценки навыков 89–93
+* [GPT-6.1-Terra](GPT-6.1-Terra.md) — API OpenAI, OpenAI-совместимый
 * [GPT-Image-2.5](GPT-Image-2.5.md) — текст → изображение, счёт по токенам, навыки `image-generate` 97, `image-text` 96, `image-photo` 95, `image-concept` 92
 * [GPT-Image-2](GPT-Image-2.md) — текст → изображение, счёт по токенам, навыки `image-generate` 96, `image-text` 95, `image-photo` 94, `image-concept` 90
 * [Grok-4.6](Grok-4.6.md) — API xAI, OpenAI-совместимый
 * [Grok-4.7](Grok-4.7.md) — API xAI, OpenAI-совместимый
 * [Ideogram-4.5](Ideogram-4.5.md) — текст → изображение, лучший в справочнике набор текста в кадре после Nano Banana, навыки `image-text` 96, `image-generate` 92, `image-concept` 91, `image-photo` 87
+* [Inkling-2-Small](Inkling-2-Small.md) — Thinking Machines, контекст 1 048 576 токенов, 0,30 $ / 1,00 $ за 1 млн, оценки навыков 81–86
 * [Inkling-975B](Inkling-975B.md) — Thinking Machines, через шлюз OpenRouter
 * [Kandinsky-6.0-Pro](Kandinsky-6.0-Pro.md) — текст → видео 5 секунд со звуком, навыки `video-generate` 90
+* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, OpenAI-совместимый
 * [Kimi-K3](Kimi-K3.md) — Moonshot AI, OpenAI-совместимый
-* [Kimi-K3.1-Pro](Kimi-K3.1-Pro.md) — Moonshot AI, контекст 1 048 576 токенов, 2,00 $ / 10,00 $ за 1 млн, оценки навыков 87–92
 * [Kling-3.0](Kling-3.0.md) — картинка → видео со звуком, до 15 секунд, навыки `video-animate` 93
 * [Ling-3.0-Flash](Ling-3.0-Flash.md) — Ant Group, через шлюз OpenRouter
 * [Meshy-7.1](Meshy-7.1.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 89
 * [Meshy-7](Meshy-7.md) — текст → готовая к игре 3D-модель, навыки `3d-generate` 87
 * [MiniMax-H3-Max](MiniMax-H3-Max.md) — текст → видео до 15 секунд, навыки `video-generate` 92
+* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, OpenAI-совместимый
 * [MiniMax-M3](MiniMax-M3.md) — MiniMax, OpenAI-совместимый
-* [MiniMax-M3.1-Flash](MiniMax-M3.1-Flash.md) — MiniMax, контекст 1 048 576 токенов, 0,15 $ / 0,60 $ за 1 млн, оценки навыков 80–84
 * [Mistral-Large-3](Mistral-Large-3.md) — Mistral AI, Франция; OpenAI-совместимый
 * [Mistral-Large-4](Mistral-Large-4.md) — Mistral AI, Франция; OpenAI-совместимый
+* [Muse-Ember](Muse-Ember.md) — Meta, контекст 1 048 576 токенов, 0,10 $ / 0,50 $ за 1 млн, оценки навыков 80–85
 * [Muse-Spark-1.2](Muse-Spark-1.2.md) — Meta, через шлюз OpenRouter
 * [Muse-Spark-1.3](Muse-Spark-1.3.md) — Meta, через шлюз OpenRouter
 * [Muse-Wonder](Muse-Wonder.md) — Meta, через шлюз OpenRouter
@@ -72,6 +79,7 @@
 * [Nemotron-3.5-Super-VL](Nemotron-3.5-Super-VL.md) — NVIDIA, через шлюз OpenRouter
 * [Qwen3.8-Max](Qwen3.8-Max.md) — Alibaba DashScope, OpenAI-совместимый
 * [Qwen3.8-Omni-Flash](Qwen3.8-Omni-Flash.md) — Alibaba DashScope, OpenAI-совместимый
+* [Qwen4-Max](Qwen4-Max.md) — Alibaba, контекст 1 000 000 токенов, 1,425 $ / 4,275 $ за 1 млн, оценки навыков 88–94
 * [Seedance-2.5-I2V](Seedance-2.5-I2V.md) — картинка → видео со звуком, навыки `video-animate` 95
 * [Seedance-2.5](Seedance-2.5.md) — текст → видео до 30 секунд со звуком, навыки `video-generate` 97
 * [Seedream-5-Flash](Seedream-5-Flash.md) — текст → изображение, навыки `image-generate` 92, `image-concept` 90, `image-photo` 90

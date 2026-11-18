@@ -447,6 +447,21 @@ public sealed class ApiClient
     public Task<InstalledPackageDto> CancelSoftwareAsync(string id) =>
         Post<InstalledPackageDto>($"api/software/{Uri.EscapeDataString(id)}/cancel", new { });
 
+    // --- ход установок (T-728-S0) ---
+    public Task<List<InstallLogEntryDto>> GetInstallsAsync() =>
+        Get<List<InstallLogEntryDto>>("api/installs");
+
+    public Task<List<InstallLogEntryDto>> PauseInstallAsync(string id, bool group) =>
+        Post<List<InstallLogEntryDto>>(
+            $"api/installs/{Uri.EscapeDataString(id)}/pause?group={(group ? "true" : "false")}", new { });
+
+    public Task<List<InstallLogEntryDto>> ResumeInstallAsync(string id) =>
+        Post<List<InstallLogEntryDto>>($"api/installs/{Uri.EscapeDataString(id)}/resume", new { });
+
+    public Task<List<InstallLogEntryDto>> DeleteInstallAsync(string id, bool group) =>
+        Post<List<InstallLogEntryDto>>(
+            $"api/installs/{Uri.EscapeDataString(id)}/delete?group={(group ? "true" : "false")}", new { });
+
     /// <summary>Размер дистрибутива пакета — запросом к серверу раздачи (несколько секунд сети).</summary>
     public Task<PluginInstallDto> ResolvePluginInstallSizeAsync(string code, string lang,
         string soft = "") =>
@@ -1276,6 +1291,11 @@ public sealed class ApiClient
         string? parentId = null, Dictionary<string, string>? macros = null) =>
         Post<TaskItem>($"api/tasks/{id}/instantiate",
             new InstantiateTemplateDto { BaseDate = baseDate, Pick = pick, ParentId = parentId, Macros = macros });
+
+    /// <summary>Скопировать шаблон под узел шаблона (T-744-S0) — без макроподстановок
+    /// и подбора исполнителей.</summary>
+    public Task<TaskItem> CopyTemplateUnderAsync(string id, string parentTemplateId) =>
+        Post<TaskItem>($"api/tasks/{id}/copy-template", new InstantiateTemplateDto { ParentId = parentTemplateId });
 
     /// <summary>Авторазбиение задачи на подзадачи ИИ-агентом (ТЗ v1.26, todo28).</summary>
     public Task<Job> SplitTaskAsync(string id) => Post<Job>($"api/tasks/{id}/split", new { });

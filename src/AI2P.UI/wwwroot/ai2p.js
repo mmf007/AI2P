@@ -864,6 +864,80 @@ window.ai2p = (function () {
         return Promise.resolve();
     }
 
+    // КОПИРОВАНИЕ ДЛЯ ТЕКСТОВОГО РЕДАКТОРА (T-687-S0): HTML, у которого каждая картинка
+    // встроена в текст data URI — вставленный в Word/LibreOffice документ остаётся одним
+    // файлом. Картинку берёт браузер: у него вход (cookie) к /api/files и адрес страницы,
+    // от которого считается относительная ссылка. Не скачалась — остаётся ссылкой.
+    function inlineImage(img) {
+        const src = img.src;
+        if (!src || src.indexOf('data:') === 0) { return Promise.resolve(); }
+        return fetch(src, { credentials: 'same-origin' })
+            .then(function (r) { if (!r.ok) { throw new Error(r.status); } return r.blob(); })
+            .then(function (blob) {
+                return new Promise(function (resolve) {
+                    const fr = new FileReader();
+                    fr.onload = function () { img.setAttribute('src', fr.result); resolve(); };
+                    fr.onerror = function () { resolve(); };
+                    fr.readAsDataURL(blob);
+                });
+            })
+            .catch(function () { img.setAttribute('src', src); });
+    }
+
+    function buildRichHtml(html) {
+        const box = document.createElement('div');
+        box.innerHTML = String(html || '');
+        const imgs = Array.prototype.slice.call(box.querySelectorAll('img'));
+        // ссылки — полными адресами: относительная во вставленном документе не значит ничего
+        box.querySelectorAll('a[href]').forEach(function (a) { a.setAttribute('href', a.href); });
+        return Promise.all(imgs.map(inlineImage)).then(function () {
+            return '<html><head><meta charset="utf-8"></head><body>' + box.innerHTML + '</body></html>';
+        });
+    }
+
+    // запасной путь (http не с localhost, старый браузер): выделить отрисованный HTML
+    // и скопировать командой — буфер получает и разметку, и встроенные картинки
+    function copyHtmlBySelection(html) {
+        try {
+            const div = document.createElement('div');
+            div.contentEditable = 'true';
+            div.style.position = 'fixed';
+            div.style.left = '-10000px';
+            div.innerHTML = html;
+            document.body.appendChild(div);
+            const range = document.createRange();
+            range.selectNodeContents(div);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            const ok = document.execCommand('copy');
+            sel.removeAllRanges();
+            document.body.removeChild(div);
+            return ok;
+        } catch (e) { return false; }
+    }
+
+    function copyHtml(html, plain) {
+        if (embedOn) {
+            // встроенный вид (VS Code): буфер ведёт хозяин окна, ему уходит простой текст
+            embedUp({ type: 'ai2p.copy', text: String(plain || '') });
+            return Promise.resolve();
+        }
+        const ready = buildRichHtml(html);
+        if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+            // обещание внутри ClipboardItem — чтобы скачивание картинок не съело
+            // разрешение на запись в буфер, данное нажатием
+            const item = new ClipboardItem({
+                'text/html': ready.then(function (h) { return new Blob([h], { type: 'text/html' }); }),
+                'text/plain': new Blob([String(plain || '')], { type: 'text/plain' })
+            });
+            return navigator.clipboard.write([item]).catch(function () {
+                return ready.then(copyHtmlBySelection);
+            });
+        }
+        return ready.then(copyHtmlBySelection);
+    }
+
     // --- MD-редактор (ТЗ гл. 11) ---
 
     // отступ кода в тексте — ОДИН символ табуляции (Markdown: строка с отступом = блок кода)
@@ -1661,6 +1735,7 @@ window.ai2p = (function () {
         initBoardDnd: initBoardDnd,
         initBoardTouch: initBoardTouch,
         copyText: copyText,
+        copyHtml: copyHtml,
         mdSync: mdSync,
         mdInsert: mdInsert,
         insertAtCaret: insertAtCaret,

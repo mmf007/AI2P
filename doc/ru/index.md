@@ -3,6 +3,7 @@
 # Оглавление 
 
 * [О системе кратко](README.md)
+* [Сайт AI2P — ai2p.org](https://ai2p.org)
 
 ## [Руководство](man/README.md)
 

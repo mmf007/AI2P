@@ -266,6 +266,17 @@ public static class AuthPages
                     i18n["login.error.badPassword"], back), "text/html; charset=utf-8");
             }
             await SignInAdminAsync(ctx, secrets);
+            // ВХОД АДМИНОМ НЕ ЗАМЕНЯЕТ ОБЫЧНЫЙ ВХОД (гл. 12, T-349): без него приложение
+            // молча уводило обратно на /login, и человек видел ту же пустую форму, будто
+            // пароль не принят. Форму входа с пояснением отдаём ЭТИМ ЖЕ ответом, а не
+            // редиректом: пояснение не должно зависеть от того, вернёт ли браузер cookie
+            // администратора следующим запросом (на S1 второй прогон показал ту же пустую
+            // форму), — а возврат сохранён полем returnUrl формы
+            if (ctx.User.Identity?.IsAuthenticated != true)
+            {
+                return Results.Content(LoginPage(ctx, i18n, antiforgery, basePath, "", back,
+                    adminDone: true), "text/html; charset=utf-8");
+            }
             return Results.Redirect(back);
         }).DisableAntiforgery();
     }
@@ -1115,7 +1126,8 @@ public static class AuthPages
     /// логин при неверном пароле набирать заново незачем.
     /// </summary>
     private static string LoginPage(HttpContext ctx, I18nService i18n, IAntiforgery antiforgery,
-        string basePath, string error, string returnUrl, IFormCollection? entered = null)
+        string basePath, string error, string returnUrl, IFormCollection? entered = null,
+        bool adminDone = false)
     {
         var login = entered is not null && entered.TryGetValue("login", out var value)
             ? value.ToString()
@@ -1126,6 +1138,11 @@ public static class AuthPages
         if (error.Length > 0)
         {
             body.Append($"<div class=\"err\">{H(error)}</div>");
+        }
+        // админ сервера уже вошёл, обычного входа ещё нет (T-349) — сказать, что дальше
+        if (adminDone || ctx.Items.ContainsKey(Ai2pAuth.AdminScheme))
+        {
+            body.Append($"<p class=\"note\" data-admin-done>{H(i18n["login.admin.done"])}</p>");
         }
         body.Append($"<form method=\"post\" action=\"{H(basePath)}/login\">");
         body.Append(Token(ctx, antiforgery));

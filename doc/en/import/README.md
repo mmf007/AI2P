@@ -1,5 +1,7 @@
 # Importing tasks: how the source reference works
 
+**AI2P website:** [ai2p.org](https://ai2p.org)
+
 The directory with the documents of the source kinds: one file per **kind**, the file name is
 the **kind code** (`trello.md`, `github.md`, `gitlab.md`). Opened by the **«i»** button next to
 the "Kind" field on the source form: **Settings → Catalogs → Imports**.
@@ -13,6 +15,7 @@ the record is saved.
 * [figma](figma.md) — Importing a design from Figma — connection guide
 * [github](github.md) — Importing tasks from GitHub — connection guide
 * [gitlab](gitlab.md) — Importing tasks from GitLab — connection guide
+* [html-file](html-file.md) — Importing an HTML page ("Public HTML") — guide
 * [trello](trello.md) — Importing tasks from Trello — how to connect
 
 ## What every kind has in common

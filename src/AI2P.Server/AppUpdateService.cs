@@ -185,6 +185,118 @@ public sealed class AppUpdateService
         return result;
     }
 
+    /// <summary>Каталог данных сервера — там лежит запись о начатом обновлении (T-756-S0).
+    /// Пусто — временный каталог обновления.</summary>
+    public string StateDir { get; init; } = "";
+
+    /// <summary>Запустить скрипт обновления; подменяется проверками (они не должны ставить
+    /// и останавливать ничего).</summary>
+    public Action<string> LaunchScript { get; init; } = Launch;
+
+    /// <summary>Пауза перед остановкой: ответ инструмента должен успеть доехать до агента.</summary>
+    public TimeSpan StopDelay { get; init; } = TimeSpan.FromSeconds(3);
+
+    private string PendingPath => Path.Combine(
+        StateDir.Length > 0 ? StateDir : Path.Combine(Path.GetTempPath(), "ai2p_update"),
+        AppUpdate.PendingFile);
+
+    /// <summary>
+    /// ОБНОВИТЬСЯ ИЗ ЛОКАЛЬНОГО ПАКЕТА (T-756-S0): файл уже лежит на диске (публикация собрала
+    /// его сама), скачивать нечего. Проверяется, что пакет годится ЭТОЙ установке (вид, система,
+    /// архитектура) и что билд не ниже текущего; дальше тот же путь, что у обновления с GitHub:
+    /// скрипт рядом, установка молча, подъём сервера.
+    /// <para>ГЛАВНОЕ — <paramref name="closeJob"/>: задание, позвавшее обновление, закрывается
+    /// ДО остановки сервера, в своём «статусе при завершении». Иначе после подъёма оно числилось
+    /// бы running и сторож подал бы его заново — агент снова позвал бы обновление, и так по кругу.
+    /// Пока идёт перезапуск, новых заданий оркестратор не запускает (<see cref="AppUpdate.Restarting"/>).</para>
+    /// </summary>
+    /// <param name="package">Полный путь к пакету (разрешённость пути проверил вызывающий).</param>
+    /// <param name="pending">Кто позвал обновление: организация, задача, задание, исполнитель.</param>
+    /// <param name="closeJob">Закрыть задание с этим текстом результата; null — закрывать нечего.</param>
+    public UpdateStartDto StartFromFile(string package, AppUpdate.Pending pending, Action<string>? closeJob)
+    {
+        if (!File.Exists(package))
+        {
+            throw new InvalidOperationException(Loc.T("msg.update.12", package));
+        }
+        var (full, runtime) = AppUpdate.InstallKind(_appDir);
+        var os = AppUpdate.OsName();
+        var arch = AppUpdate.ArchOf(runtime);
+        var (build, error) = AppUpdate.CheckLocal(package, full, os, arch, AppInfo.Build);
+        if (error.Length > 0)
+        {
+            throw new InvalidOperationException(Loc.T(error, Path.GetFileName(package),
+                os + "/" + arch + (full ? " full" : ""), AppInfo.Version));
+        }
+        var version = AppUpdate.VersionOf(build);
+        var dir = Path.Combine(Path.GetTempPath(), "ai2p_update");
+        Directory.CreateDirectory(dir);
+        pending.FromVersion = AppInfo.Version;
+        pending.FromBuild = AppInfo.Build;
+        pending.ToBuild = build;
+        pending.Package = package;
+        pending.LogFile = Path.Combine(dir, "install.log");
+        pending.StartedAt = DateTime.UtcNow;
+        AppUpdate.Restarting = true;
+        try
+        {
+            closeJob?.Invoke(Loc.T("msg.update.13", AppInfo.Version, version, Path.GetFileName(package)));
+            Directory.CreateDirectory(Path.GetDirectoryName(PendingPath)!);
+            File.WriteAllText(PendingPath, JsonSerializer.Serialize(pending), new UTF8Encoding(false));
+            var script = WriteScript(dir, package);
+            Logger.Information("Обновление {From} → {Version} из файла {File}, скрипт {Script} — перезапуск",
+                AppInfo.Version, version, package, script);
+            LaunchScript(script);
+        }
+        catch
+        {
+            AppUpdate.Restarting = false;
+            throw;
+        }
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(StopDelay, CancellationToken.None);
+            _stopApp();
+        }, CancellationToken.None);
+        return new UpdateStartDto
+        {
+            AssetName = Path.GetFileName(package),
+            Version = version,
+            Restarts = true,
+        };
+    }
+
+    /// <summary>
+    /// Запись о начатом обновлении, оставшаяся от прошлого запуска (T-756-S0); файл при этом
+    /// удаляется — сообщение «было X, стало Y» уходит ровно один раз. null — записи нет.
+    /// </summary>
+    public AppUpdate.Pending? TakePending()
+    {
+        var path = PendingPath;
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            var pending = JsonSerializer.Deserialize<AppUpdate.Pending>(File.ReadAllText(path));
+            File.Delete(path);
+            return pending;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            Logger.Warning("Запись о начатом обновлении не прочитана: {Error}", ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>Текст для чата задачи после подъёма: «было X, стало Y» либо ошибка.</summary>
+    public static string PendingOutcome(AppUpdate.Pending pending, int currentBuild) =>
+        pending.Succeeded(currentBuild)
+            ? Loc.T("msg.update.14", pending.FromVersion, AppUpdate.VersionOf(currentBuild))
+            : Loc.T("msg.update.15", pending.FromVersion, AppUpdate.VersionOf(pending.ToBuild),
+                AppUpdate.VersionOf(currentBuild), pending.LogFile);
+
     /// <summary>
     /// ПРОВЕРИТЬ (и, если велено, ПОСТАВИТЬ) — один вызов для автоматических путей:
     /// старт консольного запуска и срабатывание расписания у службы. Отвечает строкой

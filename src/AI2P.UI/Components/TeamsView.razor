@@ -264,6 +264,8 @@ else
 
     protected override async Task OnInitializedAsync()
     {
+        // состав команды, правленный на соседнем сервере, приезжает репликацией мимо UI (T-766-S0)
+        await State.RefreshPeopleAsync();
         await RefreshWorkAsync();
         // подключение могло начаться до открытия закладки — опрос нужен сразу (todo37_3)
         if (_work.Values.Any(w => w.Members.Any(m => m.State == ExecutorWorkState.Connecting)))

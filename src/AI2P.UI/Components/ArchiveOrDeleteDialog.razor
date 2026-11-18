@@ -31,8 +31,18 @@
             {
                 @* множественный выбор (T-651-S0): в названии — список выбранных задач *@
                 <MudText Typo="Typo.body2" data-multi-count="@Ids.Count">@L["tasks.multi.count", Ids.Count]</MudText>
+                @* каждая задача с новой строки, без запятых и вопроса (T-661-S0) *@
+                <div data-multi-names="1">
+                    @foreach (var line in Name.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        <MudText>@line</MudText>
+                    }
+                </div>
             }
-            <MudText>@L["arcdel.ask", Name]</MudText>
+            else
+            {
+                <MudText>@L["arcdel.ask", Name]</MudText>
+            }
 
             @if (_loading)
             {

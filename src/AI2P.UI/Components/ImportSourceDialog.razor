@@ -25,6 +25,7 @@
             <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
                 <MudSelect T="string" Value="_source.Kind" ValueChanged="KindChanged"
                            Label="@L["imports.kind"]" Class="flex-grow-1">
+                    <MudSelectItem T="string" Value="@("html-file")">@L["imports.publicHtml.kind"]</MudSelectItem>
                     <MudSelectItem T="string" Value="@("trello")">Trello</MudSelectItem>
                     <MudSelectItem T="string" Value="@("github")">GitHub</MudSelectItem>
                     <MudSelectItem T="string" Value="@("gitlab")">GitLab</MudSelectItem>
@@ -57,6 +58,14 @@
                     @L["imports.figma.byUrlOnly"]
                 </MudText>
             }
+            else if (IsHtml)
+            {
+                @* у «Публичного HTML» (T-691-S0) нет ни полей, ни секретов: в окне импорта по URL
+                   просто вставляют адрес file:… или http(s):… *@
+                <MudText Typo="Typo.caption" Class="mud-text-secondary" data-import-field="public-html">
+                    @L["imports.publicHtml.byUrlOnly"]
+                </MudText>
+            }
             else
             {
                 @* у GitHub те же два поля, но названы они по-своему (T-247): владелец
@@ -74,7 +83,11 @@
             @* ключ API и токен (ТЗ v1.65): значения вводятся здесь, а не в secrets.json.
                Кнопки работают у СОХРАНЁННОЙ записи — как ключ у модели: значение кладётся
                сразу, поэтому знать, какому источнику оно принадлежит, нужно до ввода *@
-            @if (Source is null)
+            @if (IsHtml)
+            {
+                @* секретов нет — и кнопок для них тоже *@
+            }
+            else if (Source is null)
             {
                 <MudAlert Severity="Severity.Info" Dense="true">@L["imports.secretsSaveFirst"]</MudAlert>
             }
@@ -192,6 +205,10 @@
     private bool IsFigma =>
         string.Equals(_source.Kind, "figma", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>«Публичный HTML» (T-691-S0): ни полей, ни секретов.</summary>
+    private bool IsHtml =>
+        string.Equals(_source.Kind, "html-file", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Ссылки на секреты вида «trello.*» полагаются ТОЛЬКО источнику Trello:
     /// у остальных видов свой токен, и класть его по чужому адресу нельзя.</summary>
     private bool IsTrello =>
@@ -200,20 +217,20 @@
     /// <summary>Обязательное поле вида: у Trello — логин, у GitLab — путь проекта. Без него
     /// массовому импорту неоткуда брать задачи, и «Сохранить» заблокировано.</summary>
     private bool RequiredFilled =>
-        IsFigma || (IsGitLab ? _project.Trim().Length > 0 : _login.Trim().Length > 0);
+        IsFigma || IsHtml || (IsGitLab ? _project.Trim().Length > 0 : _login.Trim().Length > 0);
 
     /// <summary>У вида источника есть ОТДЕЛЬНЫЙ ключ API (T-249). Сервер отвечает то же
     /// самое полем NeedsKey состояния секретов, но у ещё не сохранённой записи спрашивать
     /// некого — вид известен и здесь. Слой UI на AI2P.Connectors не ссылается, поэтому
     /// правило повторено кодом вида, а не общей функцией.</summary>
-    private bool NeedsKey => !IsGitLab && !IsGitHub && !IsFigma;
+    private bool NeedsKey => !IsGitLab && !IsGitHub && !IsFigma && !IsHtml;
 
     private bool NameTaken => Existing.Any(s =>
         s.Id != _source.Id &&
         s.Name.Trim().Equals(_source.Name.Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Ключ либо токен не заполнен — активным источник быть не может (ТЗ v1.65).</summary>
-    private bool NoSecrets => _keys is not { HasKey: true, HasToken: true };
+    private bool NoSecrets => !IsHtml && _keys is not { HasKey: true, HasToken: true };
 
     protected override void OnInitialized()
     {
@@ -369,7 +386,7 @@
             _params["project"] = _project.Trim();
             _params["labels"] = _labels.Trim();
         }
-        else if (!IsFigma)
+        else if (!IsFigma && !IsHtml)
         {
             _params["login"] = _login.Trim();
             _params["filter"] = _filter.Trim();
@@ -379,7 +396,10 @@
         {
             _params["keyRef"] = _keyRef.Trim();
         }
-        _params["tokenRef"] = _tokenRef.Trim();
+        if (!IsHtml)
+        {
+            _params["tokenRef"] = _tokenRef.Trim();
+        }
         _source.ParamsJson = _params.ToJsonString();
         Dialog.Close(DialogResult.Ok(_source));
     }
