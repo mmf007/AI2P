@@ -2841,6 +2841,16 @@ public sealed class JobOrchestrator : IDisposable
             run.Waiting++;
             return;
         }
+        if (!_tasks.BlockersDone(task))
+        {
+            // блокирующие задачи ещё не готовы (ТЗ п. 2.12): очередь ждёт — задачу тронет
+            // с места завершение (готово/отмена, T-299-S0) последней блокирующей.
+            // Проверка стоит ДО ветки чужого сервера (T-824-S0): заявку на запуск владелец
+            // исполняет безусловно (ApplyRunRequest), и до этой правки задача S1/S2 уходила
+            // в работу, не дождавшись блокирующей с S0 — порядок иерархии рушился
+            run.Waiting++;
+            return;
+        }
         if (!_tasks.CanWrite(task))
         {
             // задача другого сервера физически запускается ТАМ (ТЗ гл. 6, этап 42), но с
@@ -2883,13 +2893,6 @@ public sealed class JobOrchestrator : IDisposable
             Logger.Information("Иерархия: {Task} пропущена — исполнитель не найден или не активен",
                 task.DisplayId);
             run.Skipped++;
-            return;
-        }
-        if (!_tasks.BlockersDone(task))
-        {
-            // блокирующие задачи ещё не готовы (ТЗ п. 2.12): очередь ждёт — задачу тронет
-            // с места завершение (готово/отмена, T-299-S0) последней блокирующей
-            run.Waiting++;
             return;
         }
         if (WaitsDeferredStart(task))

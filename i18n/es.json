@@ -3182,6 +3182,7 @@
   "msg.agentEndpoints.4": "La acción «{0}» no está disponible para este encargo. Disponibles: {1}",
   "msg.agentEndpoints.5": "Los argumentos de la llamada deben ser un objeto JSON.",
   "msg.agentEndpoints.6": "La acción «{0}» no se ha ejecutado: {1}",
+  "msg.agentEndpoints.7": "La acción «{0}» no está disponible para este trabajo: la tarea tiene activado «No dividir en subtareas». El sistema lo activa solo cuando la tarea crea subtareas por primera vez; las reglas de seguridad no lo quitan. Desactívelo en la ficha de la tarea (Editar) y reinicie la tarea.",
   "msg.agentCli.1": "AI2P — cliente de línea de comandos del agente de IA.\n\nUso: ai2p <comando> [valor] [--parámetro valor] …\n\nComandos:\n{0}\n  ai2p call <herramienta>  cualquier acción por el nombre de la herramienta\n\nOpciones: --json, imprimir la respuesta entera en JSON; --stdin, leer los argumentos como objeto JSON por la entrada estándar; --<parámetro>-file <ruta>, tomar el valor del parámetro de un archivo (así se pasan los textos largos).\n\nLa dirección del servidor y el token del encargo llegan por las variables de entorno AI2P_URL y AI2P_JOB_TOKEN, que el propio AI2P define en el proceso del agente.",
   "msg.agentCli.2": "No se ha indicado la dirección del servidor AI2P (variable de entorno {0}). El cliente sólo funciona dentro de un encargo en curso.",
   "msg.agentCli.3": "No se ha indicado el token del encargo (variable de entorno {0}). El cliente sólo funciona dentro de un encargo en curso.",

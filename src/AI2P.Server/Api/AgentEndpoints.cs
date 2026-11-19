@@ -71,6 +71,11 @@ public static class AgentEndpoints
             // (у задачи без проекта нет шаблонов, у уже разбитой — создания подзадач)
             if (!tools.Specs.Any(s => string.Equals(s.Name, tool, StringComparison.Ordinal)))
             {
+                // правило безопасности тут ни при чём — назвать настоящую причину (T-825-S0)
+                if (tool is "create_task" or "create_tasks_from_template" && tools.Tasks.SplitLocked)
+                {
+                    return Problem(StatusCodes.Status400BadRequest, Loc.T("msg.agentEndpoints.7", tool));
+                }
                 return Problem(StatusCodes.Status400BadRequest,
                     Loc.T("msg.agentEndpoints.4", tool,
                         string.Join(", ", tools.Specs.Select(s => s.Name))));

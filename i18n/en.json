@@ -3182,6 +3182,7 @@
   "msg.agentEndpoints.4": "Action «{0}» is not available to this job. Available: {1}",
   "msg.agentEndpoints.5": "The call arguments must be a JSON object.",
   "msg.agentEndpoints.6": "Action «{0}» failed: {1}",
+  "msg.agentEndpoints.7": "Action «{0}» is not available to this job: the task has «Do not split into subtasks» switched on. The system sets it itself when the task first creates subtasks; security rules do not lift it. Turn the switch off in the task card (Edit) and restart the task.",
   "msg.agentCli.1": "AI2P — the command line client of the AI agent.\n\nUsage: ai2p <command> [value] [--parameter value] …\n\nCommands:\n{0}\n  ai2p call <tool>        any action by its tool name\n\nSwitches: --json — print the whole answer as JSON; --stdin — read the arguments as a ready JSON object from the standard input; --<parameter>-file <path> — take the parameter value from a file (that is how long texts are passed).\n\nThe server address and the job token come in the environment variables AI2P_URL and AI2P_JOB_TOKEN — AI2P itself sets them for the agent process.",
   "msg.agentCli.2": "The AI2P server address is not set (environment variable {0}). The client works only inside a running job.",
   "msg.agentCli.3": "The job token is not set (environment variable {0}). The client works only inside a running job.",

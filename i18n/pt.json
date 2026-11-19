@@ -3182,6 +3182,7 @@
   "msg.agentEndpoints.4": "A ação «{0}» não está disponível a este trabalho. Disponíveis: {1}",
   "msg.agentEndpoints.5": "Os argumentos da chamada devem ser um objeto JSON.",
   "msg.agentEndpoints.6": "A ação «{0}» não foi executada: {1}",
+  "msg.agentEndpoints.7": "A ação «{0}» não está disponível para este trabalho: a tarefa tem «Não dividir em subtarefas» ativado. O sistema ativa-o sozinho quando a tarefa cria subtarefas pela primeira vez; as regras de segurança não o removem. Desative-o no cartão da tarefa (Editar) e reinicie a tarefa.",
   "msg.agentCli.1": "AI2P — cliente de linha de comando do agente de IA.\n\nUso: ai2p <comando> [valor] [--parâmetro valor] …\n\nComandos:\n{0}\n  ai2p call <ferramenta>  qualquer ação pelo nome da ferramenta\n\nOpções: --json — imprimir a resposta inteira em JSON; --stdin — ler os argumentos como um objeto JSON pronto na entrada padrão; --<parâmetro>-file <caminho> — pegar o valor do parâmetro de um arquivo (é assim que se passam textos longos).\n\nO endereço do servidor e o token do trabalho chegam pelas variáveis de ambiente AI2P_URL e AI2P_JOB_TOKEN — quem as define no processo do agente é o próprio AI2P.",
   "msg.agentCli.2": "O endereço do servidor AI2P não foi definido (variável de ambiente {0}). O cliente funciona apenas dentro de um trabalho em andamento.",
   "msg.agentCli.3": "O token do trabalho não foi definido (variável de ambiente {0}). O cliente funciona apenas dentro de um trabalho em andamento.",
