@@ -90,6 +90,7 @@ public static class AuthPages
                 return Results.Content(LoginPage(ctx, i18n, antiforgery,
                     basePath, error, returnUrl, form), "text/html; charset=utf-8");
             }
+            DropOrgPathCookies(ctx, registry, basePath);
             await SignInAsync(ctx, account);
             accounts.LogAuth(EventTypes.AccountLogin, account.Id,
                 registry.AnyMemberOf(account.Id)?.Id, new { account.Email });
@@ -106,6 +107,7 @@ public static class AuthPages
                 accounts.LogAuth(EventTypes.AccountLogout, accountId,
                     registry.AnyMemberOf(accountId)?.Id, new { });
             }
+            DropOrgPathCookies(ctx, registry, basePath);
             await ctx.SignOutAsync(Ai2pAuth.Scheme);
             await ctx.SignOutAsync(Ai2pAuth.AdminScheme);
             return Results.Redirect(basePath + "/login");
@@ -1076,6 +1078,30 @@ public static class AuthPages
         await ctx.SignInAsync(Ai2pAuth.Scheme, principal,
             new AuthenticationProperties { IsPersistent = true });
         ctx.User = principal;
+    }
+
+    /// <summary>
+    /// Снять копии cookie входа, оставшиеся с путём /ai2p/&lt;код организации&gt; (T-353-S1).
+    /// До 1.213 путь cookie не задавался, и продление на странице организации клало туда
+    /// вторую копию; на страницах организации браузер шлёт её первой, поэтому без уборки
+    /// «выход» не выходил бы, а новый вход перебивался бы старой копией. Путь чужой копии
+    /// браузер не сообщает — удаляем по всем организациям реестра (удаление несуществующей
+    /// cookie безвредно).
+    /// </summary>
+    private static void DropOrgPathCookies(HttpContext ctx, OrgRegistry registry, string basePath)
+    {
+        foreach (var org in registry.Orgs.List(includeInactive: true))
+        {
+            if (string.IsNullOrWhiteSpace(org.Code))
+            {
+                continue;
+            }
+            var path = basePath + "/" + org.Code;
+            foreach (var name in new[] { "ai2p.auth", "ai2p.authC1", "ai2p.authC2", "ai2p.admin" })
+            {
+                ctx.Response.Cookies.Delete(name, new CookieOptions { Path = path });
+            }
+        }
     }
 
     /// <summary>Вход администратора сервера — вторая cookie (ТЗ гл. 12). Ставится и со своей

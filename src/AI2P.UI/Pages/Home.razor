@@ -427,13 +427,13 @@ else
                          AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
                     <MudMenuItem Icon="@Icons.Material.Filled.Badge"
                                  OnClick="OpenAccountAsync">@L["account.title"]</MudMenuItem>
-                    @* вход администратора сервера — ВСЕГДА ПО ПЕТЛЕВОМУ АДРЕСУ (T-174):
-                       настройки самого сервера правит только тот, кто сидит за этим
-                       компьютером, и по внешнему имени такой вход отклоняется. Раньше
-                       ссылка строилась от внешнего имени сервера, человек уходил наружу
-                       и получал «настройки сервера меняются только с этого компьютера» *@
+                    @* вход администратора сервера — ПО ТОМУ ЖЕ ХОСТУ, что и страница
+                       (T-353-S1): cookie браузера привязаны к имени хоста, и уход на
+                       localhost (T-174) терял обычный вход у тех, кто работает по сетевому
+                       имени. «Только с этого компьютера» проверяет сервер (IsLocalRequest);
+                       ReturnUrl — вернуться туда же, где стоял (T-345-S0) *@
                     <MudMenuItem Icon="@Icons.Material.Filled.AdminPanelSettings"
-                                 Href="@(State.LocalBaseUrl + "/server-admin")" ForceLoad="true"
+                                 Href="@(Nav.BaseUri + "server-admin?ReturnUrl=" + Uri.EscapeDataString(new Uri(Nav.Uri).PathAndQuery))" ForceLoad="true"
                                  data-server-admin="1">
                         @(State.IsServerAdmin ? L["account.serverAdmin.in"] : L["account.serverAdmin"])
                     </MudMenuItem>

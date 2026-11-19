@@ -244,7 +244,8 @@ public sealed class T174Tests : IDisposable
     [Fact]
     public void Server_Admin_Link_Is_Always_Local()
     {
-        // так строится ссылка пункта меню: UiState.LocalBaseUrl + "/server-admin"
+        // так строилась ссылка пункта меню до T-353-S1 (теперь — от адреса самой страницы);
+        // ToLocal по-прежнему даёт ссылку «на localhost» в отказе страницы входа админа
         Assert.Equal("http://localhost:5480/ai2p/mmfgrp/server-admin",
             LinkUrls.ToLocal("http://84.201.0.7:5480/ai2p/mmfgrp") + "/server-admin");
         Assert.Equal("http://localhost:5480/ai2p/mmfgrp/server-admin",

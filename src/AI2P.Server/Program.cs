@@ -496,6 +496,11 @@ try
             options.Cookie.Name = "ai2p.auth";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
+            // ПУТЬ COOKIE — ВСЕГДА базовый путь (T-353-S1). Без него обработчик берёт PathBase
+            // запроса, а у страниц организации это /ai2p/<код>: продлённая там cookie ложилась
+            // второй копией с узким путём, и вход «жил» только на страницах организации —
+            // /ai2p/server-admin и корень /ai2p/ его не видели (вход админом на S1 уводил на /login)
+            options.Cookie.Path = basePath.Length > 0 ? basePath : "/";
             // пути без basePath: обработчик cookie сам подставляет PathBase запроса
             options.LoginPath = "/login";
             options.LogoutPath = "/logout";
@@ -546,6 +551,7 @@ try
             options.Cookie.Name = "ai2p.admin";
             options.Cookie.HttpOnly = true;
             options.Cookie.SameSite = SameSiteMode.Lax;
+            options.Cookie.Path = basePath.Length > 0 ? basePath : "/"; // T-353-S1, см. выше
             options.LoginPath = "/server-admin";
             options.ExpireTimeSpan = TimeSpan.FromHours(8);
         });
