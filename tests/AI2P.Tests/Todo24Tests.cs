@@ -48,8 +48,11 @@ public sealed class ActionCatalogTests : IDisposable
         // + T-590-S0 (v29): send_chat_to_server — мгновенное сообщение на другой сервер
         // + T-756-S0 (v31): app_update_from_file — обновление AI2P из локального пакета
         // + T-769-S0 (v32): move_task_to_server, run_task_on_server — задача и другой сервер
-        Assert.Equal(54, ru.Count);
-        Assert.Equal(54, en.Count);
+        // + T-826-S0: devto_publish — публикация статьи на dev.to (плагин publish.devto)
+        // + T-827-S0 (v34): telegram_channel_post — пост в свой Telegram-канал проекта
+        // + T-828-S0 (v35): github_pull_request — PR в чужой awesome-список на GitHub
+        Assert.Equal(57, ru.Count);
+        Assert.Equal(57, en.Count);
         Assert.Null(ru.Single(a => a.Code == "AI2P.Archives.AutoRun").ToolName);
         // действие заданий-соседей есть на обоих языках и привязано к инструменту
         Assert.Equal("get_sibling_tasks", ru.Single(a => a.Code == "AI2P.Tasks.GetSiblings").ToolName);
@@ -156,7 +159,7 @@ public sealed class ActionCatalogTests : IDisposable
         actions.Seed();
 
         var de = actions.List("de");
-        Assert.Equal(54, de.Count); // все действия видны и на новом языке
+        Assert.Equal(57, de.Count); // все действия видны и на новом языке
         Assert.Equal("Projektdatei lesen", de.Single(a => a.Code == "AI2P.Files.Read").Title);
         // непереведённые — фолбэк на en
         Assert.Contains("List files", de.Single(a => a.Code == "AI2P.Files.List").Prompt);

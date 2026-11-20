@@ -57,7 +57,76 @@ public static class PluginSeed
     /// <summary>Встроенные манифесты. Порядок безразличен — файлы независимы.</summary>
     public static IReadOnlyList<string> All =>
         [ShotcutJson, FfmpegJson, ResolveJson, BlenderJson, OpenShotJson, TrainerMusubiJson, VsCodeJson,
-            WixJson];
+            WixJson, DevToJson];
+
+    /// <summary>Код плагина «dev.to» (T-826-S0): публикация статей через Forem API.</summary>
+    public const string DevToCode = "publish.devto";
+
+    /// <summary>
+    /// ПЛАГИН «DEV.TO» (T-826-S0) — шлюз ПУБЛИКАЦИИ: программы не нужно, нужен ключ API
+    /// (dev.to → Settings → Extensions → DEV Community API Keys). Блок connection у шлюза
+    /// описывает ТОЛЬКО адрес API и заголовок ключа (api-key); сам ключ — в secrets/ этого
+    /// сервера (<c>plugin.publish.devto.token</c>), в config.json и базу не попадает.
+    /// Работу делает <c>DevToPublish</c> (роль publish).
+    /// </summary>
+    public const string DevToJson = """
+        {
+          "code": "publish.devto",
+          "kind": "gateway",
+          "version": 1,
+          "name": "dev.to",
+          "description": {
+            "ru": "Публикация статей на dev.to агентом: файл Markdown из папки проекта уходит в Forem API черновиком или статьёй, повторный вызов обновляет ту же статью. Нужен ключ API dev.to.",
+            "en": "Lets agents publish articles on dev.to: a Markdown file from the project folder goes to the Forem API as a draft or a published post; calling again updates the same article. Needs a dev.to API key.",
+            "es": "Permite a los agentes publicar articulos en dev.to: un archivo Markdown del proyecto va a la API Forem como borrador o publicado; repetir actualiza el mismo articulo. Requiere una clave API de dev.to.",
+            "pt": "Permite que agentes publiquem artigos no dev.to: um arquivo Markdown do projeto vai para a API Forem como rascunho ou publicado; repetir atualiza o mesmo artigo. Requer uma chave de API do dev.to.",
+            "zh-cn": "让智能体在 dev.to 发布文章：项目中的 Markdown 文件以草稿或正式文章发送到 Forem API，再次调用会更新同一篇文章。需要 dev.to API 密钥。"
+          },
+          "connection": {
+            "transport": "http",
+            "url": "https://dev.to/api",
+            "secretHeader": "api-key",
+            "secretScheme": ""
+          },
+          "actions": [
+            {
+              "code": "AI2P.Plugins.DevTo.Publish",
+              "tool": "devto_publish",
+              "role": "publish",
+              "title": {
+                "ru": "Опубликовать статью на dev.to",
+                "en": "Publish an article on dev.to",
+                "es": "Publicar un articulo en dev.to",
+                "pt": "Publicar um artigo no dev.to",
+                "zh-cn": "在 dev.to 发布文章"
+              },
+              "description": {
+                "ru": "Отправить файл .md из папки проекта (file) на dev.to. Шапка front matter: title (обязательно), description, tags, canonical_url, cover_image. published=true публикует, по умолчанию — черновик. id статьи запоминается в шапке файла (devto_id), повторный вызов обновляет её. Картинки — только публичные https-адреса. Ответ — адрес статьи.",
+                "en": "Send a .md file from the project folder (file) to dev.to. Front matter: title (required), description, tags, canonical_url, cover_image. published=true publishes, the default is a draft. The article id is kept in the file's front matter (devto_id); calling again updates it. Images must be public https addresses. Returns the article address.",
+                "es": "Envia un .md de la carpeta del proyecto (file) a dev.to. published=true publica, por defecto borrador. El id se guarda en el front matter (devto_id); repetir actualiza. Imagenes solo por https publico.",
+                "pt": "Envia um .md da pasta do projeto (file) ao dev.to. published=true publica, padrao rascunho. O id fica no front matter (devto_id); repetir atualiza. Imagens apenas por https publico.",
+                "zh-cn": "把项目文件夹中的 .md（file）发送到 dev.to。published=true 发布，默认草稿。文章 id 记在 front matter（devto_id），再次调用即更新。图片只能用公开 https 地址。"
+              }
+            }
+          ],
+          "experience": [
+            {
+              "skill": "text-write",
+              "text": {
+                "ru": "Статья для dev.to пишется файлом .md с шапкой front matter (--- title, description, tags не больше 4 через запятую, canonical_url, cover_image ---) и отправляется действием devto_publish. Сначала черновиком (published не указывать), публиковать — только если задача прямо это говорит. Картинки — публичные https-ссылки (блог сайта, репозиторий): загружать файлы API dev.to не умеет. Строки devto_id и devto_url в шапке не трогай — по ним повторный вызов обновляет ту же статью, а не создаёт вторую.",
+                "en": "A dev.to article is a .md file with front matter (--- title, description, up to 4 comma-separated tags, canonical_url, cover_image ---) sent with devto_publish. Send it as a draft first (omit published); publish only when the task says so explicitly. Images are public https links (site blog, repository): the dev.to API cannot upload files. Leave the devto_id and devto_url lines in the front matter alone — they make a repeat call update the same article instead of creating a second one."
+              }
+            }
+          ],
+          "doc": {
+            "ru": "plugins/publish.devto.md",
+            "en": "plugins/publish.devto.md",
+            "es": "plugins/publish.devto.md",
+            "pt": "plugins/publish.devto.md",
+            "zh-cn": "plugins/publish.devto.md"
+          }
+        }
+        """;
 
     /// <summary>Код плагина «Wix» (T-567-S0): SaaS-редактор сайтов через официальный MCP Wix.</summary>
     public const string WixCode = "saas.wix";

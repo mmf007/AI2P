@@ -554,6 +554,13 @@ public sealed class Ai2pConfig
         /// </summary>
         public List<AI2P.Core.SaasSite> Sites { get; set; } = [];
 
+        /// <summary>
+        /// РАЗРЕШЁННЫЕ КАНАЛЫ TELEGRAM (T-827-S0) у плагина <c>telegram.channel</c>: «@имя» или
+        /// числовой id. Агент постит ТОЛЬКО сюда, а не в любой чат, куда добавлен бот. Токен бота —
+        /// в secrets/plugin.telegram.channel.token.json, сюда не попадает.
+        /// </summary>
+        public List<string> Channels { get; set; } = [];
+
         // ПОЛЯ ПОД ТОКЕН ЗДЕСЬ НЕТ И НЕ БУДЕТ: секрет подключения MCP живёт в
         // secrets/<ссылка>.json (PluginCodes.SecretRef), как пароль почты (T-272).
         // В config.json пароли не попадают никогда.

@@ -2483,6 +2483,11 @@ public sealed class TaskService
                 FlowStopped = TaskFlowRun.Stopped(task.LaunchJson),
                 LoopPass = TaskFlowRun.LoopPass(task.LaunchJson),
                 LoopLimit = TaskFlow.IsLoop(task.Flow.Type) ? TaskFlowRun.LoopLimit(task.Flow, projectLoopLimit) : 0,
+                // сервер задачи (T-843-S0): овал с кодом за кодом задачи и строка подсказки;
+                // у узла шаблона — ещё сервер выполнения («S0->S2», как в списке)
+                ServerId = task.ServerId ?? "",
+                ServerCode = task.ServerCode,
+                RunServerId = task.IsTemplate ? TaskFlow.RunServer(task.LaunchJson) ?? "" : "",
             });
         }
         TaskDiagram.Layout(dto.Nodes);

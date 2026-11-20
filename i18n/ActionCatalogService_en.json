@@ -1,5 +1,5 @@
 {
-  "seedVersion": 32,
+  "seedVersion": 35,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -429,6 +429,30 @@
       "title": "Call a task on another server",
       "hint": "The agent files a run request with the owner server of its task (the T-196 mechanism, like the «start» button on a foreign task). Needed only when the task is not in an open hierarchy queue: there the queue starts it in its turn, and the action answers that no call is needed. A task of this server is not started this way. For the CLI agent — the «ai2p run-remote» command (T-769-S0). A deny/confirm security rule on this code closes the capability entirely.",
       "prompt": "Call (start) a task on the server it belongs to: a run request goes there, and the task starts there once the server processes it. Parameter code — task code of the same project. Needed only if the task is NOT in an open hierarchy queue: in a hierarchy it starts by itself in its turn. A task of this server is not started this way (use set_task_status with restart: true for it); a task handed over to another server with move_task_to_server is then called with this action."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000055",
+      "code": "AI2P.GitHub.PullRequest",
+      "tool": "github_pull_request",
+      "title": "Open a PR to someone's list on GitHub",
+      "hint": "The agent opens PRs to awesome lists on GitHub (T-828-S0) with the personal token of the GitHub import source (secret github.token). At most one PR per day per organisation (campaign rule “not in a batch”), refused with a clear message. In a CLI agent — the “ai2p github-pr” command. deny/confirm security rules on this code close the capability.",
+      "prompt": "Open a pull request to someone else's awesome list on GitHub from the project account: fork, branch, the line is inserted into the section in alphabetical order, PR. Parameters: repo — the list as “owner/repo”; path — the file (README.md by default); section — the section heading; line — the list item (“- [Name](url) - description”); title and body — PR title and text; source — GitHub import source id if there are several. The answer is the PR address. At most one PR per day: a repeated call is refused with the time when it is allowed again."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000056",
+      "code": "AI2P.Plugins.DevTo.Publish",
+      "tool": "devto_publish",
+      "title": "Publish an article on dev.to",
+      "hint": "Plugin publish.devto (T-826-S0): the agent sends a Markdown file from the project folder to the dev.to Forem API — POST /api/articles, the same file again — PUT /api/articles/{id} (the id and address are kept in the file's front matter: devto_id, devto_url). The API key is the plugin secret in secrets/. A deny/confirm security rule on this code closes publishing entirely.",
+      "prompt": "Publish an article on dev.to. Parameters: file — path to a .md in the project folder (Markdown with dev.to front matter: title, published, description, tags, canonical_url, cover_image); published — true publishes, false (default) saves a draft. Calling again for the same file updates the article. Images must be public addresses (https): the dev.to API does not accept uploads. Returns the article address."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000057",
+      "code": "AI2P.Telegram.ChannelPost",
+      "tool": "telegram_channel_post",
+      "title": "Post to own Telegram channel",
+      "hint": "The agent posts to the project's OWN Telegram channel through a bot (Bot API sendMessage / sendPhoto, HTML markup). The channel must be in the allow list in the server's config.json (plugins[\"telegram.channel\"].channels), the bot token lives in secrets/plugin.telegram.channel.token.json; a human adds the bot as a channel admin. Third-party topic chats stay with humans. CLI agent: \"ai2p call telegram_channel_post\". A deny/confirm rule on this code or a \"plugins and MCP\" rule on telegram.channel closes it (T-827-S0).",
+      "prompt": "Publish a post to the project's own Telegram channel. Parameters: channel — a channel from the allow list (@name or numeric id); path — the text file path from the project root, text in Telegram HTML markup (<b>, <i>, <a href>, <code>, <pre>; line breaks as is, no <br> or <p>); image — optional image from the project folder (.jpg/.png/.webp/.gif). Without an image the text is up to 4096 characters, with an image the caption is up to 1024. The answer is the message link t.me/<channel>/<id>. Publish only when the task explicitly says so; never write to third-party chats or groups."
     }
   ]
 }

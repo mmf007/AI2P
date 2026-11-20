@@ -137,6 +137,20 @@ else
             @L["task.diagram.hint", Hours(_diagram.DefaultHours)]
         </MudText>
         <MudSpacer />
+        @* зум шкалы времени (T-844-S0): дискретные уровни 0.25…3.0 *@
+        <MudTooltip Text="@L["task.diagram.zoomIn"]">
+            <MudIconButton Icon="@Icons.Material.Filled.ZoomIn" Size="Size.Small"
+                           Disabled="@(!CanZoomIn)" OnClick="@(() => ZoomAsync(1))"
+                           data-diagram-zoom-in="1" />
+        </MudTooltip>
+        <MudText Typo="Typo.caption" data-diagram-zoom="@Zoom.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+            @Zoom.ToString("0.0#")
+        </MudText>
+        <MudTooltip Text="@L["task.diagram.zoomOut"]">
+            <MudIconButton Icon="@Icons.Material.Filled.ZoomOut" Size="Size.Small"
+                           Disabled="@(!CanZoomOut)" OnClick="@(() => ZoomAsync(-1))"
+                           data-diagram-zoom-out="1" />
+        </MudTooltip>
         @* общий режим прозрачности (T-135-S0): под квадратами видно все стрелки разом *@
         <MudTooltip Text="@L["task.diagram.ghost"]">
             <MudIconButton Icon="@(_ghost ? Icons.Material.Filled.Visibility : Icons.Material.Filled.VisibilityOff)"
@@ -288,8 +302,16 @@ else
                            помещаются только две кнопки, а что за задача, говорит подсказка *@
                         @if (box.W >= CodeWidth)
                         {
+                            @* за кодом — синий овал с кодом сервера (T-843-S0), как чип сервера
+                               в карточке задачи, но без значка и названия. Строка переносится
+                               и обрезается по высоте: не поместившийся овал уходит на вторую,
+                               невидимую строку, то есть не выводится вовсе *@
                             <div class="@("ai2p-diagram-code" + (CanMove(node) ? " ai2p-diagram-code-gap" : ""))">
-                                @node.DisplayId
+                                <span class="ai2p-diagram-code-id">@node.DisplayId</span>
+                                @if (ServerTitle(node) is { Length: > 0 } server)
+                                {
+                                    <span class="ai2p-diagram-server" data-diagram-server="@server">@server</span>
+                                }
                             </div>
                             @if (box.W >= WideWidth)
                             {
@@ -481,6 +503,27 @@ else
     private int[] _rowTops = [];
     private Timer? _timer;
     private double _pxPerHour = 120;
+    /// <summary>Уровни зума шкалы (T-844-S0), по возрастанию.</summary>
+    private static readonly double[] ZoomLevels = [0.25, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0];
+    /// <summary>Масштаб 1.0: около 8 см экрана на час (8 см ≈ 302 CSS px).</summary>
+    private const double BasePxPerHour = 300;
+    /// <summary>Выбранный кнопками масштаб; null — подобранный автоматически.</summary>
+    private double? _zoom;
+    private double _autoZoom = 1.0;
+    /// <summary>Ширина, в которую диаграмма должна влезть при автоподборе (по окну браузера).</summary>
+    private double _fitWidth;
+    private double Zoom => _zoom ?? _autoZoom;
+    private bool CanZoomIn => Array.IndexOf(ZoomLevels, Zoom) < ZoomLevels.Length - 1;
+    private bool CanZoomOut => Array.IndexOf(ZoomLevels, Zoom) > 0;
+
+    private async Task ZoomAsync(int step)
+    {
+        var i = Math.Clamp(Array.IndexOf(ZoomLevels, Zoom) + step, 0, ZoomLevels.Length - 1);
+        _zoom = ZoomLevels[i];
+        // раскладка зависит от масштаба (наименьшая ширина квадрата в часах), поэтому
+        // данные перечитываются и раскладываются заново
+        await ReloadAsync();
+    }
     private readonly string _containerId = "ai2p-diagram-" + Guid.NewGuid().ToString("N")[..8];
     private readonly string _arrowBlue = "ai2p-arr-b-" + Guid.NewGuid().ToString("N")[..6];
     private readonly string _arrowRed = "ai2p-arr-r-" + Guid.NewGuid().ToString("N")[..6];
@@ -504,6 +547,25 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (_fitWidth <= 0)
+        {
+            // ширина окна для автоподбора зума (T-844-S0): минус колонка подписей дорожек
+            try
+            {
+                var w = await Js.InvokeAsync<double>("eval", "window.innerWidth");
+                _fitWidth = Math.Max(w - 360, 240);
+                if (_zoom is null && _diagram is { Nodes.Count: > 0 })
+                {
+                    await ReloadAsync();
+                    StateHasChanged();
+                    return;
+                }
+            }
+            catch (JSException)
+            {
+                _fitWidth = FieldWidth;
+            }
+        }
         if (_diagram is null || _diagram.Nodes.Count == 0)
         {
             return;
@@ -529,7 +591,17 @@ else
             var total = Total;
             // масштаб подбирается под ширину поля: длительности бывают и минутные, и
             // многодневные, а шкала одна на всю диаграмму
-            _pxPerHour = total > 0 ? Math.Clamp(FieldWidth / total, 6, 240) : 120;
+            // ЗУМ ШКАЛЫ (T-844-S0): масштаб дискретный, 1.0 — примерно 8 см экрана на час.
+            // Пока человек сам не нажимал лупу, масштаб подбирается так, чтобы вся
+            // диаграмма влезла в ширину окна (наибольший из уровней, при котором влезает)
+            if (_zoom is null)
+            {
+                var fit = _fitWidth > 0 ? _fitWidth : FieldWidth;
+                _autoZoom = total > 0
+                    ? ZoomLevels.Reverse().FirstOrDefault(z => total * BasePxPerHour * z <= fit, ZoomLevels[0])
+                    : 1.0;
+            }
+            _pxPerHour = BasePxPerHour * Zoom;
             // РАСКЛАДКА ПЕРЕСЧИТЫВАЕТСЯ ПОД МАСШТАБ (T-306): двухминутная задача рисуется
             // прямоугольником наименьшей ширины, а её сосед по дорожке начинался через две
             // минуты, то есть накрывал её наполовину. Наименьшее место задачи на картинке —
@@ -749,7 +821,26 @@ else
         {
             state += "\n" + AiPauseText.Of(L, pause);
         }
-        return $"{node.DisplayId} {node.Title} · {Hours(node.DurationHours)}\n{state}";
+        var server = ServerTitle(node) is { Length: > 0 } s ? $" [{s}]" : "";
+        return $"{node.DisplayId}{server} {node.Title} · {Hours(node.DurationHours)}\n{state}";
+    }
+
+    /// <summary>Код сервера узла (T-843-S0), как в колонке списка задач: «S1», у узла
+    /// шаблона с сервером выполнения — «S0->S2»; пусто — вне кластера или сервера нет.</summary>
+    private string ServerTitle(TaskDiagramNodeDto node)
+    {
+        if (!State.IsCluster || node.ServerId.Length == 0)
+        {
+            return "";
+        }
+        var code = node.ServerCode.Length > 0 ? node.ServerCode : State.ServerCodeOf(node.ServerId);
+        if (code.Length == 0)
+        {
+            return "";
+        }
+        return node.RunServerId.Length > 0
+            ? $"{code}->{(State.ServerCodeOf(node.RunServerId) is { Length: > 0 } run ? run : node.RunServerId)}"
+            : code;
     }
 
     /// <summary>Время работы от начала живого задания: «1:05:33» (как в «в работе у ИИ»).</summary>

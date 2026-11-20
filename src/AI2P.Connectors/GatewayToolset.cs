@@ -15,8 +15,10 @@ namespace AI2P.Connectors;
 /// <param name="Manifest">Манифест <c>plugins/&lt;код&gt;/plugin.json</c>.</param>
 /// <param name="SoftwarePath">Путь к программе на этом компьютере; пусто — не нашли.</param>
 /// <param name="SettingsJson">Настройки записи плагина (<c>PluginRecord.SettingsJson</c>).</param>
+/// <param name="Secret">Чтение секрета по ссылке (<c>secrets/</c> этого сервера) — нужно
+/// шлюзу публикации (T-826-S0, ключ API dev.to); null — секретов шлюз не читает.</param>
 public sealed record GatewayPlugin(PluginManifest Manifest, string SoftwarePath = "",
-    string SettingsJson = "");
+    string SettingsJson = "", Func<string, string?>? Secret = null);
 
 /// <summary>
 /// ИНСТРУМЕНТЫ ШЛЮЗОВ В ВИДЕОРЕДАКТОРЫ ДЛЯ ИИ-АГЕНТА (T-115-S0): собрать монтажный лист из
@@ -63,6 +65,12 @@ public sealed class GatewayToolset
 
     /// <summary>Язык ответов (T-190) — их читает агент.</summary>
     public string? Language { get; set; }
+
+    /// <summary>HTTP-клиент шлюза публикации (T-826-S0); null — общий. Подменяется в тестах.</summary>
+    public HttpClient? Http { get; set; }
+
+    /// <summary>Папка проекта — корень относительных путей (нужна шлюзу публикации).</summary>
+    internal string ProjectFolder => _projectFolder ?? "";
 
     /// <summary>Лог вызовов — в журнал работ (agent.tool_calls), как у остальных наборов.</summary>
     public List<string> CallLog { get; } = [];
@@ -129,6 +137,7 @@ public sealed class GatewayToolset
                 PluginAction.RoleRender => await RenderAsync(plugin, args, ct),
                 PluginAction.RoleConvert => await ConvertAsync(plugin, action, args, ct),
                 PluginAction.RoleScript => await ScriptAsync(plugin, args, ct),
+                PluginAction.RolePublish => await DevToPublish.RunAsync(this, plugin, args, ct),
                 _ => Loc.In(Language, "prompt.gateway.2", name, action.Role),
             };
             CallLog.Add($"{name}({args.GetRawText()}) → {Preview(result)}");
@@ -139,7 +148,9 @@ public sealed class GatewayToolset
         // без этой ветки отказ внешней программы валил бы весь ход агента исключением
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or ArgumentException or InvalidOperationException
-                                       or System.ComponentModel.Win32Exception)
+                                       or System.ComponentModel.Win32Exception
+                                       or HttpRequestException or JsonException
+                                       or TaskCanceledException)
         {
             var error = Loc.In(Language, "prompt.gateway.3", name, ex.Message);
             CallLog.Add(error);
@@ -667,7 +678,7 @@ public sealed class GatewayToolset
 
     /// <summary>ВХОДНОЙ ПУТЬ: те же ограничения, что у выходного (папка проекта либо каталог,
     /// открытый правилами задачи), плюс право чтения и существование файла.</summary>
-    private string? Source(string wanted, out string refusal)
+    internal string? Source(string wanted, out string refusal)
     {
         refusal = "";
         string abs;
@@ -726,7 +737,7 @@ public sealed class GatewayToolset
     /// считается от папки проекта и за её край не выпускается; полный путь годится, только
     /// если его открыли правила безопасности задачи (внешние каталоги, T-110-S0 §1.3.7).
     /// </summary>
-    private string? Target(string ownFile, string? asked, out string refusal)
+    internal string? Target(string ownFile, string? asked, out string refusal)
     {
         refusal = "";
         var wanted = (asked ?? "").Trim();
@@ -858,11 +869,27 @@ public sealed class GatewayToolset
                                         && plugin.SoftwarePath.Length > 0,
             PluginAction.RoleScript => plugin.Manifest.Script is not null
                                        && plugin.SoftwarePath.Length > 0,
+            // публикации программа не нужна, нужен адрес API и способ прочесть ключ
+            PluginAction.RolePublish => plugin.Manifest.Connection is { Url.Length: > 0 }
+                                        && plugin.Secret is not null,
             _ => false,
         };
 
     private static string SchemaOf(GatewayPlugin plugin, PluginAction action)
     {
+        if (action.Role == PluginAction.RolePublish)
+        {
+            return """
+                {
+                  "type": "object",
+                  "properties": {
+                    "file":      { "type": "string" },
+                    "published": { "type": "boolean" }
+                  },
+                  "required": ["file"]
+                }
+                """;
+        }
         if (action.Role == PluginAction.RoleScript)
         {
             return """

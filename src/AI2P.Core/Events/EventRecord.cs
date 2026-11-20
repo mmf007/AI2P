@@ -136,6 +136,9 @@ public static class EventTypes
     public const string ImportSourceUpdated = "import.source_updated";
     public const string ImportSourceDeleted = "import.source_deleted";
     public const string ImportRun = "import.run";
+    /// <summary>Агент открыл запрос на слияние в чужой репозиторий (github_pull_request, T-828-S0):
+    /// по этим событиям считается предел «не больше одного PR в сутки».</summary>
+    public const string GitHubPullRequest = "github.pull_request";
     // аккаунты пользователей и вход в систему (ТЗ п. 2.14, гл. 12, этап 39)
     public const string AccountCreated = "account.created";
     public const string AccountUpdated = "account.updated";

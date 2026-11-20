@@ -1166,6 +1166,12 @@ public sealed class TaskDiagramNodeDto
     /// чтобы отличать задачи, которые очередь и правда ставит по-разному, от равных по
     /// приоритету соседей: только среди последних взятая в работу обгоняет ждущую (T-192-S0).</summary>
     public int PriorityNum { get; set; }
+    /// <summary>Сервер задачи (T-843-S0); пусто — сервера нет.</summary>
+    public string ServerId { get; set; } = "";
+    /// <summary>Код сервера задачи, если известен (иначе UI берёт его по ServerId).</summary>
+    public string ServerCode { get; set; } = "";
+    /// <summary>У узла шаблона — сервер ВЫПОЛНЕНИЯ (T-759-S0); пусто — не задан.</summary>
+    public string RunServerId { get; set; } = "";
 }
 
 /// <summary>Карточка задачи: сущность + тела файлов + задания.</summary>

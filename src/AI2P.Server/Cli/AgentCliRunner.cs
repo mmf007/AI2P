@@ -89,6 +89,9 @@ public static class AgentCliRunner
         // задача и другой сервер кластера (T-769-S0): передать и вызвать там
         ["server"] = new("move_task_to_server", "code", "msg.agentCli.58"),
         ["run-remote"] = new("run_task_on_server", "code", "msg.agentCli.59"),
+        // PR в чужой awesome-список на GitHub (T-828-S0); ключ словаря с именем, а не номером —
+        // соседние задачи выпуска заводят свои команды параллельно
+        ["github-pr"] = new("github_pull_request", "repo", "msg.agentCli.githubPr"),
     };
 
     /// <summary>Параметры-числа: в JSON вызова уходят числом, а не строкой.</summary>

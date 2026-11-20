@@ -215,7 +215,13 @@ public sealed class PluginManifest
             }
             else
             {
-                manifest.Connection = null;
+                // У ШЛЮЗА ПУБЛИКАЦИИ (T-826-S0, dev.to) блок подключения остаётся, но только
+                // ради СЕКРЕТА: ссылка и заголовок ключа API. Сервера MCP у шлюза нет
+                if (manifest.Actions.All(a => a.Role != PluginAction.RolePublish)
+                    || manifest.Connection is not { SecretHeader.Length: > 0 })
+                {
+                    manifest.Connection = null;
+                }
                 manifest.Saas = null;
             }
             return manifest.IsValid ? manifest : null;
@@ -528,6 +534,12 @@ public sealed class PluginAction
     /// Python правило безопасности закрывает целиком, не трогая сборку монтажа.
     /// </summary>
     public const string RoleScript = "script";
+
+    /// <summary>
+    /// ОПУБЛИКОВАТЬ СТАТЬЮ на внешней площадке по её API (T-826-S0, dev.to / Forem): файл
+    /// Markdown из папки проекта уходит запросом, ключ API — секрет плагина в secrets/.
+    /// </summary>
+    public const string RolePublish = "publish";
 
     /// <summary>
     /// ЧТО ЭТО ДЕЙСТВИЕ ДЕЛАЕТ НА САМОМ ДЕЛЕ (T-115-S0) — <see cref="RoleExport"/> или

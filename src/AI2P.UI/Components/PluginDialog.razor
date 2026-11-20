@@ -184,6 +184,28 @@
                         }
                     </div>
                 }
+                else if (_details.SecretHeader.Length > 0)
+                {
+                    @* КЛЮЧ API ШЛЮЗА (T-826-S0, публикация на dev.to): у шлюза нет сервера MCP,
+                       но секрет хранится так же — в secrets/ этого сервера *@
+                    <div data-pluginf-block="secret">
+                        <MudText Typo="Typo.subtitle1" Class="mb-1">@L["plugins.block.connection"]</MudText>
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2">
+                            <MudTextField @bind-Value="_secret" Label="@L["plugins.mcp.secret"]"
+                                          InputType="InputType.Password" ReadOnly="@(!CanEdit)"
+                                          HelperText="@(_details.HasSecret ? L["plugins.mcp.secretSet"] : L["plugins.mcp.secretHint"])"
+                                          data-pluginf-mcp-secret="1" Style="min-width: 380px;" />
+                            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                       Disabled="@(!CanEdit || _busy)" data-pluginf-mcp-secret-save="1"
+                                       OnClick="SaveSecretAsync">
+                                @L["common.save"]
+                            </MudButton>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="d-block mt-1" Style="opacity:.6;">
+                            @_details.SecretFile
+                        </MudText>
+                    </div>
+                }
 
                 @* --- 1б. САЙТЫ (T-567-S0): только у плагина SaaS-редактора. Сайт заводится
                    ДО инициализации: список инструментов снимается через сайт с ключом *@

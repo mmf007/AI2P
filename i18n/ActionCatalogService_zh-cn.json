@@ -1,5 +1,5 @@
 {
-  "seedVersion": 32,
+  "seedVersion": 35,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -429,6 +429,30 @@
       "title": "在其他服务器上调用任务",
       "hint": "智能体向任务所属服务器提交启动请求（T-196 机制，与他人任务上的「启动」按钮相同）。仅当任务不在开放的层级队列中时才需要：在队列中，轮到时由队列启动，此操作会答复无需调用。本服务器的任务不这样启动。CLI 智能体使用「ai2p run-remote」命令（T-769-S0）。对此代码设置 deny/confirm 安全规则即可完全关闭该能力。",
       "prompt": "在任务所属的服务器上调用（启动）任务：启动请求会发往那里，服务器处理后任务即在那里启动。参数 code — 同一项目中任务的代码。仅当任务不在开放的层级队列中时才需要：在层级中轮到时会自行启动。本服务器的任务不这样启动（请用 set_task_status 加 restart: true）；用 move_task_to_server 转到其他服务器的任务，随后用此操作调用。"
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000055",
+      "code": "AI2P.GitHub.PullRequest",
+      "tool": "github_pull_request",
+      "title": "在 GitHub 上向他人列表提交 PR",
+      "hint": "代理使用 GitHub 导入源的个人令牌（密钥 github.token）向 GitHub 的 awesome 列表提交 PR（T-828-S0）。每个组织每天最多一个 PR，超出时给出明确拒绝。CLI 代理中为「ai2p github-pr」命令。对此代码的 deny/confirm 安全规则可关闭该能力。",
+      "prompt": "以项目账号向 GitHub 上他人的 awesome 列表提交拉取请求：fork、分支、按字母顺序把一行插入指定章节、PR。参数：repo — 列表「所有者/仓库」；path — 文件（默认 README.md）；section — 章节标题；line — 列表项（「- [名称](地址) - 描述」）；title 和 body — PR 标题和正文；source — 有多个 GitHub 导入源时的源 id。返回 PR 地址。每天最多一个 PR：重复调用会被拒绝，并告知何时可以再次提交。"
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000056",
+      "code": "AI2P.Plugins.DevTo.Publish",
+      "tool": "devto_publish",
+      "title": "在 dev.to 发布文章",
+      "hint": "插件 publish.devto（T-826-S0）：智能体把项目文件夹中的 Markdown 文件发送到 dev.to 的 Forem API（POST /api/articles；同一文件再次发送为 PUT /api/articles/{id}）。API 密钥是 secrets/ 中的插件密钥。针对此代码的 deny/confirm 安全规则会完全关闭发布。",
+      "prompt": "在 dev.to 发布文章。参数：file — 项目文件夹中的 .md 路径（带 dev.to front matter 的 Markdown）；published — true 发布，false（默认）保存草稿。对同一文件再次调用会更新文章。图片只能用公开地址（https）。返回文章地址。"
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000057",
+      "code": "AI2P.Telegram.ChannelPost",
+      "tool": "telegram_channel_post",
+      "title": "Post to own Telegram channel",
+      "hint": "The agent posts to the project's OWN Telegram channel through a bot (Bot API sendMessage / sendPhoto, HTML markup). The channel must be in the allow list in the server's config.json (plugins[\"telegram.channel\"].channels), the bot token lives in secrets/plugin.telegram.channel.token.json; a human adds the bot as a channel admin. Third-party topic chats stay with humans. CLI agent: \"ai2p call telegram_channel_post\". A deny/confirm rule on this code or a \"plugins and MCP\" rule on telegram.channel closes it (T-827-S0).",
+      "prompt": "Publish a post to the project's own Telegram channel. Parameters: channel — a channel from the allow list (@name or numeric id); path — the text file path from the project root, text in Telegram HTML markup (<b>, <i>, <a href>, <code>, <pre>; line breaks as is, no <br> or <p>); image — optional image from the project folder (.jpg/.png/.webp/.gif). Without an image the text is up to 4096 characters, with an image the caption is up to 1024. The answer is the message link t.me/<channel>/<id>. Publish only when the task explicitly says so; never write to third-party chats or groups."
     }
   ]
 }

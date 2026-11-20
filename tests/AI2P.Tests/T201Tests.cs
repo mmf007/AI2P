@@ -182,20 +182,27 @@ public sealed class T201Tests : IDisposable
         Assert.Contains("data-subtask-add=\"1\"", card);
     }
 
-    /// <summary>У ШАБЛОНА выбора нет: под узел шаблона можно завести только узел шаблона,
-    /// а копия шаблона — обычная задача.</summary>
+    /// <summary>Выбор показывается и у ШАБЛОНА, но выбранный шаблон разворачивается по-разному:
+    /// под узлом шаблона — копией узлов шаблона (CopyTemplateHereAsync), под обычной задачей —
+    /// подзадачей-экземпляром. (T-847-S0: прежняя проверка «у шаблона выбора нет» устарела —
+    /// поведение изменено намеренно.)</summary>
     [Fact]
-    public void For_A_Template_The_Old_Form_Opens_Directly()
+    public void For_A_Template_The_Picked_Template_Is_Copied_As_Template_Nodes()
     {
         var card = Ui("Components", "TaskCardView.razor");
-        var addSubtask = card[card.IndexOf("private async Task AddSubtaskAsync()", StringComparison.Ordinal)..];
-        addSubtask = addSubtask[..addSubtask.IndexOf("private async Task AddSubtaskFromTemplateAsync",
-            StringComparison.Ordinal)];
+        var start = card.IndexOf("private async Task AddSubtaskAsync()", StringComparison.Ordinal);
+        Assert.True(start >= 0, "нет AddSubtaskAsync в TaskCardView.razor");
+        var addSubtask = card[start..];
+        var end = addSubtask.IndexOf("\n    private ", 10, StringComparison.Ordinal);
+        Assert.True(end > 0, "не найден конец AddSubtaskAsync");
+        addSubtask = addSubtask[..end];
 
-        Assert.Contains("if (!_details.Task.IsTemplate)", addSubtask);
-        // проверка стоит ДО показа диалога выбора
-        Assert.True(addSubtask.IndexOf("if (!_details.Task.IsTemplate)", StringComparison.Ordinal)
-                    < addSubtask.IndexOf("NewTaskDialog", StringComparison.Ordinal));
+        var branch = addSubtask.IndexOf("if (_details.Task.IsTemplate)", StringComparison.Ordinal);
+        Assert.True(branch >= 0, "нет ветки для шаблона");
+        // ветка стоит ПОСЛЕ диалога выбора и ведёт к копии шаблона, иначе — к подзадаче
+        Assert.True(addSubtask.IndexOf("NewTaskDialog", StringComparison.Ordinal) < branch);
+        Assert.Contains("CopyTemplateHereAsync(template)", addSubtask);
+        Assert.Contains("AddSubtaskFromTemplateAsync(template)", addSubtask);
     }
 
     /// <summary>Родитель доезжает до сервера: клиент кладёт его в тело запроса,

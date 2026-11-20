@@ -1,5 +1,5 @@
 {
-  "seedVersion": 32,
+  "seedVersion": 35,
   "actions": [
     {
       "id": "ac710000-0000-4000-9000-000000000001",
@@ -429,6 +429,30 @@
       "title": "Chamar uma tarefa em outro servidor",
       "hint": "O agente faz ao servidor proprietário um pedido de início da tarefa dele (mecanismo T-196, como o botão «iniciar» numa tarefa alheia). Necessário só quando a tarefa não está numa fila de hierarquia aberta: lá a fila a inicia na sua vez, e a ação responde que a chamada não é necessária. Uma tarefa deste servidor não é iniciada assim. Para o agente CLI — o comando «ai2p run-remote» (T-769-S0). Uma regra de segurança deny/confirm neste código fecha a possibilidade por inteiro.",
       "prompt": "Chamar (iniciar) uma tarefa no servidor a que ela pertence: um pedido de início vai para lá, e a tarefa começa quando o servidor o processar. Parâmetro code — código de uma tarefa do mesmo projeto. Necessário só se a tarefa NÃO estiver numa fila de hierarquia aberta: numa hierarquia ela começa sozinha na sua vez. Uma tarefa deste servidor não é iniciada assim (para ela, set_task_status com restart: true); uma tarefa transferida para outro servidor com move_task_to_server é chamada depois com esta ação."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000055",
+      "code": "AI2P.GitHub.PullRequest",
+      "tool": "github_pull_request",
+      "title": "Abrir um PR numa lista alheia no GitHub",
+      "hint": "O agente abre PR em listas awesome do GitHub (T-828-S0) com o token pessoal da fonte de importação do GitHub (segredo github.token). No máximo um PR por dia por organização, com recusa clara. Num agente CLI — o comando «ai2p github-pr». Regras deny/confirm neste código fecham a possibilidade.",
+      "prompt": "Abrir um pull request numa lista awesome alheia no GitHub a partir da conta do projeto: fork, ramo, a linha é inserida na secção por ordem alfabética, PR. Parâmetros: repo — a lista como «dono/repositório»; path — o ficheiro (README.md por omissão); section — o título da secção; line — o item da lista («- [Nome](url) - descrição»); title e body — título e texto do PR; source — id da fonte de importação do GitHub se houver várias. A resposta é o endereço do PR. No máximo um PR por dia: uma chamada repetida é recusada com a hora em que volta a ser possível."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000056",
+      "code": "AI2P.Plugins.DevTo.Publish",
+      "tool": "devto_publish",
+      "title": "Publicar um artigo no dev.to",
+      "hint": "Plugin publish.devto (T-826-S0): o agente envia um arquivo Markdown da pasta do projeto para a API Forem do dev.to (POST /api/articles; o mesmo arquivo de novo, PUT /api/articles/{id}). A chave de API e o segredo do plugin em secrets/. Uma regra deny/confirm neste codigo fecha a publicacao.",
+      "prompt": "Publicar um artigo no dev.to. Parametros: file — caminho de um .md na pasta do projeto (Markdown com front matter do dev.to); published — true publica, false (padrao) salva rascunho. Chamar de novo com o mesmo arquivo atualiza o artigo. Imagens apenas por endereco publico (https). Retorna o endereco do artigo."
+    },
+    {
+      "id": "ac710000-0000-4000-9000-000000000057",
+      "code": "AI2P.Telegram.ChannelPost",
+      "tool": "telegram_channel_post",
+      "title": "Post to own Telegram channel",
+      "hint": "The agent posts to the project's OWN Telegram channel through a bot (Bot API sendMessage / sendPhoto, HTML markup). The channel must be in the allow list in the server's config.json (plugins[\"telegram.channel\"].channels), the bot token lives in secrets/plugin.telegram.channel.token.json; a human adds the bot as a channel admin. Third-party topic chats stay with humans. CLI agent: \"ai2p call telegram_channel_post\". A deny/confirm rule on this code or a \"plugins and MCP\" rule on telegram.channel closes it (T-827-S0).",
+      "prompt": "Publish a post to the project's own Telegram channel. Parameters: channel — a channel from the allow list (@name or numeric id); path — the text file path from the project root, text in Telegram HTML markup (<b>, <i>, <a href>, <code>, <pre>; line breaks as is, no <br> or <p>); image — optional image from the project folder (.jpg/.png/.webp/.gif). Without an image the text is up to 4096 characters, with an image the caption is up to 1024. The answer is the message link t.me/<channel>/<id>. Publish only when the task explicitly says so; never write to third-party chats or groups."
     }
   ]
 }

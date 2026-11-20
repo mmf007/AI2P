@@ -234,6 +234,11 @@
     /* код не наезжает ни на ручку переноса слева, ни на значок меню справа (T-135-S0) */
     .ai2p-diagram-code { font-size: .72rem; font-weight: 600; line-height: 1.1; padding-right: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ai2p-diagram-code.ai2p-diagram-code-gap { padding-left: 20px; }
+    /* код задачи + овал сервера (T-843-S0): строка с переносом, но высотой в одну строку —
+       не поместившийся овал уходит на вторую строку и обрезается, то есть не виден */
+    .ai2p-diagram-code { display: flex; flex-wrap: wrap; align-items: center; column-gap: 3px; height: 1.1em; }
+    .ai2p-diagram-code-id { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ai2p-diagram-server { flex: none; font-size: .6rem; font-weight: 500; line-height: 1.1em; padding: 0 5px; border-radius: 999px; background: var(--mud-palette-info); color: var(--mud-palette-info-text); }
     .ai2p-diagram-title { font-size: .72rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ai2p-diagram-state { position: absolute; left: 4px; right: 4px; bottom: 2px; display: flex; gap: 3px; overflow: hidden; white-space: nowrap; }
     .ai2p-diagram-state .ai2p-status { font-size: .6rem; padding: 0 3px; }

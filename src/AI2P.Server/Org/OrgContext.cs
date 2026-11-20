@@ -523,10 +523,15 @@ public sealed class OrgContext : IDisposable
         anthropic.Saas = LiveSaas;
         text.Saas = LiveSaas;
         claudeCli.Saas = LiveSaas;
+        // СВОЙ TELEGRAM-КАНАЛ (T-827-S0): telegram_channel_post
+        anthropic.Telegram = LiveTelegram;
+        text.Telegram = LiveTelegram;
+        claudeCli.Telegram = LiveTelegram;
         _pluginPath = deps.PluginPath;
         _pluginTools = deps.PluginTools;
         _pluginSites = deps.PluginSites;
         _pluginSecret = deps.PluginSecret;
+        _pluginChannels = deps.PluginChannels;
     }
 
     private readonly Func<string, string>? _pluginPath;
@@ -539,6 +544,23 @@ public sealed class OrgContext : IDisposable
     /// блоком <c>saas</c>, инициализированная запись организации и хотя бы один сайт в
     /// config.json этого сервера.
     /// </summary>
+    public AI2P.Connectors.TelegramChannelConfig? LiveTelegram()
+    {
+        if (_pluginChannels is null || _pluginSecret is null)
+        {
+            return null;
+        }
+        var channels = _pluginChannels(AI2P.Connectors.TelegramChannelConfig.PluginCode)
+            .Where(c => c.Trim().Length > 0).ToList();
+        var token = _pluginSecret(AI2P.Connectors.TelegramChannelConfig.SecretRef)?.Trim() ?? "";
+        return channels.Count > 0 && token.Length > 0
+            ? new AI2P.Connectors.TelegramChannelConfig(token, channels)
+            : null;
+    }
+
+    /// <summary>Каналы Telegram по коду плагина (T-827-S0): config.json этого сервера.</summary>
+    private readonly Func<string, IReadOnlyList<string>>? _pluginChannels;
+
     public IReadOnlyList<SaasPlugin> LiveSaas()
     {
         var live = new List<SaasPlugin>();
@@ -588,7 +610,8 @@ public sealed class OrgContext : IDisposable
             {
                 continue;
             }
-            live.Add(new GatewayPlugin(manifest, software.Path, record.SettingsJson));
+            live.Add(new GatewayPlugin(manifest, software.Path, record.SettingsJson,
+                manifest.Connection is not null ? _pluginSecret : null));
         }
         return live;
     }
@@ -875,6 +898,8 @@ public sealed record OrgDeps(
     Func<string, IReadOnlyList<AI2P.Core.SaasSite>>? PluginSites = null,
     /// <summary>Чтение секрета по ссылке (T-567-S0): ключи сайтов SaaS лежат в secrets/ сервера.</summary>
     Func<string, string?>? PluginSecret = null,
+    /// <summary>Разрешённые каналы Telegram по коду плагина (T-827-S0): config.json этого сервера.</summary>
+    Func<string, IReadOnlyList<string>>? PluginChannels = null,
     /// <summary>ЗАПОМНИТЬ ПУТЬ К ПРОГРАММЕ ПЛАГИНА (T-156-S0): код плагина, имя записи софта
     /// (пусто — ГЛАВНАЯ программа) и найденный путь. Нужен установке модели: она ставит пакеты
     /// обучения, а поиск программы плагина в каталог пакетов не заглядывает — только PATH и

@@ -355,6 +355,8 @@ try
         // сайты плагина SaaS-редактора и их ключи (T-567-S0): оба пер-серверные
         PluginSites: code => config.Plugins.TryGetValue(code, out var saas) ? saas.Sites : [],
         PluginSecret: secretRef => secrets.Read(secretRef),
+        // свой Telegram-канал (T-827-S0): список разрешённых каналов — пер-серверный
+        PluginChannels: code => config.Plugins.TryGetValue(code, out var tg) ? tg.Channels : [],
         // ПУТЬ К ПРОГРАММЕ ПЛАГИНА, НАЙДЕННОЙ УСТАНОВКОЙ МОДЕЛИ (T-156-S0). Пишем ровно так же,
         // как форма плагина (PUT /plugins/{код}/path): главная программа — в поле path,
         // остальные — в словарь paths по имени записи софта (T-146-S0). ТОЛЬКО В ПУСТОЕ ПОЛЕ:

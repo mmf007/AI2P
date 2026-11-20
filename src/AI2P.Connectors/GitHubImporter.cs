@@ -24,7 +24,7 @@ namespace AI2P.Connectors;
 /// * приложенные файлы у GitHub живут ссылками внутри самого текста задачи, отдельного
 ///   списка вложений в API нет — текст переносится как есть, ссылки остаются ссылками.
 /// </summary>
-public sealed class GitHubImporter
+public sealed partial class GitHubImporter
 {
     /// <summary>Код вида в справочнике импортов.</summary>
     public const string Kind = ImportKinds.GitHub;

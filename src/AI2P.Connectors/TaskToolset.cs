@@ -186,6 +186,9 @@ public sealed class TaskToolset
     /// <summary>Инструмент обновления публикуется, когда сервер умеет обновляться (T-756-S0).</summary>
     public bool CanAppUpdate => AppUpdateFromFile is not null;
 
+    /// <summary>PR в чужой список на GitHub (T-828-S0) — когда подключён импорт GitHub (его токен).</summary>
+    public bool CanGitHubPr => _github is not null;
+
     /// <summary>
     /// Сервер организации по коду (S1), имени или ключу → его ключ (T-769-S0); null — такого
     /// подтверждённого сервера нет. Подставляет контекст организации; null — кластера нет,
@@ -565,6 +568,23 @@ public sealed class TaskToolset
         // обновление AI2P из локального пакета и перезапуск (T-756-S0)
         new("app_update_from_file", "",
             """{ "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] }"""),
+        // PR в чужой awesome-список от аккаунта проекта (T-828-S0)
+        new("github_pull_request", "",
+            """
+            {
+              "type": "object",
+              "properties": {
+                "repo":    { "type": "string" },
+                "path":    { "type": "string" },
+                "section": { "type": "string" },
+                "line":    { "type": "string" },
+                "title":   { "type": "string" },
+                "body":    { "type": "string" },
+                "source":  { "type": "string" }
+              },
+              "required": ["repo", "section", "line", "title"]
+            }
+            """),
     ];
 
     /// <summary>Имена инструментов заданий — для диспетчеризации в AgentToolset.</summary>
@@ -614,6 +634,7 @@ public sealed class TaskToolset
                 "create_tasks_from_template" => CreateTasksFromTemplate(args),
                 "stop_hierarchy" => StopHierarchy(args),
                 "app_update_from_file" => AppUpdateFromFileTool(RequiredString(args, "path", Language)),
+                "github_pull_request" => await GitHubPullRequestAsync(args, ct),
                 _ => Loc.In(Language, "prompt.tasks.1", name),
             };
             CallLog.Add($"{name}({args.GetRawText()}) → {Preview(result)}");
@@ -812,6 +833,28 @@ public sealed class TaskToolset
         }
         _chat.Add(_current.Id, _actorExecutorId!, null, trimmed);
         return Loc.In(Language, "prompt.tasks.11", _current.DisplayId, trimmed.Length);
+    }
+
+    /// <summary>
+    /// github_pull_request (T-828-S0): PR со строкой в чужой awesome-список от аккаунта
+    /// токена GitHub-источника импорта; ответ — адрес PR. Не больше одного PR в сутки.
+    /// </summary>
+    private async Task<string> GitHubPullRequestAsync(JsonElement args, CancellationToken ct)
+    {
+        if (_github is null)
+        {
+            return Loc.In(Language, "prompt.tasks.githubPr.1");
+        }
+        var url = await _github.OpenListPullRequestAsync(new GitHubImporter.PullRequestArgs(
+                RequiredString(args, "repo", Language),
+                OptionalString(args, "path") ?? "README.md",
+                RequiredString(args, "section", Language),
+                RequiredString(args, "line", Language),
+                RequiredString(args, "title", Language),
+                OptionalString(args, "body") ?? "",
+                OptionalString(args, "source")),
+            _actorExecutorId, _current.ProjectId, _current.Id, ct);
+        return Loc.In(Language, "prompt.tasks.githubPr.2", url);
     }
 
     /// <summary>

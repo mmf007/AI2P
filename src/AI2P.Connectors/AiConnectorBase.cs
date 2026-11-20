@@ -548,6 +548,20 @@ public abstract class AiConnectorBase : IAgentConnector
             tools.Sites = new SiteToolset(saas, security, _actions.CodeByTool, folderPath,
                 (abs, op) => security.ForPath(abs, op).Decision != SecurityDecision.Deny);
         }
+        // СВОЙ TELEGRAM-КАНАЛ ПРОЕКТА (T-827-S0): токен бота и список разрешённых каналов —
+        // пер-серверные; текст и картинка читаются из папки проекта под правилами каталогов
+        if (Telegram?.Invoke() is { } telegram)
+        {
+            var channelTools = new TelegramChannelToolset(telegram, folderPath,
+                (abs, op) => security.ForPath(abs, op).Decision != SecurityDecision.Deny);
+            if (channelTools.CanUse)
+            {
+                tools.Telegram = channelTools;
+                // правило вида «плагины и MCP» по коду telegram.channel закрывает и его
+                tools.PluginToolOwners = new Dictionary<string, string>(tools.PluginToolOwners,
+                    StringComparer.Ordinal) { [TelegramChannelToolset.PostTool] = TelegramChannelConfig.PluginCode };
+            }
+        }
         // ТОКЕН ЗАДАНИЯ (T-34-S0): реквизиты, под которыми агент зовёт действия AI2P клиентом
         // командной строки — синхронно, внутри своего хода, а не маркером (то есть концом хода).
         // Живёт только в памяти процесса и только пока идёт задание: снимается в finally ниже.
@@ -1202,6 +1216,9 @@ public abstract class AiConnectorBase : IAgentConnector
     /// <summary>Живые плагины SaaS-редакторов сайтов этого сервера (T-567-S0); не подставлен
     /// или пусто — действий site_* у задания нет.</summary>
     public Func<IReadOnlyList<SaasPlugin>>? Saas { get; set; }
+
+    /// <summary>Настройка поста в свой Telegram-канал этого сервера (T-827-S0); null — нет.</summary>
+    public Func<TelegramChannelConfig?>? Telegram { get; set; }
 
     /// <summary>Обновление AI2P из локального пакета (app_update_from_file, T-756-S0): путь
     /// пакета, запись «кто позвал», закрытие задания. Подставляет контекст организации;

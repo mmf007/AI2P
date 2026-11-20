@@ -67,6 +67,23 @@ public sealed class AgentToolset
 
     private SiteToolset? _sites;
 
+    /// <summary>Пост в свой Telegram-канал проекта (T-827-S0): telegram_channel_post. null —
+    /// на этом сервере нет токена бота или списка разрешённых каналов.</summary>
+    public TelegramChannelToolset? Telegram
+    {
+        get => _telegram;
+        set
+        {
+            _telegram = value;
+            if (value is not null)
+            {
+                value.Language = _language;
+            }
+        }
+    }
+
+    private TelegramChannelToolset? _telegram;
+
     private readonly Func<FileToolset.ToolSpec, FileToolset.ToolSpec> _resolve;
     private readonly SecurityEvaluator? _security;
     private readonly Func<string, string?> _actionCodeByTool;
@@ -160,6 +177,10 @@ public sealed class AgentToolset
             if (Sites is not null)
             {
                 Sites.Language = value;
+            }
+            if (Telegram is not null)
+            {
+                Telegram.Language = value;
             }
         }
     }
@@ -573,6 +594,7 @@ public sealed class AgentToolset
             "move_task_to_server" => Tasks.CanChangeServer,
             "run_task_on_server" => Tasks.CanRunRemote,
             "app_update_from_file" => Tasks.CanAppUpdate, // обновление из пакета (T-756-S0)
+            "github_pull_request" => Tasks.CanGitHubPr, // PR в awesome-список (T-828-S0)
             _ => true,
         }))
         // медиатека проекта (T-113-S0): у задачи без проекта складывать ролик некуда,
@@ -583,12 +605,14 @@ public sealed class AgentToolset
         .Concat(Gateways?.Specs ?? [])
         // сайты в SaaS-редакторах (T-567-S0): есть только при живом плагине вида saas
         .Concat(Sites?.Specs ?? [])
+        // свой Telegram-канал (T-827-S0): есть только при токене бота и списке каналов
+        .Concat(Telegram?.Specs ?? [])
         .Select(_resolve);
 
     /// <summary>Суммарный лог вызовов для журнала работ (agent.tool_calls).</summary>
     public List<string> CallLog =>
         [.. Files?.CallLog ?? [], .. Tasks.CallLog, .. Media?.CallLog ?? [],
-            .. Gateways?.CallLog ?? [], .. Sites?.CallLog ?? []];
+            .. Gateways?.CallLog ?? [], .. Sites?.CallLog ?? [], .. Telegram?.CallLog ?? []];
 
     /// <summary>Выполнить вызов инструмента; результат (или текст ошибки) возвращается агенту.</summary>
     public async Task<string> ExecuteAsync(string name, JsonElement args, CancellationToken ct)
@@ -602,6 +626,8 @@ public sealed class AgentToolset
                 ? await Gateways.ExecuteAsync(name, args, ct)
                 : Sites is not null && Sites.Handles(name)
                 ? await Sites.ExecuteAsync(name, args, ct)
+                : Telegram is not null && Telegram.Handles(name)
+                ? await Telegram.ExecuteAsync(name, args, ct)
                 : Files is not null
                     ? await Files.ExecuteAsync(name, args, ct)
                     : Loc.In(Language, "prompt.tools.5", name);
