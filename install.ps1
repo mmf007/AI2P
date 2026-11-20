@@ -372,6 +372,14 @@ foreach ($dir in $wipe) {
     }
 }
 
+# -Force (T-851-S0): программный код установки переписывается ЦЕЛИКОМ — удаляется всё,
+# кроме данных пользователя (data, logs, secrets*, config*.json). Только там, где AI2P уже стоит
+if ($Force -and $hasFiles -and $null -ne $oldInfo) {
+    $keepNames = @('data', 'logs', 'secrets', 'secrets.json', 'config.json', 'config.new.json')
+    @(Get-ChildItem -LiteralPath $targetDir -Force) | Where-Object { $keepNames -notcontains $_.Name } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force }
+}
+
 # --- копирование ---
 $copied = 0
 # СПИСОК СНИМАЕТСЯ ЦЕЛИКОМ ДО ПЕРВОГО КОПИРОВАНИЯ (todo133) — вторая страховка к проверке

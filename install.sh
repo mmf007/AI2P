@@ -425,6 +425,19 @@ for d in $WIPE_DIRS; do
     fi
 done
 
+# --force (T-851-S0): программный код установки переписывается ЦЕЛИКОМ — удаляется всё,
+# кроме данных пользователя (data, logs, secrets*, config*.json)
+# только в каталоге, где УЖЕ стоит AI2P (есть version.json): чужой каталог не трогаем
+if [ "$FORCE" -eq 1 ] && [ "$HAS_FILES" -eq 1 ] && [ -n "$OLD_VERSION" ]; then
+    for p in "$TARGET_DIR"/* "$TARGET_DIR"/.[!.]*; do
+        [ -e "$p" ] || continue
+        case "$(basename "$p")" in
+            data|logs|secrets|secrets.json|config.json|config.new.json) ;;
+            *) rm -rf "$p" ;;
+        esac
+    done
+fi
+
 # --- копирование ---
 COPIED=0
 while IFS= read -r rel; do
@@ -434,6 +447,9 @@ while IFS= read -r rel; do
         dest="$TARGET_DIR/config.new.json"
     fi
     mkdir -p "$(dirname "$dest")"
+    # удалить ПЕРЕД копированием (T-851-S0): cp поверх существующего файла пишет в тот же
+    # inode, и macOS убивает подписанный бинарник ("zsh: killed") — кэш подписи не совпадает
+    rm -f "$dest"
     cp -f "$SOURCE/$rel" "$dest" || exit 1
 done < "$PAYLOAD"
 
